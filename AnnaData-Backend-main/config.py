@@ -74,6 +74,10 @@ LLM_LAST_RESORT_RETRIES = int(_get("LLM_LAST_RESORT_RETRIES", "3"))
 # --- Tunables ---
 MANDI_MAX_RECORDS = int(_get("MANDI_MAX_RECORDS", "80"))
 HTTP_TIMEOUT = int(_get("HTTP_TIMEOUT", "20"))
+# data.gov.in is markedly slower than the other upstreams and returns 502 under
+# load, so it gets its own budget and is retried rather than failing the answer.
+GOV_API_TIMEOUT = int(_get("GOV_API_TIMEOUT", "45"))
+GOV_API_ATTEMPTS = int(_get("GOV_API_ATTEMPTS", "2"))
 
 
 def feature_status() -> dict[str, bool]:

@@ -87,27 +87,36 @@ def remember(
 
     try:
         with db.connection() as conn:
+            # Scalar facts: COALESCE keeps the stored value whenever this
+            # message carried nothing new for that field.
             conn.execute(
                 """
                 INSERT INTO farmers (user_id, channel, location_text, latitude,
-                                     longitude, state, language, crops)
-                VALUES (%s, %s, %s, %s, %s, %s, %s,
-                        CASE WHEN %s IS NULL THEN '{}'::text[] ELSE ARRAY[%s] END)
+                                     longitude, state, language)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (user_id) DO UPDATE SET
                     location_text = COALESCE(EXCLUDED.location_text, farmers.location_text),
                     latitude      = COALESCE(EXCLUDED.latitude,      farmers.latitude),
                     longitude     = COALESCE(EXCLUDED.longitude,     farmers.longitude),
                     state         = COALESCE(EXCLUDED.state,         farmers.state),
                     language      = COALESCE(EXCLUDED.language,      farmers.language),
-                    crops         = CASE
-                        WHEN %s IS NULL OR %s = ANY(farmers.crops) THEN farmers.crops
-                        ELSE array_append(farmers.crops, %s)
-                    END,
                     updated_at    = now()
                 """,
-                (user_id, channel, location_text, latitude, longitude, state,
-                 language, crop, crop, crop, crop, crop),
+                (user_id, channel, location_text, latitude, longitude, state, language),
             )
+
+            # Crops accumulate. Kept as its own statement because inferring the
+            # parameter type inside a CASE on the upsert is more trouble than
+            # it is worth, and this reads far better.
+            if crop:
+                conn.execute(
+                    """
+                    UPDATE farmers
+                       SET crops = array_append(crops, %s), updated_at = now()
+                     WHERE user_id = %s AND NOT (%s = ANY(crops))
+                    """,
+                    (crop, user_id, crop),
+                )
     except Exception as e:
         print(f"Profile update failed for {user_id}: {e}")
 

@@ -8,7 +8,12 @@ MANDI_MAX_RECORDS.
 """
 import requests
 
-from config import GOV_API_KEY, MANDI_MAX_RECORDS, HTTP_TIMEOUT
+from config import (
+    GOV_API_KEY,
+    MANDI_MAX_RECORDS,
+    GOV_API_TIMEOUT,
+    GOV_API_ATTEMPTS,
+)
 
 RESOURCE_URL = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
 PAGE_SIZE = 100
@@ -50,9 +55,20 @@ def _fetch(state: str, commodity: str | None) -> list:
         if commodity:
             params["filters[commodity]"] = commodity
 
-        response = requests.get(RESOURCE_URL, params=params, timeout=HTTP_TIMEOUT)
-        response.raise_for_status()
-        page = response.json().get("records", [])
+        page = None
+        for attempt in range(1, GOV_API_ATTEMPTS + 1):
+            try:
+                response = requests.get(RESOURCE_URL, params=params,
+                                        timeout=GOV_API_TIMEOUT)
+                response.raise_for_status()
+                page = response.json().get("records", [])
+                break
+            except Exception as e:
+                print(f"data.gov.in attempt {attempt} failed: {e}")
+                if attempt == GOV_API_ATTEMPTS:
+                    raise
+        if page is None:
+            break
 
         if not page:
             break

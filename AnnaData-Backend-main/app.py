@@ -65,6 +65,11 @@ class QueryRequest(BaseModel):
     message_id: Optional[str] = None
 
 
+@app.on_event("shutdown")
+def on_shutdown():
+    db.close()
+
+
 @app.get("/")
 def root():
     return {"message": "AnnaData Agent API is running!"}

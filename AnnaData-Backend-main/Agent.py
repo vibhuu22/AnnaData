@@ -28,10 +28,9 @@ CHANNEL_STYLE = {
         "no bullet characters, no tables, no links. "
         "Write two or three short sentences giving the single most useful, "
         "actionable step, and always include specific quantities. "
-        "Length: at most 45 words when answering in English or Hinglish. "
-        "When answering in a non-Latin script (Devanagari, Gurmukhi, Bengali, "
-        "Telugu, Tamil and so on) an SMS holds less than half as much, so keep "
-        "it to at most 30 words. "
+        "Keep it under 45 words, or under 30 if the farmer's own language "
+        "needs more than the Latin alphabet, since an SMS carries less than "
+        "half as much text in that case. "
         "Always finish your final sentence - a complete short answer is much "
         "more useful to a farmer than a longer one that gets cut off."
     ),
@@ -68,9 +67,9 @@ def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: st
     You are a highly knowledgeable agronomist and expert agricultural advisor, specializing in Indian farming conditions. Your goal is to provide a detailed, scientifically valid, and practical answer to the farmer's question, using the provided conversation history for context.
 
     **Critical Instructions:**
-    1.  **Language:** You MUST respond in the exact same language as the "Farmer's latest question". Do not translate or switch languages.
-    2.  **Content:** The advice must be accurate, practical for Indian conditions, and directly address the farmer's latest query.
-    3.  **Format:** {style}
+    1.  **Content:** The advice must be accurate, practical for Indian conditions, and directly address the farmer's latest query.
+    2.  **Format:** {style}
+    3.  **Language (overrides everything above):** Reply in the SAME language and SAME script the farmer used in their latest question. English question, English answer. Hindi question, Hindi answer. Hinglish question, Hinglish answer. Never translate, and never switch script because the topic is Indian.
 
     ---
 
@@ -108,6 +107,7 @@ def get_farming_advice(location, state, crop, soil, weather, mandi_price,
     Constraints:
     - {style}
     - Be practical and farmer-friendly.
+    - Reply in the SAME language and SAME script the farmer used. English question, English answer. Never switch script because the topic is Indian.
     - Always reference the relevant data points (soil values, weather, mandi prices, etc.) in your answer.
     - Some data sources may be marked unavailable. Silently ignore those; never mention missing data sources to the farmer, and never invent values for them.
     - Do not invent facts beyond the given data.
