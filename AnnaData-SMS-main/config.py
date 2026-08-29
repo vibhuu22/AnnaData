@@ -49,6 +49,13 @@ def _normalise_endpoint(value: str | None) -> str | None:
 
 AI_ENDPOINT = _normalise_endpoint(_AI_ENDPOINT_RAW)
 
+
+def forget_url() -> str | None:
+    """Backend endpoint that erases a farmer's stored data."""
+    if not AI_ENDPOINT:
+        return None
+    return AI_ENDPOINT[: -len("/agent")] + "/forget"
+
 DEDUP_TTL = int(_get("DEDUP_TTL", "600"))
 AI_TIMEOUT = int(_get("AI_TIMEOUT", "150"))
 # Attempts at the backend per incoming SMS. The first can be spent waking a
@@ -60,6 +67,23 @@ MAX_SMS_CHARS = int(_get("MAX_SMS_CHARS", "480"))    # hard character ceiling
 # this is the cap that actually controls cost across languages.
 MAX_SMS_SEGMENTS = int(_get("MAX_SMS_SEGMENTS", "4"))
 WEBHOOK_PATH = _get("WEBHOOK_PATH", "/incoming-sms")
+
+# Appended when the backend reports it still does not know where the farmer is.
+# Deliberately short: it shares the same SMS segment budget as the answer.
+LOCATION_PROMPT = _get(
+    "LOCATION_PROMPT",
+    "Reply with your district for advice specific to your area.",
+)
+# Words that erase a farmer's stored profile, in the languages we have seen.
+STOP_WORDS = {
+    w.strip().lower()
+    for w in (_get("STOP_WORDS", "stop,STOP,band,band karo,unsubscribe,hatao") or "").split(",")
+    if w.strip()
+}
+STOP_REPLY = _get(
+    "STOP_REPLY",
+    "Your saved details have been deleted. Message us any time to start again.",
+)
 
 
 def public_url() -> str | None:

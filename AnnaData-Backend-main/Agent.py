@@ -166,13 +166,40 @@ def kb_router(query: str) -> bool:
         return False
 
 
-def agent(
+class AgentResult:
+    """An answer plus what the agent learned about the farmer along the way.
+
+    The facts are what let a profile improve over time: whatever the parser
+    picked out of this message is worth remembering for the next one.
+    """
+
+    __slots__ = ("answer", "crop", "state", "location", "latitude", "longitude", "tools_used")
+
+    def __init__(self, answer, crop=None, state=None, location=None,
+                 latitude=None, longitude=None, tools_used=None):
+        self.answer = answer
+        self.crop = crop
+        self.state = state
+        self.location = location
+        self.latitude = latitude
+        self.longitude = longitude
+        self.tools_used = tools_used or []
+
+
+def _known(value) -> str | None:
+    if not value or str(value).strip().lower() == "unknown":
+        return None
+    return str(value).strip()
+
+
+def run_agent(
     query: str,
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
     history: Optional[List[dict]] = None,
     channel: str = "web",
-) -> str:
+) -> AgentResult:
+    """Answer a farmer's question and report what was learned and used."""
     query_final = get_farming_query(query, history)
     print(f"Final query after refinement: {query_final}")
 
@@ -185,31 +212,42 @@ def agent(
 
     print(f"Extracted Crop: {crop}, State: {state}, Location: {location}, answer: {answer}")
 
+    facts = {
+        "crop": _known(crop),
+        "state": _known(state),
+        "location": _known(location),
+    }
+
     # Non-agricultural query: the parser already answered it.
     if answer != "unknown" and crop == "unknown" and state == "unknown" and location == "unknown":
-        return answer
+        return AgentResult(answer, tools_used=["direct"])
 
-    # A named location beats browser coordinates, but only if geocoding succeeds.
+    # A location named in this message beats a remembered or browser one, but
+    # only if geocoding actually resolves it.
     lat, lon = latitude, longitude
-    if location != "unknown":
-        geo_lat, geo_lon = get_location(location)
+    if facts["location"]:
+        geo_lat, geo_lon = get_location(facts["location"])
         if geo_lat is not None and geo_lon is not None:
             lat, lon = geo_lat, geo_lon
 
+    facts["latitude"], facts["longitude"] = lat, lon
     print(f"Coordinates: lat={lat}, lon={lon}")
 
-    # Schemes / storage questions are location-independent, so check the
-    # knowledge base before falling back for want of coordinates.
+    # Schemes and storage are location-independent, so try the knowledge base
+    # before falling back for want of coordinates.
     if kb_router(query_final):
         print("Routing to knowledge base")
         kb_answer = query_kb(query_final)
         if kb_answer:
-            return kb_answer
+            return AgentResult(kb_answer, tools_used=["knowledge_base"], **facts)
     else:
         kb_answer = ""
 
     if lat is None or lon is None:
-        return extract_markdown_content(get_open_ended_answer(query_final, history, channel))
+        return AgentResult(
+            extract_markdown_content(get_open_ended_answer(query_final, history, channel)),
+            tools_used=["general"], **facts
+        )
 
     soil = soil_tool(lat, lon)
     weather = weather_openmeteo(lat, lon)
@@ -220,4 +258,17 @@ def agent(
                            mandi_price, kb_answer or "", query, channel)
     )
     print(f"Final response: {final_response}")
-    return final_response
+    return AgentResult(
+        final_response, tools_used=["soil", "weather", "mandi"], **facts
+    )
+
+
+def agent(
+    query: str,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    history: Optional[List[dict]] = None,
+    channel: str = "web",
+) -> str:
+    """Answer text only. Kept for callers that do not need the extracted facts."""
+    return run_agent(query, latitude, longitude, history, channel).answer

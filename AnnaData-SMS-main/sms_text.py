@@ -131,14 +131,24 @@ def truncate(text: str, limit: int) -> str:
     return window.strip() + "..."
 
 
-def prepare(text: str, limit: int, max_segments: int = 0) -> str:
+def prepare(text: str, limit: int, max_segments: int = 0, suffix: str = "") -> str:
     """Full pipeline: markdown answer -> SMS-ready body.
 
     `limit` is a hard character ceiling. `max_segments`, when > 0, additionally
     caps billed SMS segments - which is what a character ceiling alone fails to
     control for non-Latin scripts.
+
+    `suffix` is appended within the same budget rather than on top of it, so a
+    trailing prompt cannot quietly push the message into another paid segment.
     """
     plain = to_plain_text(text)
     if max_segments > 0:
-        limit = min(limit, chars_for_segments(plain, max_segments))
+        limit = min(limit, chars_for_segments(plain + suffix, max_segments))
+
+    if suffix:
+        room = limit - len(suffix) - 1
+        if room < 40:            # no useful answer would survive; drop the suffix
+            return truncate(plain, limit)
+        return truncate(plain, room) + "\n" + suffix
+
     return truncate(plain, limit)

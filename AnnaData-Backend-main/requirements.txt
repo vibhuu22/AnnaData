@@ -21,3 +21,4 @@ requests==2.32.4
 
 # --- Config ---
 python-dotenv==1.1.1
+psycopg[binary,pool]==3.2.3

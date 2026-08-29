@@ -8,8 +8,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import config
+import db
+import profile_store
 import startup
-from Agent import agent
+from Agent import run_agent
 from process_media import process_media
 
 app = FastAPI(title="Annadata Agent API")
@@ -41,8 +43,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    """Warm up Earth Engine without letting a failure block the service."""
+    """Warm up optional subsystems without letting a failure block the service."""
     startup.init_earth_engine()
+    db.init()
     print(f"CORS origins: {_build_origins()}")
     print(f"Features: {config.feature_status()}")
 
@@ -54,6 +57,12 @@ class QueryRequest(BaseModel):
     history: Optional[List[dict]] = None
     # "sms" produces a short plain-text answer; "web" allows markdown.
     channel: Optional[str] = "web"
+    # Stable identity for the farmer - their phone number on SMS. When given,
+    # the agent recalls their profile and recent conversation, and remembers
+    # whatever it learns from this message.
+    user_id: Optional[str] = None
+    # Gateway message id, so a redelivered webhook cannot be logged twice.
+    message_id: Optional[str] = None
 
 
 @app.get("/")
@@ -68,28 +77,91 @@ def health():
         "status": "ok",
         "features": config.feature_status(),
         "earth_engine": startup.status(),
+        "database": db.status(),
     }
 
 
 @app.post("/agent")
-def run_agent(request: QueryRequest):
+def run_agent_endpoint(request: QueryRequest):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="query must not be empty")
 
+    user_id = (request.user_id or "").strip() or None
+    channel = request.channel or "web"
+
+    profile = profile_store.get_profile(user_id) if user_id else None
+
+    # An explicit position in the request wins; otherwise fall back to what we
+    # remember, which is what gives SMS access to the location-aware tools.
+    latitude, longitude = request.latitude, request.longitude
+    if (latitude is None or longitude is None) and profile:
+        latitude = profile.get("latitude")
+        longitude = profile.get("longitude")
+
+    # The caller may pass history explicitly (the web app does); otherwise
+    # rebuild it from what this farmer has sent before.
+    history = request.history
+    if history is None and user_id:
+        history = profile_store.recent_history(user_id)
+
+    if user_id:
+        profile_store.log_message(user_id, "inbound", request.query,
+                                  gateway_message_id=request.message_id)
+
     try:
-        result = agent(
+        result = run_agent(
             query=request.query,
-            latitude=request.latitude,
-            longitude=request.longitude,
-            history=request.history,
-            channel=request.channel or "web",
+            latitude=latitude,
+            longitude=longitude,
+            history=history,
+            channel=channel,
         )
-        return {"answer": result}
     except Exception as e:
         # Previously this returned 200 with an {"error": ...} body, so callers
         # (the SMS bridge especially) treated failures as successful replies.
         print(f"Error in agent function: {e}")
         raise HTTPException(status_code=502, detail=f"Agent failed: {e}")
+
+    needs_location = False
+    if user_id:
+        profile_store.remember(
+            user_id,
+            channel=channel,
+            location_text=result.location,
+            latitude=result.latitude,
+            longitude=result.longitude,
+            state=result.state,
+            crop=result.crop,
+        )
+        profile_store.log_message(
+            user_id, "outbound", result.answer,
+            meta={"tools": result.tools_used, "channel": channel},
+        )
+        # Re-read so the decision reflects anything just learned.
+        needs_location = profile_store.should_ask_location(
+            profile_store.get_profile(user_id)
+        )
+        if needs_location:
+            profile_store.mark_location_asked(user_id)
+
+    return {
+        "answer": result.answer,
+        "needs_location": needs_location,
+        "tools_used": result.tools_used,
+    }
+
+
+class ForgetRequest(BaseModel):
+    user_id: str
+
+
+@app.post("/forget")
+def forget(request: ForgetRequest):
+    """Erase a farmer's profile and message history. Backs the STOP keyword."""
+    user_id = (request.user_id or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id must not be empty")
+    return {"erased": profile_store.forget(user_id)}
 
 
 @app.post("/api/chat/describe")

@@ -47,7 +47,22 @@ def mark_processed(message_id: str):
 
 
 # === AI Service ===
-async def generate_response(message: str) -> str | None:
+async def forget_farmer(phone: str) -> bool:
+    """Erase everything stored about this number."""
+    url = config.forget_url()
+    if not url:
+        return False
+    http: aiohttp.ClientSession = app.config["HTTP"]
+    try:
+        async with http.post(url, json={"user_id": phone},
+                             timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            return resp.status == 200
+    except Exception as e:
+        print(f"Erase request failed for {phone}: {e}")
+        return False
+
+
+async def generate_response(message: str, phone: str, message_id: str | None) -> str | None:
     """Ask the agent backend for a reply, already trimmed for SMS."""
     if not config.AI_ENDPOINT:
         print("AI_ENDPOINT not configured")
@@ -57,8 +72,14 @@ async def generate_response(message: str) -> str | None:
     # The farmer's message is sent verbatim. Brevity and plain-text formatting
     # are requested via `channel`, not by appending instructions to the query -
     # appended text was being parsed as part of the question and skewed the
-    # crop and location extraction.
-    payload = {"query": message, "channel": "sms"}
+    # crop and location extraction. `user_id` is what lets the backend recall
+    # this farmer's location and recent conversation.
+    payload = {
+        "query": message,
+        "channel": "sms",
+        "user_id": phone,
+        "message_id": message_id,
+    }
 
     # A sleeping backend can take over two minutes to wake, which is longer
     # than any sane single timeout. The first attempt doubles as the wake-up
@@ -87,7 +108,12 @@ async def generate_response(message: str) -> str | None:
                     print(f"AI API returned no answer field: {body[:300]}")
                     return None
 
-                return prepare(answer, config.MAX_SMS_CHARS, config.MAX_SMS_SEGMENTS)
+                # The backend decides when it still needs a location; the
+                # prompt shares this message's segment budget rather than
+                # adding a paid segment of its own.
+                suffix = config.LOCATION_PROMPT if data.get("needs_location") else ""
+                return prepare(answer, config.MAX_SMS_CHARS,
+                               config.MAX_SMS_SEGMENTS, suffix)
 
         except asyncio.TimeoutError:
             print(f"AI request timed out after {config.AI_TIMEOUT}s (attempt {attempt})")
@@ -144,7 +170,15 @@ async def process_sms(data: dict):
         print("No sender number in payload, cannot reply")
         return
 
-    reply = await generate_response(msg)
+    # Opting out has to work before anything else, and must never depend on the
+    # agent being reachable.
+    if msg.strip().lower() in config.STOP_WORDS:
+        print(f"Opt-out from {phone}")
+        await forget_farmer(phone)
+        await send_sms(phone, config.STOP_REPLY)
+        return
+
+    reply = await generate_response(msg, phone, payload.get("messageId"))
     if reply:
         print("AI Reply:", reply)
         await send_sms(phone, reply)

@@ -39,6 +39,9 @@ services:
       - key: FRONTEND_URL
         sync: false
       # Optional integrations — leave blank to disable; /health reports status.
+      # Postgres for farmer profiles and conversation memory (Neon).
+      - key: DATABASE_URL
+        sync: false
       - key: GOV_API_KEY
         sync: false
       - key: LOCATION_API_KEY

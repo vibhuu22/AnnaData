@@ -30,6 +30,17 @@ AWS_REGION = _get("AWS_REGION", "ap-south-1")
 AWS_ACCESS_KEY = _get("AWS_ACCESS_KEY")
 AWS_SECRET_KEY = _get("AWS_SECRET_KEY")
 
+# --- Storage (optional) ---
+# Postgres for farmer profiles and conversation history. Without it the agent
+# runs exactly as before: stateless, no memory, no personalisation.
+DATABASE_URL = _get("DATABASE_URL")
+DB_POOL_MAX = int(_get("DB_POOL_MAX", "4"))
+# Turns of conversation replayed to the model, and how stale they may be.
+CONTEXT_MESSAGES = int(_get("CONTEXT_MESSAGES", "10"))
+CONTEXT_TTL_HOURS = int(_get("CONTEXT_TTL_HOURS", "48"))
+# How long before a farmer who ignored the location question is asked again.
+LOCATION_ASK_COOLDOWN_HOURS = int(_get("LOCATION_ASK_COOLDOWN_HOURS", "24"))
+
 # --- Deployment ---
 FRONTEND_URL = _get("FRONTEND_URL")
 CORS_ORIGINS = _get("CORS_ORIGINS")              # comma-separated, optional
@@ -75,4 +86,5 @@ def feature_status() -> dict[str, bool]:
         "knowledge_base": bool(
             KNOWLEDGE_BASE_ID and AWS_ACCESS_KEY and AWS_SECRET_KEY
         ),
+        "farmer_profiles": bool(DATABASE_URL),
     }
