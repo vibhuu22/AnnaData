@@ -5,30 +5,32 @@ AI agricultural advisory for Indian farmers, reachable over the **web** and over
 ```
                                   ┌──────────────────────────┐
   Farmer (web)  ──────────────▶   │  Frontend (React/CRA)    │
-                                  │  AWS Amplify Hosting     │
+                                  │  Render static site      │
                                   └────────────┬─────────────┘
                                                │ POST /agent
                                                ▼
   Farmer (SMS) ──▶ Android phone  ┌──────────────────────────┐
                    running SMS    │  Backend (FastAPI)       │
-                   Gateway app    │  AWS App Runner          │
+                   Gateway app    │  Render web service      │
                         │         │                          │
-                        │ webhook │  Gemini 3.6 Flash +      │
+                        │ webhook │  Gemini 3.1 Flash Lite + │
                         │ sms:    │  soil / weather / mandi /│
                         │ received│  schemes KB              │
                         ▼         └────────────▲─────────────┘
               ┌──────────────────┐             │ POST /agent
               │  SMS Bridge      │─────────────┘
               │  (Quart)         │
-              │  AWS App Runner  │──▶ api.sms-gate.app ──▶ reply SMS
+              │  Render service  │──▶ api.sms-gate.app ──▶ reply SMS
               └──────────────────┘
 ```
 
 | Service | Directory | Runtime | Deploys to |
 |---|---|---|---|
-| Backend agent | `AnnaData-Backend-main` | Python 3.11+ / FastAPI | App Runner |
-| SMS bridge | `AnnaData-SMS-main` | Python 3.11+ / Quart | App Runner |
-| Web frontend | `AnnaData-Frontend-main` | Node 18+ / CRA | Amplify Hosting |
+| Backend agent | `AnnaData-Backend-main` | Python 3.11+ / FastAPI | Render web service |
+| SMS bridge | `AnnaData-SMS-main` | Python 3.11+ / Quart | Render web service |
+| Web frontend | `AnnaData-Frontend-main` | Node 18+ / CRA | Render static site |
+
+All three deploy together from `render.yaml`. AWS configs are committed too — see section 4.
 
 ---
 
@@ -111,7 +113,7 @@ Cloud mode is the important change. The old setup needed the phone and the serve
 2. Grant `SEND_SMS`, `RECEIVE_SMS`, `READ_PHONE_STATE`.
 3. Enable **Cloud Server** (not Local Server). Copy the username and password it shows.
 4. Put those in the bridge's `APP_USERNAME` / `PASSWORD`, keep `SMS_MODE=cloud`.
-5. Deploy the bridge (below), then set `PUBLIC_URL` to its App Runner URL.
+5. Deploy the bridge (below). `PUBLIC_URL` is wired automatically by `render.yaml`.
 6. Register the webhook, once:
    ```bash
    python webhook.py           # lists existing, registers if absent
@@ -131,33 +133,69 @@ SMS billing depends on the alphabet. Latin text packs **153 characters per segme
 
 ---
 
-## 4. Deploy to AWS
+## 4. Deploy
 
-### Backend → App Runner
+### Render (recommended first deploy)
 
-1. App Runner → **Create service** → Source: GitHub → the backend repo.
-2. It reads `apprunner.yaml` automatically. No Docker needed.
-3. Configuration → Environment variables → add `GEMINI_API_KEY` and any optional keys.
-4. Health check path: `/health`.
-5. Note the service URL.
+No credit card, no AWS account, and `render.yaml` already describes all three
+services, so this is one Blueprint rather than three separate setups.
 
-### SMS bridge → App Runner
+**Step 1 — put the code on GitHub.** The repo is already initialised and
+committed locally. Create an empty repo at [github.com/new](https://github.com/new)
+(call it `AnnaData`, do *not* add a README or .gitignore), then:
 
-Same flow with the SMS repo. Set `APP_USERNAME`, `PASSWORD`, `AI_ENDPOINT` (backend URL + `/agent`), and `PUBLIC_URL` (this service's own URL, known after the first deploy — set it and redeploy). Health check `/health`.
+```bash
+cd "<this folder>"
+git remote add origin https://github.com/<your-username>/AnnaData.git
+git push -u origin main
+```
 
-### Frontend → Amplify Hosting
+**Step 2 — create the Blueprint.** At
+[dashboard.render.com/blueprints](https://dashboard.render.com/blueprints) →
+**New Blueprint Instance** → pick the repo. Render reads `render.yaml` and
+offers all three services.
 
-1. Amplify → Host web app → the frontend repo. It reads `amplify.yml`.
-2. Environment variables → `REACT_APP_API_URL` = backend App Runner URL.
-   CRA inlines env vars **at build time**, so changing this needs a redeploy, not a restart.
-3. Add the SPA rewrite from `amplify-rewrites.json` (Rewrites and redirects).
-4. Finally, set `FRONTEND_URL` on the **backend** to the Amplify URL so CORS allows it, and redeploy the backend.
+**Step 3 — fill in the secrets Render prompts for.** Only `GEMINI_API_KEY` is
+required to get the web app working. `APP_USERNAME` and `PASSWORD` come from the
+Android app and are needed for SMS. Leave the rest blank; `/health` will report
+what is enabled.
 
-`Dockerfile`s are included in both Python services if you prefer ECS/Fargate or container-based App Runner.
+Cross-service URLs (`AI_ENDPOINT`, `PUBLIC_URL`, `REACT_APP_API_URL`) are wired
+automatically via `fromService`. Render supplies them as bare hostnames, which
+both the bridge and the frontend normalise into full URLs.
 
-### Deploy order
+**Step 4 — after the first deploy**, set `FRONTEND_URL` on `annadata-backend` to
+the frontend's URL so CORS allows it, then redeploy the backend.
 
-Backend → SMS bridge → frontend → then set `FRONTEND_URL` on the backend and redeploy it.
+**Step 5 — register the SMS webhook** (see section 3).
+
+### Keeping the services warm
+
+Free Render instances sleep after ~15 minutes idle and take **~50s to wake**.
+For SMS that means the first message after a quiet spell may time out at the
+gateway. The gateway retries, and `messageId` deduplication stops a double
+reply, but the farmer waits.
+
+Point a free external pinger (for example [cron-job.org](https://cron-job.org))
+at `https://<backend>/health` and `https://<sms-bridge>/health` every 10
+minutes. Both endpoints are cheap and make no LLM calls.
+
+Upgrading either service to Render's paid tier removes the sleep entirely.
+
+### AWS (later)
+
+`apprunner.yaml` and `amplify.yml` are committed and ready. Note that App Runner
+and Amplify both bill from the first hour — there is no free tier — so this is
+worth doing once the project is past the prototype stage.
+
+- **Backend / SMS bridge → App Runner.** Create service → Source: GitHub → pick
+  the repo, set the source directory to the service folder. It reads
+  `apprunner.yaml`. Add env vars in the console; health check path `/health`.
+- **Frontend → Amplify Hosting.** It reads `amplify.yml`. Set
+  `REACT_APP_API_URL`, and add the SPA rewrite from `amplify-rewrites.json`.
+
+`Dockerfile`s are included in both Python services for ECS/Fargate or any
+container host.
 
 ---
 
