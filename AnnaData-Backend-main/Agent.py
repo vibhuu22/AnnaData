@@ -188,12 +188,20 @@ def answer_about_system(query: str, history, channel: str, profile=None) -> str:
     )
 
     prompt = f"""
-    A farmer has asked a question about the assistant itself - how it knows
-    something, where its information comes from, or what it can do.
+    A farmer has asked about the assistant itself - what it can help with, how
+    it knows something, or where its information comes from.
 
-    Answer using ONLY the facts below. Do not explain how soil or weather are
-    measured in general; explain where THIS service got ITS information. If the
-    facts below do not cover what they asked, say plainly that you do not know.
+    Answer using ONLY the facts below, and answer the question they actually
+    asked:
+    - Asked what you can DO, name the things they can ask about, in plain
+      farming terms. Do not list the names of data providers - a farmer wants
+      to know you can help with pests and fertiliser, not that a service called
+      OpenLandMap exists.
+    - Asked where a particular figure came FROM, name that source honestly and
+      do not oversell its accuracy.
+    - Never say you cannot do something that appears under WHAT IT CAN HELP
+      WITH. If it is listed there, you can do it.
+    - If the facts genuinely do not cover what they asked, say so simply.
 
     FACTS:
     {provenance.describe(profile)}
@@ -205,8 +213,10 @@ def answer_about_system(query: str, history, channel: str, profile=None) -> str:
 
     Constraints:
     - {style}
-    - Reply in the SAME language and SAME script the farmer used.
-    - Be honest and concrete. Name the source. Do not oversell accuracy.
+    - {script_instruction(query)}
+    - Be warm and plain-spoken. This is a farmer asking what help is available,
+      not an auditor. Offer, do not merely enumerate, and never end on a bare
+      refusal where you have something useful to offer instead.
     """
 
     return llm.invoke([HumanMessage(content=prompt)]).content.strip()

@@ -240,6 +240,37 @@ locusts" is grammatically a statement, and was answered with "noted, what would
 you like to ask?" A farmer whose crop is being eaten is asking for help
 whatever the grammar. Naming a topic at all now routes as a question.
 
+### The system did not know what it could do
+
+Asked "how can you help me?", the agent named three data providers -
+OpenLandMap, Open-Meteo, data.gov.in - and omitted pest doses, government
+schemes, sowing advice and photo input. Asked directly about welfare schemes it
+replied that it had no information on them, while the store held eighty-six
+passages covering four.
+
+The cause was that `provenance.py` was written when three tools existed and was
+never derived from the running system. It listed a fixed set of sources, so as
+the dose table and the document store were added it went stale silently, and
+the mechanism built to make the assistant honest about itself became the thing
+telling farmers it could not do what it could.
+
+Capabilities are now assembled from live state: how many registered uses are
+loaded, which schemes the documents actually cover, whether Earth Engine is
+configured. And they are phrased for a farmer - "which pesticide is approved
+for this pest, at what dose" rather than the name of the service the figure
+came from. A farmer wants to know you can help with pests; they do not care
+that OpenLandMap exists until they ask where a number came from.
+
+### Refusing without offering is the unhelpful half of honesty
+
+A general question - "tell me about welfare schemes" - matches no passage above
+the similarity floor, because it names nothing specific. The honest answer was
+"I have no information on that", which was both true of the retrieval and false
+of the system.
+
+Where retrieval finds nothing, the model is now told which subjects the store
+does cover, so it offers them instead of stopping at the refusal.
+
 ### The profile was loaded but not used
 
 Facts absent from the current message did not fall back to the stored profile,
@@ -372,7 +403,7 @@ the wrong chemical.
 | | |
 |---|---|
 | Scripts verified end to end | 4 — Latin, Devanagari, Gurmukhi, Bengali |
-| Evaluation cases | 20, all passing |
+| Evaluation cases | 23, all passing |
 | Embedding dimensions | 768 |
 | Embedding separation | 0.814 related vs 0.521 unrelated (cosine) |
 | Retrieval corpus | 86 chunks across 5 documents |

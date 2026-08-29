@@ -279,12 +279,22 @@ def format_passages(passages: list[dict], min_similarity: float = None) -> str:
     threshold = RAG_MIN_SIMILARITY if min_similarity is None else min_similarity
     useful = [p for p in passages if p.get("similarity", 0) >= threshold]
     if not useful:
-        return ("NOTHING in the reference documents covers this question. You "
-                "have no official information on it. Say so plainly and point "
-                "the farmer to their agriculture office or the relevant "
-                "government portal. Do NOT name a scheme, an amount, an "
-                "eligibility rule or a website from memory - a confident answer "
-                "with nothing behind it is worse than admitting the gap.")
+        # Refusing without saying what IS available is the unhelpful half of
+        # honesty. A farmer asking generally about "welfare schemes" matches
+        # nothing specific, and telling them there is no scheme information -
+        # while holding documents on four schemes - is simply wrong.
+        covered = covered_topics()
+        offer = ""
+        if covered:
+            offer = (" You DO hold information on: " + ", ".join(covered) +
+                     ". Name these and ask which one they want, rather than "
+                     "saying you have nothing.")
+        return ("The passages retrieved do not answer this specific question." +
+                offer +
+                " Do NOT invent a scheme name, an amount, an eligibility rule "
+                "or a website from memory. Where you genuinely have nothing "
+                "relevant, say so and point the farmer to their agriculture "
+                "office.")
 
     official = [p for p in useful if p.get("tier") == "official"]
 
@@ -315,6 +325,31 @@ def format_passages(passages: list[dict], min_similarity: float = None) -> str:
             "eligibility rule."
         )
     return "\n".join(lines)
+
+
+def covered_topics() -> list[str]:
+    """The subjects the document store actually covers, for offering them."""
+    if not db.is_available():
+        return []
+    try:
+        with db.connection() as conn:
+            rows = conn.execute("SELECT DISTINCT title, source FROM documents").fetchall()
+    except Exception:
+        return []
+
+    labels = set()
+    for title, source in rows:
+        text = f"{title or ''} {source or ''}".lower()
+        for key, label in (
+            ("kisan samman", "PM-KISAN (income support)"),
+            ("pm-kisan", "PM-KISAN (income support)"),
+            ("fasal bima", "Pradhan Mantri Fasal Bima Yojana (crop insurance)"),
+            ("credit card", "Kisan Credit Card (farm credit)"),
+            ("soil health", "Soil Health Card"),
+        ):
+            if key in text:
+                labels.add(label)
+    return sorted(labels)
 
 
 def documents_loaded() -> bool:

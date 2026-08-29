@@ -200,3 +200,37 @@
   channel: sms
   expect:
     not_contains: ["Rs 6000", "60 percent", "90 percent", "eligible if you own"]
+
+- id: knows_its_own_capabilities
+  tags: [meta, dialogue]
+  why: >
+    Asked what it could do, it recited three data source names and omitted pest
+    doses, schemes, sowing advice and photo input - because the self
+    description was written before those existed and was never derived from the
+    running system.
+  query: "tum mujhe kis ways mei help kar sakte ho?"
+  channel: sms
+  expect:
+    message_type: meta
+    contains_any: ["keede", "bimari", "pest", "dawa", "yojana", "scheme", "khad", "fertil"]
+    not_contains: ["OpenLandMap", "Open-Meteo"]
+
+- id: does_not_deny_what_it_holds
+  tags: [meta, dialogue, safety]
+  why: >
+    Asked about welfare schemes it said it had none, while holding documents on
+    four of them.
+  query: "can you tell me about welfare schemes?"
+  channel: sms
+  expect:
+    contains_any: ["PM-KISAN", "PM KISAN", "Kisan Credit", "Fasal Bima", "Soil Health"]
+    not_contains: ["I do not have information about", "koi aur suvidha nahi",
+                   "no information on government schemes"]
+
+- id: offers_alternatives_rather_than_only_refusing
+  tags: [meta, dialogue]
+  why: A refusal that names nothing useful is the unhelpful half of honesty.
+  query: "sarkari yojna ke bare mein batao"
+  channel: sms
+  expect:
+    contains_any: ["PM-KISAN", "PM KISAN", "Kisan Credit", "Fasal Bima", "Soil Health"]
