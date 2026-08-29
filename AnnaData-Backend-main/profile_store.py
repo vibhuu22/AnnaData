@@ -19,6 +19,22 @@ import db
 from config import CONTEXT_MESSAGES, CONTEXT_TTL_HOURS, LOCATION_ASK_COOLDOWN_HOURS
 
 
+# A crop is one thing however it is written. Storing what the parser happened
+# to return left 'wheat' and 'Wheat' as separate crops, and 'Kharif rice'
+# alongside 'rice' - a season is not part of a crop's name.
+SEASON_WORDS = ("kharif", "rabi", "zaid", "summer", "winter", "monsoon")
+
+
+def _clean_crop(value: str | None) -> str | None:
+    """Normalise a crop name so the same crop is stored once."""
+    crop = _clean(value)
+    if not crop:
+        return None
+    words = [w for w in crop.lower().split() if w not in SEASON_WORDS]
+    crop = " ".join(words).strip()
+    return crop or None
+
+
 def _clean(value: str | None) -> str | None:
     """Normalise the parser's 'unknown' sentinel to a real absence."""
     if not value:
@@ -82,7 +98,7 @@ def remember(
 
     location_text = _clean(location_text)
     state = _clean(state)
-    crop = _clean(crop)
+    crop = _clean_crop(crop)
     language = _clean(language)
 
     try:
@@ -113,7 +129,8 @@ def remember(
                     """
                     UPDATE farmers
                        SET crops = array_append(crops, %s), updated_at = now()
-                     WHERE user_id = %s AND NOT (%s = ANY(crops))
+                     WHERE user_id = %s
+                       AND NOT (lower(%s) = ANY(SELECT lower(unnest(crops))))
                     """,
                     (crop, user_id, crop),
                 )
