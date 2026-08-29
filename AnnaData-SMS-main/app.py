@@ -266,13 +266,16 @@ async def health():
     }), 200
 
 
-@app.post("/tasks/feedback")
+@app.route("/tasks/feedback", methods=["GET", "POST"])
 async def feedback_task():
     """Send any rating requests that are due.
 
     Driven by an external scheduler rather than a timer inside the process:
     free hosting sleeps, so a background loop would simply stop, while a cron
     ping also wakes the service.
+
+    GET is accepted as well as POST because scheduling services default to GET,
+    and a 405 from a cron job is a confusing way to discover that.
     """
     return jsonify(await send_feedback_requests()), 200
 
