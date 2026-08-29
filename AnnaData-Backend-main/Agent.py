@@ -1,3 +1,4 @@
+from datetime import date
 from typing import List, Optional
 
 from langchain.schema import HumanMessage
@@ -12,6 +13,41 @@ from Soil_Tool import soil_tool
 from Refined_Farmer_Query import get_farming_query
 from Web_Crawler import query_kb, is_available as kb_available
 import re
+
+
+# Where the year sits in the Indian cropping calendar. Advice is intensely
+# seasonal and the model has no clock, so without this it recommends sowing
+# windows that closed months ago - asked in late August about the next two
+# months it will happily suggest mid-June.
+CROP_CALENDAR = {
+    1:  ("Rabi", "Rabi crops are growing. Sowing is over; irrigate and manage pests."),
+    2:  ("Rabi", "Rabi crops are maturing. Sowing is over."),
+    3:  ("Rabi harvest / Zaid sowing", "Rabi harvest begins. Zaid (summer) sowing starts."),
+    4:  ("Zaid", "Zaid summer crops are sown and growing. Rabi harvest completes."),
+    5:  ("Zaid", "Zaid crops growing under irrigation. Prepare fields for Kharif."),
+    6:  ("Kharif sowing", "Monsoon arrives. Kharif sowing window is open now."),
+    7:  ("Kharif sowing", "Kharif sowing and transplanting continue. Window closing."),
+    8:  ("Kharif growing", "Kharif sowing is OVER. Crops are standing; focus on pest, nutrient and water management."),
+    9:  ("Kharif growing", "Kharif crops are maturing. Sowing is OVER. Early harvest begins late in the month."),
+    10: ("Kharif harvest / Rabi sowing", "Kharif harvest is underway. Rabi sowing window opens."),
+    11: ("Rabi sowing", "Rabi sowing is the priority now - wheat, mustard, gram."),
+    12: ("Rabi sowing", "Late Rabi sowing. Sow now or yields drop."),
+}
+
+
+def temporal_context() -> str:
+    """Today's date and where it falls in the cropping year."""
+    today = date.today()
+    season, note = CROP_CALENDAR[today.month]
+    return (
+        f"TODAY'S DATE: {today:%d %B %Y}.\n"
+        f"    Current season in India: {season}. {note}\n"
+        f"    Indian cropping calendar: Kharif sown Jun-Jul and harvested Sep-Oct; "
+        f"Rabi sown Oct-Dec and harvested Mar-Apr; Zaid sown Mar-Apr and harvested Jun.\n"
+        f"    NEVER recommend a sowing window that has already passed this year. "
+        f"If the farmer asks about a window that has closed, say so plainly and "
+        f"give them the next one that is actually open."
+    )
 
 
 # How the answer should be shaped, per delivery channel. SMS callers used to
@@ -61,10 +97,14 @@ def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: st
     )
 
     style = style_for(channel)
+    temporal = temporal_context()
 
     prompt = f"""
     **Role and Goal:**
     You are a highly knowledgeable agronomist and expert agricultural advisor, specializing in Indian farming conditions. Your goal is to provide a detailed, scientifically valid, and practical answer to the farmer's question, using the provided conversation history for context.
+
+    **Current date and season:**
+    {temporal}
 
     **Critical Instructions:**
     1.  **Content:** The advice must be accurate, practical for Indian conditions, and directly address the farmer's latest query.
@@ -97,12 +137,15 @@ def get_farming_advice(location, state, crop, soil, weather, mandi_price,
     string; the prompt tells the model to ignore those rather than invent data.
     """
     style = style_for(channel)
+    temporal = temporal_context()
 
     prompt = f"""
     You are an expert agronomist and agricultural advisor.
     Answer the farmer's question using the provided data.
     Always respond in the farmer's query language:
     Farmer's Query: {farmer_query}.
+
+    {temporal}
 
     Constraints:
     - {style}
