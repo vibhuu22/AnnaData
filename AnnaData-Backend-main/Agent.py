@@ -110,7 +110,7 @@ def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: st
     **Critical Instructions:**
     1.  **Content:** The advice must be accurate, practical for Indian conditions, and directly address the farmer's latest query.
     2.  **Format:** {style}
-    3.  **Language (overrides everything above):** Identify the exact language and script of the farmer's latest question, and reply in that same one. Punjabi in Gurmukhi is answered in Gurmukhi, Bengali in Bengali, Telugu in Telugu, Marathi in Devanagari, English in English, Hinglish in Hinglish. Hindi is NOT a default: never answer an Indian-language question in Hindi unless the farmer wrote in Hindi. Never translate, and never switch script because the topic is Indian.
+    3.  **Language (overrides everything above):** Identify the exact language and script of the farmer's latest question, and reply in that same one. Punjabi in Gurmukhi is answered in Gurmukhi, Bengali in Bengali, Telugu in Telugu, Marathi in Devanagari, English in English, Hinglish in Hinglish. Hindi is NOT a default: never answer an Indian-language question in Hindi unless the farmer wrote in Hindi. The location the farmer mentions NEVER decides the language: a question written in English about Nagpur is answered in English, not Marathi; about Ludhiana, in English, not Punjabi. Match the question, not the place. Never translate.
 
     ---
 
@@ -164,7 +164,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     Constraints:
     - {style}
     - Be practical and farmer-friendly.
-    - Identify the exact language and script of the farmer's question and reply in that same one. Punjabi in Gurmukhi is answered in Gurmukhi, Bengali in Bengali, Telugu in Telugu, English in English. Hindi is NOT a default: never answer an Indian-language question in Hindi unless the farmer wrote in Hindi.
+    - Identify the exact language and script of the farmer's question and reply in that same one. Punjabi in Gurmukhi is answered in Gurmukhi, Bengali in Bengali, Telugu in Telugu, English in English. Hindi is NOT a default: never answer an Indian-language question in Hindi unless the farmer wrote in Hindi. The location the farmer mentions NEVER decides the language: a question written in English about Nagpur is answered in English, not Marathi; about Ludhiana, in English, not Punjabi. Match the question, not the place.
     - Always reference the relevant data points (soil values, weather, mandi prices, etc.) in your answer.
     - If the farmer asks a direct factual question - the temperature, the humidity, the rainfall, the price - ANSWER IT with the exact figure from the Context. Never say you cannot provide live data when the figure is sitting in the Context above. If only part of what they asked for is present, give that part and say the rest is not available.
     - The Context is measured data for this farmer's own location. Trust it over any assumption the farmer states: if they say the weather is dry and the data shows heavy rain, tell them plainly what the data says.
