@@ -26,6 +26,15 @@ _cache: dict[tuple, tuple] = {}
 _cache_lock = threading.Lock()
 _CACHE_MAX = 256
 
+# Last upstream failure, surfaced on /health. Weather can fail in the deployed
+# environment while working locally, and reading it back from the running
+# service beats trying to catch the line in a log.
+_last_error: str | None = None
+
+
+def last_error() -> str | None:
+    return _last_error
+
 
 def _cache_key(lat, lon) -> tuple:
     p = WEATHER_CACHE_PRECISION
@@ -54,6 +63,7 @@ def weather_openmeteo(lat, lon) -> str:
 
 
 def _fetch_weather(lat, lon) -> str:
+    global _last_error
     today = date.today()
     start = today - timedelta(days=PAST_DAYS)
     end = today + timedelta(days=FORECAST_DAYS)
@@ -87,17 +97,27 @@ def _fetch_weather(lat, lon) -> str:
             break
         except Exception as e:
             last_error = e
-            # Log every attempt with the status, so a rate limit is
-            # distinguishable from a timeout in the deployment logs.
+            # Record the status so a rate limit is distinguishable from a
+            # block or a timeout without guessing.
             status = getattr(getattr(e, "response", None), "status_code", "-")
+            body = ""
+            resp = getattr(e, "response", None)
+            if resp is not None:
+                try:
+                    body = f" body={resp.text[:160]!r}"
+                except Exception:
+                    pass
+            _last_error = f"[http {status}] {type(e).__name__}: {e}{body}"
             print(f"Weather attempt {attempt}/{WEATHER_ATTEMPTS} failed "
-                  f"for ({lat}, {lon}) [http {status}]: {e}")
+                  f"for ({lat}, {lon}) {_last_error}")
             if attempt < WEATHER_ATTEMPTS:
                 time.sleep(attempt)
 
     if data is None:
         print(f"Weather lookup failed for ({lat}, {lon}): {last_error}")
         return "Weather data unavailable (lookup failed)."
+
+    _last_error = None
 
     daily = data.get("daily")
     if not daily or not daily.get("time"):

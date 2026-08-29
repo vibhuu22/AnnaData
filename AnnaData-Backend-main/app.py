@@ -11,6 +11,7 @@ import config
 import db
 import profile_store
 import startup
+import weather_tool
 from Agent import run_agent
 from process_media import process_media
 
@@ -83,6 +84,7 @@ def health():
         "features": config.feature_status(),
         "earth_engine": startup.status(),
         "database": db.status(),
+        "last_weather_error": weather_tool.last_error(),
     }
 
 
