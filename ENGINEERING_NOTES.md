@@ -222,9 +222,115 @@ repeated for 24 hours. It never blocks an answer.
   SMS, so those messages never reach the gateway. Feature phones — the actual
   target — are unaffected.
 
+
 ---
 
-## 6. Testing
+## 6. Measured results
+
+Every figure below was measured on this system, not estimated. Where a number
+is absent it is because the thing was never measured, and that is said plainly
+in section 8.
+
+### Latency
+
+| What | Before | After | Change |
+|---|---|---|---|
+| Rice disease question, end to end | 97.4s | 4.0s | **24× faster** |
+| Weather question, end to end | ~97s | 2.4s | **40× faster** |
+| LLM failover past a dead model | 64.6s | 1.1s | **59× faster** |
+| Soil lookup (3 Earth Engine reads) | ~9s | 1.5s | **6× faster** |
+| Repeat weather for the same district | 0.74s | ~0s | cache hit |
+| Price question during upstream outage | 90.4s | ~0s after 3 failures | circuit breaker |
+
+Where the 97s actually went, before any of this:
+
+| Step | Time | Share |
+|---|---|---|
+| mandi prices (data.gov.in, down) | 90.35s | **92.8%** |
+| extract slots (LLM) | 2.88s | 3.0% |
+| refine query (LLM) | 1.61s | 1.7% |
+| synthesise answer (LLM) | 1.60s | 1.6% |
+| weather (HTTP) | 0.76s | 0.8% |
+| geocode (HTTP) | 0.16s | 0.2% |
+
+The three model calls together were **6.1s of 97.4s**. This is why a
+master-worker architecture would have made latency worse: the LLM calls were
+never the problem, and adding a router plus per-domain workers multiplies the
+only part that was already fast.
+
+Model choice contributed separately: swapping the primary from
+`gemini-3.6-flash` to `gemini-3.1-flash-lite` took mean end-to-end answer time
+from **23.2s to 2.4s** across three questions, with answers still correct and
+specific.
+
+Deployed, warm: **0.4s** health, **1.8–3.5s** for a full answer. Cold, on
+Render's free tier: **140s** to first byte, which is why the keep-warm ping
+matters and why the SMS bridge retries rather than apologising.
+
+### Efficiency
+
+| | Before | After |
+|---|---|---|
+| Model calls per question | up to 4 | 3 |
+| Tools run per question | all 3, always, sequentially | only those the intent needs, concurrently |
+| Cost of intent classification | — | 0 extra calls (rides on the existing extraction) |
+| Cost of message-kind classification | — | 0 extra calls (same) |
+| Cost of tool selection | — | 0 calls (plain data and functions) |
+
+`kb_router` was a whole model call that the planner replaced. Intent, message
+kind and pest all ride on the extraction call that runs regardless, so richer
+routing was added while the call count went **down**.
+
+### Grounded data
+
+| | |
+|---|---|
+| Registered pesticide uses loaded | **2,456** |
+| Distinct crops covered | **314** |
+| Distinct products | **825** |
+| Source | 6 CIB&RC PDFs, as on 31.03.2026 |
+| Rows parsed before the misattribution guard | 2,722 |
+| Rows kept after it | 2,466 (**256 dropped deliberately**) |
+| Product headings missed per 40 pages, before the fix | **30** |
+| Insecticide uses retaining a valid waiting period | 504 / 1,102 |
+
+The 256 dropped rows are the point, not a loss: each was a row whose product
+heading could not be identified, and keeping them would have credited a dose to
+the wrong chemical.
+
+### Correctness defects found and fixed
+
+| Defect | Magnitude |
+|---|---|
+| Soil organic carbon | reported at **2× true value** — 0.50% printed as 1.00% |
+| Soil texture class map | **inverted** — clay read as sand across all 12 classes |
+| Pre-harvest intervals | dilution volumes landing in the field, e.g. "500–1000 days" |
+| SMS billing for Indic scripts | capped by characters, costing **2.3×** more per segment than Latin |
+
+### Coverage
+
+| | |
+|---|---|
+| Scripts verified end to end | 4 — Latin, Devanagari, Gurmukhi, Bengali |
+| Evaluation cases | 17, all passing |
+| Embedding dimensions | 768 |
+| Embedding separation | 0.814 related vs 0.521 unrelated (cosine) |
+
+### Cost
+
+| | |
+|---|---|
+| Recurring infrastructure cost | **$0** |
+| Avoided by not using Bedrock's default vector store | **$345–700/month** |
+
+Free tiers throughout: Render hosting, Neon Postgres with pgvector, Nominatim
+geocoding, Open-Meteo and MET Norway weather, Earth Engine non-commercial, and
+the phone gateway. The only paid item the project needs is Gemini billing, and
+that is a quota question rather than an infrastructure one.
+
+---
+
+## 7. Testing
 
 Every bug above was found by a person reading an SMS screenshot. That does not
 scale, and it let regressions survive several commits.
@@ -237,7 +343,34 @@ model calls and the free tier's daily quota does not fit the suite.
 
 ---
 
-## 7. Known limits
+---
+
+## 8. What has NOT been measured
+
+Stating this plainly matters more than the numbers above, because the absence
+is where the risk sits.
+
+- **Agronomic accuracy.** The evaluation harness checks *properties* — script,
+  segment budget, whether a dose was quoted when none is registered. It does
+  not check whether the advice is agronomically right. Doses are now grounded
+  in the statutory register, but the surrounding guidance is still the model's,
+  and nobody qualified has reviewed it.
+- **Load.** The original submission claimed 10× peak load at ≥99% delivery.
+  Nothing has ever been load tested. One phone, one SIM, and a 20-request daily
+  model quota.
+- **Delivery rate.** No measurement of how many SMS replies actually arrive.
+- **Whether any of it helps.** No feedback loop exists. Nothing records whether
+  a farmer found an answer useful, acted on it, or came back.
+- **Retrieval quality.** The vector store is built and the embeddings measured,
+  but no documents are loaded, so retrieval has not been evaluated at all.
+
+The honest summary is that the system is measurably faster, measurably cheaper,
+and measurably more grounded than it was — and its agronomic quality remains
+unmeasured.
+
+---
+
+## 9. Known limits
 
 - **Gemini free tier: 20 requests/day per model.** Two calls per question means
   roughly 30 questions a day across the fallback chain. This is the ceiling on
