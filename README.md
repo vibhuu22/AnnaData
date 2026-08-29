@@ -42,7 +42,7 @@ All three deploy together from `render.yaml`. AWS configs are committed too — 
 |---|---|---|---|---|
 | `GEMINI_API_KEY` | **Everything** | Service refuses to start | Free tier is 20 req/day/model — see below | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | `GOV_API_KEY` | Mandi (market) prices | Advice omits prices | Free | [data.gov.in](https://data.gov.in/) → register → profile → API key |
-| `LOCATION_API_KEY` | Place name → coordinates | Falls back to browser GPS only | Free tier, card required | [Google Maps Geocoding](https://console.cloud.google.com/apis/library/geocoding-backend.googleapis.com) |
+| *(none needed)* | Place name → coordinates | — | Free | OpenStreetMap Nominatim, used by default. `LOCATION_API_KEY` switches to Google Maps if you want better handling of village names |
 | `EE_SERVICE_KEY` | Soil texture / pH / carbon | Advice omits soil | Free (non-commercial) | [Earth Engine](https://earthengine.google.com/) → service account JSON, as one line |
 | AWS Bedrock (`KNOWLEDGE_BASE_ID`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`) | Govt schemes & cold storage answers | Those questions get general answers | Pay per query | Bedrock console, `ap-south-1` |
 | SMS Gateway `APP_USERNAME` / `PASSWORD` | SMS channel | Web only | Free | The Android app, Cloud Server section |

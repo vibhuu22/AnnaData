@@ -22,7 +22,18 @@ def _get(name: str, default: str | None = None) -> str | None:
 GEMINI_API_KEY = _get("GEMINI_API_KEY")
 
 # --- Optional integrations ---
-LOCATION_API_KEY = _get("LOCATION_API_KEY")      # Google Maps Geocoding
+LOCATION_API_KEY = _get("LOCATION_API_KEY")      # Google Maps Geocoding (optional)
+
+# Geocoding falls back to OpenStreetMap's Nominatim when no Google key is set.
+# Their policy requires a User-Agent identifying the application, with a way to
+# reach whoever runs it - set a real contact address before any real traffic.
+NOMINATIM_URL = _get("NOMINATIM_URL", "https://nominatim.openstreetmap.org/search")
+NOMINATIM_USER_AGENT = _get(
+    "NOMINATIM_USER_AGENT",
+    "AnnaData/1.0 (agricultural advisory for Indian farmers; +https://github.com/vibhuu22/AnnaData)",
+)
+# Restricts results to India so a district name cannot resolve abroad.
+GEOCODE_COUNTRY = _get("GEOCODE_COUNTRY", "in")
 GOV_API_KEY = _get("GOV_API_KEY")                # data.gov.in mandi prices
 EE_SERVICE_KEY = _get("EE_SERVICE_KEY")          # Earth Engine soil data
 KNOWLEDGE_BASE_ID = _get("KNOWLEDGE_BASE_ID")    # AWS Bedrock knowledge base
@@ -80,11 +91,13 @@ GOV_API_TIMEOUT = int(_get("GOV_API_TIMEOUT", "45"))
 GOV_API_ATTEMPTS = int(_get("GOV_API_ATTEMPTS", "2"))
 
 
-def feature_status() -> dict[str, bool]:
+def feature_status() -> dict:
     """Which integrations are configured. Surfaced on /health."""
     return {
         "gemini": bool(GEMINI_API_KEY),
-        "geocoding": bool(LOCATION_API_KEY),
+        # Geocoding always works now: Nominatim needs no key.
+        "geocoding": True,
+        "geocoding_provider": "google" if LOCATION_API_KEY else "nominatim",
         "mandi_prices": bool(GOV_API_KEY),
         "soil": bool(EE_SERVICE_KEY),
         "knowledge_base": bool(
