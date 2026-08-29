@@ -22,6 +22,11 @@ def weather_openmeteo(lat, lon) -> str:
     params = {
         "latitude": lat,
         "longitude": lon,
+        # Live conditions. Farmers ask "what is it like right now" directly,
+        # and daily aggregates cannot answer that - humidity especially, which
+        # has no daily equivalent and drives disease pressure advice.
+        "current": "temperature_2m,relative_humidity_2m,precipitation,"
+                   "wind_speed_10m,weather_code",
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,"
                  "weathercode,windspeed_10m_max",
         "start_date": start.isoformat(),
@@ -74,8 +79,25 @@ def weather_openmeteo(lat, lon) -> str:
             f"{num(precip, i)} mm rain, wind {num(wind, i)} km/h"
         )
 
+    # Live conditions. Farmers ask what it is like right now, and a daily
+    # aggregate cannot answer that - humidity especially, which has no daily
+    # equivalent and is what drives fungal disease pressure.
+    current = data.get("current") or {}
+    now_parts = []
+    for key, unit, label in (
+        ("temperature_2m", "C", "temperature"),
+        ("relative_humidity_2m", "%", "humidity"),
+        ("precipitation", " mm", "precipitation"),
+        ("wind_speed_10m", " km/h", "wind"),
+    ):
+        value = current.get(key)
+        if value is not None:
+            now_parts.append(f"{label} {value}{unit}")
+    now_block = f"- Right now: {', '.join(now_parts)}\n" if now_parts else ""
+
     return (
         f"Weather Report for ({lat}, {lon}):\n"
+        f"{now_block}"
         f"- Today's temp: {num(tmin, idx)}-{num(tmax, idx)}C, "
         f"Rain: {num(precip, idx)} mm, Wind: {num(wind, idx)} km/h\n"
         f"- Last 10 days avg rainfall: {last_10_avg:.2f} mm/day\n"

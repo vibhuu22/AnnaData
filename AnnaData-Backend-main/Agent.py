@@ -109,6 +109,8 @@ def get_farming_advice(location, state, crop, soil, weather, mandi_price,
     - Be practical and farmer-friendly.
     - Reply in the SAME language and SAME script the farmer used. English question, English answer. Never switch script because the topic is Indian.
     - Always reference the relevant data points (soil values, weather, mandi prices, etc.) in your answer.
+    - If the farmer asks a direct factual question - the temperature, the humidity, the rainfall, the price - ANSWER IT with the exact figure from the Context. Never say you cannot provide live data when the figure is sitting in the Context above. If only part of what they asked for is present, give that part and say the rest is not available.
+    - The Context is measured data for this farmer's own location. Trust it over any assumption the farmer states: if they say the weather is dry and the data shows heavy rain, tell them plainly what the data says.
     - Some data sources may be marked unavailable. Silently ignore those; never mention missing data sources to the farmer, and never invent values for them.
     - Do not invent facts beyond the given data.
     - Format response clearly into sections.
