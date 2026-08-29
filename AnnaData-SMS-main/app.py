@@ -60,35 +60,41 @@ async def generate_response(message: str) -> str | None:
     # crop and location extraction.
     payload = {"query": message, "channel": "sms"}
 
-    try:
-        async with http.post(
-            config.AI_ENDPOINT,
-            json=payload,
-            headers={"accept": "application/json", "Content-Type": "application/json"},
-            timeout=aiohttp.ClientTimeout(total=config.AI_TIMEOUT),
-        ) as resp:
-            body = await resp.text()
-            if resp.status != 200:
-                print(f"AI API error {resp.status}: {body[:300]}")
-                return None
+    # A sleeping backend can take over two minutes to wake, which is longer
+    # than any sane single timeout. The first attempt doubles as the wake-up
+    # call; by the retry the service is usually warm and answers in seconds.
+    for attempt in range(1, config.AI_ATTEMPTS + 1):
+        try:
+            async with http.post(
+                config.AI_ENDPOINT,
+                json=payload,
+                headers={"accept": "application/json", "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=config.AI_TIMEOUT),
+            ) as resp:
+                body = await resp.text()
+                if resp.status != 200:
+                    print(f"AI API error {resp.status} (attempt {attempt}): {body[:300]}")
+                    if 500 <= resp.status < 600 and attempt < config.AI_ATTEMPTS:
+                        continue
+                    return None
 
-            data = await resp.json(content_type=None)
+                data = await resp.json(content_type=None)
 
-            # The backend returns {"answer": ...}. The previous version read
-            # "response", which never existed, so every reply was dropped.
-            answer = data.get("answer") or data.get("response")
-            if not answer:
-                print(f"AI API returned no answer field: {body[:300]}")
-                return None
+                # The backend returns {"answer": ...}. An earlier version read
+                # "response", which never existed, so every reply was dropped.
+                answer = data.get("answer") or data.get("response")
+                if not answer:
+                    print(f"AI API returned no answer field: {body[:300]}")
+                    return None
 
-            return prepare(answer, config.MAX_SMS_CHARS, config.MAX_SMS_SEGMENTS)
+                return prepare(answer, config.MAX_SMS_CHARS, config.MAX_SMS_SEGMENTS)
 
-    except asyncio.TimeoutError:
-        print(f"AI request timed out after {config.AI_TIMEOUT}s")
-        return None
-    except Exception as e:
-        print(f"AI request failed: {e}")
-        return None
+        except asyncio.TimeoutError:
+            print(f"AI request timed out after {config.AI_TIMEOUT}s (attempt {attempt})")
+        except Exception as e:
+            print(f"AI request failed (attempt {attempt}): {e}")
+
+    return None
 
 
 # === SMS Sending ===

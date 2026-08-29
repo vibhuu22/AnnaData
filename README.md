@@ -230,5 +230,6 @@ Then send a real SMS to the gateway phone.
 - **No authentication or rate limiting on `/agent`.** It is a public endpoint spending your Gemini and Bedrock budget. Add an API key or AWS WAF rate rule before publicising the URL.
 - **Deduplication is in-memory**, so a bridge restart can allow one duplicate reply. Fine for a single instance; move to Redis/DynamoDB if you scale past one.
 - **No conversation memory over SMS** — each message is answered standalone. The web app has history; SMS does not.
+- **RCS is invisible to the gateway.** Google Messages sends Android-to-Android as RCS, not SMS, so those messages never reach the app and get no reply. Senders must disable chat features. Feature phones are unaffected.
 - **Two LLM calls per question.** Halving this would double free-tier capacity and cut latency, but needs the parse and answer steps merged.
 - **CRA is unmaintained.** It builds fine today; a Vite migration is the eventual path.
