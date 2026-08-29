@@ -96,6 +96,11 @@ GOV_API_ATTEMPTS = int(_get("GOV_API_ATTEMPTS", "2"))
 # rate limiting, so weather retries rather than silently losing the reading.
 WEATHER_TIMEOUT = int(_get("WEATHER_TIMEOUT", "25"))
 WEATHER_ATTEMPTS = int(_get("WEATHER_ATTEMPTS", "3"))
+# Weather is a property of a place, not of a farmer, so neighbours share a
+# reading. Caching by rounded coordinate collapses a whole district's traffic
+# into one upstream call and keeps us well under Open-Meteo's rate limit.
+WEATHER_CACHE_TTL = int(_get("WEATHER_CACHE_TTL", "3600"))
+WEATHER_CACHE_PRECISION = int(_get("WEATHER_CACHE_PRECISION", "1"))  # ~11 km
 
 
 def feature_status() -> dict:

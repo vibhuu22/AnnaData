@@ -5,18 +5,55 @@ Days are now located by matching the actual date strings the API returns rather
 than by fixed negative offsets, which silently reported the wrong day whenever
 the response range differed from the request.
 """
+import threading
 import time
 
 import requests
 from datetime import date, timedelta
 
-from config import WEATHER_TIMEOUT, WEATHER_ATTEMPTS
+from config import (
+    WEATHER_TIMEOUT,
+    WEATHER_ATTEMPTS,
+    WEATHER_CACHE_TTL,
+    WEATHER_CACHE_PRECISION,
+)
 
 PAST_DAYS = 30
 FORECAST_DAYS = 7
 
+# Keyed by coarse coordinate, so every farmer in a district shares one reading.
+_cache: dict[tuple, tuple] = {}
+_cache_lock = threading.Lock()
+_CACHE_MAX = 256
+
+
+def _cache_key(lat, lon) -> tuple:
+    p = WEATHER_CACHE_PRECISION
+    return (round(float(lat), p), round(float(lon), p))
+
 
 def weather_openmeteo(lat, lon) -> str:
+    key = _cache_key(lat, lon)
+    now = time.monotonic()
+
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and now - hit[0] < WEATHER_CACHE_TTL:
+            return hit[1]
+
+    report = _fetch_weather(lat, lon)
+
+    # Never cache a failure - the next farmer deserves a fresh attempt.
+    if not report.startswith("Weather data unavailable"):
+        with _cache_lock:
+            if len(_cache) >= _CACHE_MAX:
+                _cache.clear()
+            _cache[key] = (now, report)
+
+    return report
+
+
+def _fetch_weather(lat, lon) -> str:
     today = date.today()
     start = today - timedelta(days=PAST_DAYS)
     end = today + timedelta(days=FORECAST_DAYS)
