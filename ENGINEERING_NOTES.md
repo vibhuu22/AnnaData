@@ -175,10 +175,37 @@ Measuring the corpus settled the threshold rather than intuition:
 | how do I build a cold storage | 0.475 |
 | what is the price of cotton today | 0.469 |
 
-Covered questions score 0.68–0.80; uncovered ones top out at 0.578. The floor
-sits at **0.65**, and below it the model is told plainly that nothing covers
-the question and instructed not to name a scheme, amount or eligibility rule
-from memory.
+Covered questions score 0.68–0.80; uncovered ones top out at 0.578.
+
+The floor was set at 0.65, and **adding four more documents broke it**. A
+question about tractor subsidies then scored **0.667** against a PMFBY passage
+about Gujarat leaving the scheme — close on wording, entirely wrong on
+substance — and the model answered by naming "PM Kisan Tractor Yojana", a
+scheme widely circulated online that does not exist as a central scheme.
+
+A single similarity number cannot separate relevance from adjacency, and the
+problem grows with the corpus: more documents mean more chances that something
+irrelevant clears the bar. The floor is now **0.70**, and the prompt also
+requires the model to check that a retrieved passage actually addresses the
+question before using it, rather than stretching one about a different scheme
+to fit. This threshold is corpus-dependent and will need revisiting again.
+
+### Not all sources deserve equal weight
+
+The corpus mixes government documents with Wikipedia articles. Both are useful;
+only one is authoritative. A farmer acting on an insurance deadline or a
+subsidy amount should know which they were told, so documents carry a tier —
+`official` or `reference` — and the model is shown it. Where only unofficial
+material matches, the answer says the details are indicative and to confirm
+with the agriculture office before acting on a date, amount or eligibility
+rule.
+
+### PDF extraction emits bytes Postgres will not store
+
+Four chunks of a nine-page factsheet vanished with
+`PostgreSQL text fields cannot contain NUL (0x00) bytes`. Extraction leaves NUL
+and other control characters in the text; they are now stripped during
+cleaning.
 
 ### Most government agricultural sources cannot be fetched
 
@@ -348,7 +375,9 @@ the wrong chemical.
 | Evaluation cases | 20, all passing |
 | Embedding dimensions | 768 |
 | Embedding separation | 0.814 related vs 0.521 unrelated (cosine) |
-| Retrieval corpus | 38 chunks from the PM-KISAN operational guidelines |
+| Retrieval corpus | 86 chunks across 5 documents |
+| — official (PM-KISAN guidelines, PIB Soil Health Card factsheet) | 57 chunks |
+| — reference (Wikipedia: PMFBY, KCC, Soil Health Card) | 29 chunks |
 | Retrieval separation, covered vs not | 0.68-0.80 against 0.47-0.58 |
 
 ### Cost
@@ -396,10 +425,13 @@ is where the risk sits.
 - **Delivery rate.** No measurement of how many SMS replies actually arrive.
 - **Whether any of it helps.** No feedback loop exists. Nothing records whether
   a farmer found an answer useful, acted on it, or came back.
-- **Retrieval breadth.** One document is loaded. Retrieval works and refuses
-  correctly outside its coverage, but the corpus answers questions about a
-  single scheme and nothing else. Breadth is limited by what can be obtained,
-  not by the machinery.
+- **Retrieval breadth.** Five documents covering four schemes. Retrieval works
+  and refuses outside its coverage, but a farmer can ask about far more than
+  four schemes. Breadth is limited by what can be obtained, not by the
+  machinery.
+- **The similarity floor is tuned to this corpus.** It has already been broken
+  once by adding documents, and will need re-measuring whenever the corpus
+  grows materially.
 
 The honest summary is that the system is measurably faster, measurably cheaper,
 and measurably more grounded than it was — and its agronomic quality remains

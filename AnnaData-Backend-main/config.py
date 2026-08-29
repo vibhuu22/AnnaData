@@ -56,7 +56,15 @@ DB_POOL_MAX = int(_get("DB_POOL_MAX", "4"))
 # low, loosely-related passages are passed along and the model answers from
 # general knowledge anyway - retrieval then produces a more confident guess
 # rather than a grounded answer.
-RAG_MIN_SIMILARITY = float(_get("RAG_MIN_SIMILARITY", "0.65"))
+#
+# The floor is corpus dependent and will need revisiting as documents are
+# added: it began at 0.65, which was fine for a single scheme, and a question
+# about tractor subsidies then scored 0.667 against a PMFBY passage on Gujarat
+# leaving the scheme - close enough on wording, entirely wrong on substance. A
+# similarity number alone cannot tell relevance from adjacency, so the prompt
+# also requires the model to check that a passage actually addresses the
+# question before using it.
+RAG_MIN_SIMILARITY = float(_get("RAG_MIN_SIMILARITY", "0.70"))
 
 CONTEXT_MESSAGES = int(_get("CONTEXT_MESSAGES", "10"))
 CONTEXT_TTL_HOURS = int(_get("CONTEXT_TTL_HOURS", "48"))

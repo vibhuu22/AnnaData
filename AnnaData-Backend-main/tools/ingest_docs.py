@@ -52,6 +52,11 @@ def read_html(path_or_text: str) -> str:
 
 def clean(text: str) -> str:
     """Tidy extracted text without destroying paragraph structure."""
+    # PDF extraction emits NUL and other control bytes, which Postgres rejects
+    # outright - four chunks of a nine-page factsheet were silently lost to
+    # them before this line existed.
+    text = text.replace("\x00", "")
+    text = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f]", "", text)
     text = text.replace("\r", "\n")
     text = re.sub(r"[ \t]+", " ", text)
     # Page numbers and rules left behind by extraction.
@@ -99,7 +104,8 @@ def chunk(text: str) -> list[str]:
     return [c for c in chunks if len(c) >= MIN_CHUNK_CHARS]
 
 
-def ingest(path: Path, source: str, url: str | None, dry: bool) -> int:
+def ingest(path: Path, source: str, url: str | None, dry: bool,
+           tier: str = "reference") -> int:
     raw = read_pdf(path) if path.suffix.lower() == ".pdf" else \
         read_html(path.read_text(encoding="utf-8", errors="replace"))
     text = clean(raw)
@@ -114,7 +120,7 @@ def ingest(path: Path, source: str, url: str | None, dry: bool) -> int:
     stored = 0
     for i, c in enumerate(chunks):
         if knowledge.add_document(source=source, content=c, title=path.stem,
-                                  url=url, chunk_index=i):
+                                  url=url, chunk_index=i, tier=tier):
             stored += 1
         if stored and stored % 25 == 0:
             print(f"    stored {stored}/{len(chunks)}")
@@ -128,6 +134,8 @@ def main() -> int:
     ap.add_argument("--dir", help="a folder of files to ingest")
     ap.add_argument("--source", help="human-readable source name")
     ap.add_argument("--url", help="where the document came from")
+    ap.add_argument("--tier", choices=["official", "reference"], default="reference",
+                    help="official for government documents, reference otherwise")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -150,7 +158,7 @@ def main() -> int:
     total = 0
     for f in files:
         source = args.source or f.stem.replace("-", " ").replace("_", " ").title()
-        total += ingest(f, source, args.url, args.dry_run)
+        total += ingest(f, source, args.url, args.dry_run, args.tier)
 
     print(f"\n{total} chunks {'parsed' if args.dry_run else 'stored'}")
     if not args.dry_run:

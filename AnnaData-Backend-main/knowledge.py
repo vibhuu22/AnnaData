@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS documents (
     title       TEXT,
     url         TEXT,
     chunk_index INTEGER NOT NULL DEFAULT 0,
+    -- 'official' for government documents, 'reference' for material that is
+    -- useful but not authoritative. A farmer acting on an insurance deadline
+    -- deserves to know which one they were told.
+    tier        TEXT NOT NULL DEFAULT 'reference',
     content     TEXT NOT NULL,
     embedding   vector({EMBED_DIM}),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -64,6 +68,8 @@ CREATE TABLE IF NOT EXISTS documents (
 
 CREATE INDEX IF NOT EXISTS documents_embedding
     ON documents USING hnsw (embedding vector_cosine_ops);
+
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'reference';
 """
 
 
@@ -244,7 +250,7 @@ def search(query: str, limit: int = 5) -> list[dict]:
         with db.connection() as conn:
             rows = conn.execute(
                 """
-                SELECT content, source, title, url,
+                SELECT content, source, title, url, tier,
                        1 - (embedding <=> %s::vector) AS similarity
                   FROM documents
                  WHERE embedding IS NOT NULL
@@ -254,8 +260,9 @@ def search(query: str, limit: int = 5) -> list[dict]:
                 (str(vector), str(vector), limit),
             ).fetchall()
         return [
-            {"content": c, "source": s, "title": t, "url": u, "similarity": sim}
-            for c, s, t, u, sim in rows
+            {"content": c, "source": s, "title": t, "url": u,
+             "tier": tier, "similarity": sim}
+            for c, s, t, u, tier, sim in rows
         ]
     except Exception as e:
         print(f"Knowledge search failed: {e}")
@@ -279,10 +286,34 @@ def format_passages(passages: list[dict], min_similarity: float = None) -> str:
                 "eligibility rule or a website from memory - a confident answer "
                 "with nothing behind it is worse than admitting the gap.")
 
-    lines = ["Reference material (answer from this, and name the source):"]
+    official = [p for p in useful if p.get("tier") == "official"]
+
+    lines = [
+        "Reference material. Read it before answering, and note that similarity "
+        "search returns the closest passages whether or not they are relevant.",
+        "If NONE of the passages below actually addresses what the farmer asked, "
+        "say you have no information on it and point them to their agriculture "
+        "office - do NOT stretch a passage about a different scheme to fit, and "
+        "do NOT fall back on a scheme name from memory.",
+        "",
+    ]
     for p in useful:
         text = " ".join(p["content"].split())
-        lines.append(f"- [{p['source']}] {text}")
+        mark = "OFFICIAL" if p.get("tier") == "official" else "NOT OFFICIAL"
+        lines.append(f"- [{mark} | {p['source']}] {text}")
+
+    if official:
+        lines.append(
+            "\nWhere sources disagree, prefer the OFFICIAL ones."
+        )
+    else:
+        lines.append(
+            "\nNone of the above is an official government document. You may "
+            "answer from it, but say the details are indicative and tell the "
+            "farmer to confirm with their agriculture office or the scheme's "
+            "official portal before acting on a date, an amount or an "
+            "eligibility rule."
+        )
     return "\n".join(lines)
 
 
@@ -292,7 +323,8 @@ def documents_loaded() -> bool:
 
 
 def add_document(source: str, content: str, title: str = None,
-                 url: str = None, chunk_index: int = 0) -> bool:
+                 url: str = None, chunk_index: int = 0,
+                 tier: str = "reference") -> bool:
     """Store one passage with its embedding."""
     if not db.is_available() or not content.strip():
         return False
@@ -303,10 +335,11 @@ def add_document(source: str, content: str, title: str = None,
         with db.connection() as conn:
             conn.execute(
                 """
-                INSERT INTO documents (source, title, url, chunk_index, content, embedding)
-                VALUES (%s, %s, %s, %s, %s, %s::vector)
+                INSERT INTO documents (source, title, url, chunk_index, tier,
+                                       content, embedding)
+                VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
                 """,
-                (source, title, url, chunk_index, content, str(vector)),
+                (source, title, url, chunk_index, tier, content, str(vector)),
             )
         return True
     except Exception as e:
