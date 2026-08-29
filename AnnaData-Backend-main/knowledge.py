@@ -21,7 +21,7 @@ import json
 import urllib.request
 
 import db
-from config import GEMINI_API_KEY
+from config import GEMINI_API_KEY, RAG_MIN_SIMILARITY
 
 EMBED_MODEL = "gemini-embedding-001"
 EMBED_DIM = 768
@@ -260,6 +260,35 @@ def search(query: str, limit: int = 5) -> list[dict]:
     except Exception as e:
         print(f"Knowledge search failed: {e}")
         return []
+
+
+def format_passages(passages: list[dict], min_similarity: float = None) -> str:
+    """Render retrieved passages for the prompt, with their sources.
+
+    Weak matches are dropped rather than passed along: a passage that is only
+    loosely related invites the model to answer from it anyway, which is how
+    retrieval turns into a more confident kind of guess.
+    """
+    threshold = RAG_MIN_SIMILARITY if min_similarity is None else min_similarity
+    useful = [p for p in passages if p.get("similarity", 0) >= threshold]
+    if not useful:
+        return ("NOTHING in the reference documents covers this question. You "
+                "have no official information on it. Say so plainly and point "
+                "the farmer to their agriculture office or the relevant "
+                "government portal. Do NOT name a scheme, an amount, an "
+                "eligibility rule or a website from memory - a confident answer "
+                "with nothing behind it is worse than admitting the gap.")
+
+    lines = ["Reference material (answer from this, and name the source):"]
+    for p in useful:
+        text = " ".join(p["content"].split())
+        lines.append(f"- [{p['source']}] {text}")
+    return "\n".join(lines)
+
+
+def documents_loaded() -> bool:
+    """Whether there is anything to retrieve at all."""
+    return counts().get("documents", 0) > 0
 
 
 def add_document(source: str, content: str, title: str = None,

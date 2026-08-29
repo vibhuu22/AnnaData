@@ -156,6 +156,39 @@ and land a dilution volume in the waiting period, producing pre-harvest
 intervals of "500–1000" days. Anything beyond a season is now discarded: no
 waiting period is honest where a wrong one is not.
 
+### Retrieval answered questions the corpus did not cover
+
+With the similarity floor at 0.45, a question about solar pump subsidies
+returned PM-KISAN passages — loosely related, since both are agricultural
+schemes — and the model, handed something rather than nothing, answered from
+general knowledge anyway. Retrieval had turned a guess into a *more confident*
+guess, which is worse than no retrieval at all.
+
+Measuring the corpus settled the threshold rather than intuition:
+
+| Question | Top similarity |
+|---|---|
+| how much does PM-KISAN pay | 0.739 |
+| who is excluded from PM-KISAN | 0.801 |
+| which scheme gives me a solar pump | 0.578 |
+| crop insurance for hailstorm damage | 0.536 |
+| how do I build a cold storage | 0.475 |
+| what is the price of cotton today | 0.469 |
+
+Covered questions score 0.68–0.80; uncovered ones top out at 0.578. The floor
+sits at **0.65**, and below it the model is told plainly that nothing covers
+the question and instructed not to name a scheme, amount or eligibility rule
+from memory.
+
+### Most government agricultural sources cannot be fetched
+
+Of eight candidate sources probed, one downloaded cleanly. `agricoop.gov.in`
+refuses connections outright; the Soil Health Card portal renders three words
+of text without JavaScript; several documented PDF links return HTML shells or
+404s. This is presumably why the original design crawled once and stored the
+result to S3. Documents that will not download have to be saved from a browser
+and ingested from disk.
+
 ### Open-Meteo rate limits by IP, and the IP is shared
 
 Weather worked locally in 2s and failed in production. The cause was
@@ -312,9 +345,11 @@ the wrong chemical.
 | | |
 |---|---|
 | Scripts verified end to end | 4 — Latin, Devanagari, Gurmukhi, Bengali |
-| Evaluation cases | 17, all passing |
+| Evaluation cases | 20, all passing |
 | Embedding dimensions | 768 |
 | Embedding separation | 0.814 related vs 0.521 unrelated (cosine) |
+| Retrieval corpus | 38 chunks from the PM-KISAN operational guidelines |
+| Retrieval separation, covered vs not | 0.68-0.80 against 0.47-0.58 |
 
 ### Cost
 
@@ -361,8 +396,10 @@ is where the risk sits.
 - **Delivery rate.** No measurement of how many SMS replies actually arrive.
 - **Whether any of it helps.** No feedback loop exists. Nothing records whether
   a farmer found an answer useful, acted on it, or came back.
-- **Retrieval quality.** The vector store is built and the embeddings measured,
-  but no documents are loaded, so retrieval has not been evaluated at all.
+- **Retrieval breadth.** One document is loaded. Retrieval works and refuses
+  correctly outside its coverage, but the corpus answers questions about a
+  single scheme and nothing else. Breadth is limited by what can be obtained,
+  not by the machinery.
 
 The honest summary is that the system is measurably faster, measurably cheaper,
 and measurably more grounded than it was — and its agronomic quality remains

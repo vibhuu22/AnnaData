@@ -50,6 +50,14 @@ AWS_SECRET_KEY = _get("AWS_SECRET_KEY")
 DATABASE_URL = _get("DATABASE_URL")
 DB_POOL_MAX = int(_get("DB_POOL_MAX", "4"))
 # Turns of conversation replayed to the model, and how stale they may be.
+# Cosine similarity a retrieved passage must reach to be shown to the model.
+# Measured against the loaded corpus: questions the documents genuinely cover
+# score 0.68-0.80, while questions they do not top out around 0.58. Set too
+# low, loosely-related passages are passed along and the model answers from
+# general knowledge anyway - retrieval then produces a more confident guess
+# rather than a grounded answer.
+RAG_MIN_SIMILARITY = float(_get("RAG_MIN_SIMILARITY", "0.65"))
+
 CONTEXT_MESSAGES = int(_get("CONTEXT_MESSAGES", "10"))
 CONTEXT_TTL_HOURS = int(_get("CONTEXT_TTL_HOURS", "48"))
 # How long before a farmer who ignored the location question is asked again.
@@ -114,6 +122,14 @@ METNO_USER_AGENT = _get(
 )
 
 
+def _documents_loaded() -> bool:
+    try:
+        import knowledge
+        return knowledge.documents_loaded()
+    except Exception:
+        return False
+
+
 def feature_status() -> dict:
     """Which integrations are configured. Surfaced on /health."""
     return {
@@ -123,7 +139,8 @@ def feature_status() -> dict:
         "geocoding_provider": "google" if LOCATION_API_KEY else "nominatim",
         "mandi_prices": bool(GOV_API_KEY),
         "soil": bool(EE_SERVICE_KEY),
-        "knowledge_base": bool(
+        # Retrieval is served from the local vector store; Bedrock is optional.
+        "knowledge_base": _documents_loaded() or bool(
             KNOWLEDGE_BASE_ID and AWS_ACCESS_KEY and AWS_SECRET_KEY
         ),
         "farmer_profiles": bool(DATABASE_URL),

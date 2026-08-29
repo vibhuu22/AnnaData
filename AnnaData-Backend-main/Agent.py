@@ -393,7 +393,11 @@ def gather(tools, *, lat, lon, state, crop, query, pest=None) -> dict:
         "soil":    lambda: soil_tool(lat, lon),
         "weather": lambda: weather_openmeteo(lat, lon),
         "mandi":   lambda: get_state_data(state, crop),
-        "kb":      lambda: query_kb(query),
+        # Retrieval runs against the local pgvector store. The Bedrock path is
+        # kept as a fallback for anyone who has that configured, but it is no
+        # longer what the feature depends on.
+        "kb":      lambda: knowledge.format_passages(knowledge.search(query))
+                   if knowledge.documents_loaded() else query_kb(query),
     }
 
     results = {}
@@ -527,7 +531,7 @@ def run_agent(
         intent,
         has_coords=lat is not None and lon is not None,
         state=facts["state"],
-        kb_available=kb_available(),
+        kb_available=knowledge.documents_loaded() or kb_available(),
         crop=facts["crop"],
     )
     missing = planner.missing_slots(
@@ -565,11 +569,6 @@ def run_agent(
 
     gathered = gather(tools, lat=lat, lon=lon, state=facts["state"], crop=facts["crop"],
                       query=query_final, pest=_known(structured_input.get("pest")))
-
-    # A knowledge base answer is already a complete, sourced response.
-    if gathered.get("kb") and tools == {"kb"}:
-        return AgentResult(gathered["kb"], tools_used=["knowledge_base"],
-                           missing_slots=missing, intent=intent, **facts)
 
     final_response = extract_markdown_content(
         get_farming_advice(facts["location"], facts["state"], facts["crop"],
