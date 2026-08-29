@@ -6,6 +6,9 @@ commodity filter, then fed the whole dump into the LLM prompt - thousands of
 rows for a large state. It now filters by commodity where known and stops at
 MANDI_MAX_RECORDS.
 """
+import threading
+import time
+
 import requests
 
 from config import (
@@ -13,10 +16,45 @@ from config import (
     MANDI_MAX_RECORDS,
     GOV_API_TIMEOUT,
     GOV_API_ATTEMPTS,
+    GOV_FAILURE_THRESHOLD,
+    GOV_CIRCUIT_COOLDOWN,
 )
 
 RESOURCE_URL = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
 PAGE_SIZE = 100
+
+# Circuit breaker. After repeated failures the upstream is presumed down and
+# calls are skipped until the cooldown expires, so a farmer gets an immediate
+# answer minus prices rather than waiting out two timeouts to be told the same.
+_consecutive_failures = 0
+_circuit_opened_at = 0.0
+_breaker_lock = threading.Lock()
+
+
+def _circuit_open() -> bool:
+    with _breaker_lock:
+        if _consecutive_failures < GOV_FAILURE_THRESHOLD:
+            return False
+        if time.monotonic() - _circuit_opened_at < GOV_CIRCUIT_COOLDOWN:
+            return True
+        # Cooldown elapsed: allow one probe through to test recovery.
+        return False
+
+
+def _record_success():
+    global _consecutive_failures
+    with _breaker_lock:
+        _consecutive_failures = 0
+
+
+def _record_failure():
+    global _consecutive_failures, _circuit_opened_at
+    with _breaker_lock:
+        _consecutive_failures += 1
+        if _consecutive_failures >= GOV_FAILURE_THRESHOLD:
+            _circuit_opened_at = time.monotonic()
+            print(f"data.gov.in circuit opened after {_consecutive_failures} "
+                  f"failures; pausing calls for {GOV_CIRCUIT_COOLDOWN}s")
 
 
 def format_state_data(records) -> str:
@@ -90,6 +128,9 @@ def get_state_data(state: str, commodity: str | None = None) -> str:
     if commodity and commodity.lower() == "unknown":
         commodity = None
 
+    if _circuit_open():
+        return "Mandi price data unavailable (price service is down)."
+
     try:
         records = _fetch(state, commodity)
 
@@ -97,8 +138,10 @@ def get_state_data(state: str, commodity: str | None = None) -> str:
         if not records and commodity:
             records = _fetch(state, None)
 
+        _record_success()
         return format_state_data(records)
 
     except Exception as e:
+        _record_failure()
         print(f"Mandi price lookup failed for state={state!r}: {e}")
         return "Mandi price data unavailable (lookup failed)."
