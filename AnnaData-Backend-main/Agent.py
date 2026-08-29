@@ -13,6 +13,7 @@ from Soil_Tool import soil_tool
 from Refined_Farmer_Query import get_farming_query
 from Web_Crawler import query_kb, is_available as kb_available
 import planner
+import provenance
 import re
 
 
@@ -130,6 +131,111 @@ def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: st
     return llm.invoke([HumanMessage(content=prompt)]).content.strip()
 
 
+def answer_about_system(query: str, history, channel: str, profile=None) -> str:
+    """Answer a question about the assistant itself, from what it actually does.
+
+    The facts are assembled from configuration, not recalled by the model, so a
+    farmer asking where a soil figure came from is told the truth about this
+    service rather than a textbook account of how soil is tested in general.
+    """
+    style = style_for(channel)
+    history_text = "\n".join(
+        f"{h.get('role', 'user').capitalize()}: {h.get('content', '')}"
+        for h in (history or [])
+    )
+
+    prompt = f"""
+    A farmer has asked a question about the assistant itself - how it knows
+    something, where its information comes from, or what it can do.
+
+    Answer using ONLY the facts below. Do not explain how soil or weather are
+    measured in general; explain where THIS service got ITS information. If the
+    facts below do not cover what they asked, say plainly that you do not know.
+
+    FACTS:
+    {provenance.describe(profile)}
+
+    Conversation so far:
+    {history_text}
+
+    Farmer's question: {query}
+
+    Constraints:
+    - {style}
+    - Reply in the SAME language and SAME script the farmer used.
+    - Be honest and concrete. Name the source. Do not oversell accuracy.
+    """
+
+    return llm.invoke([HumanMessage(content=prompt)]).content.strip()
+
+
+def handle_correction(query: str, history, channel: str) -> str:
+    """Reply to a farmer objecting to the previous answer.
+
+    Apologising and restating the same advice is what the assistant did before,
+    which is worse than useless: the farmer already said that was not what they
+    asked. The useful move is to find the question they actually put and answer
+    that one.
+    """
+    style = style_for(channel)
+    history_text = "\n".join(
+        f"{h.get('role', 'user').capitalize()}: {h.get('content', '')}"
+        for h in (history or [])
+    )
+
+    prompt = f"""
+    A farmer is telling you the previous reply was wrong or off-topic.
+
+    Conversation so far:
+    {history_text}
+
+    What the farmer just said: {query}
+
+    Work out what they ACTUALLY asked for, and answer that. If they were given
+    advice they did not ask for, do not repeat it and do not defend it. If it is
+    genuinely unclear what they want, ask one short question.
+
+    Do not write a long apology, and never invent a reason for the earlier
+    answer. At most a brief acknowledgement, then the useful reply.
+
+    {temporal_context()}
+
+    Constraints:
+    - {style}
+    - Reply in the SAME language and SAME script the farmer used.
+    """
+
+    return llm.invoke([HumanMessage(content=prompt)]).content.strip()
+
+
+def acknowledge_statement(query: str, facts: dict, channel: str) -> str:
+    """Reply to a farmer who told us something rather than asking anything.
+
+    Confirming what was understood is useful; volunteering a page of unrelated
+    advice is not, and is what prompted 'I didnt ask about sowing?'.
+    """
+    style = style_for(channel)
+    known = ", ".join(f"{k}: {v}" for k, v in facts.items() if v) or "nothing specific"
+
+    prompt = f"""
+    A farmer has told you something about their farm. They did NOT ask a
+    question. Do not give advice they did not ask for.
+
+    What they said: {query}
+    What you understood: {known}
+
+    Reply by confirming briefly what you noted, and invite their question.
+    One or two short sentences. Do not mention sowing, fertiliser, pests or any
+    other advice unless they asked.
+
+    Constraints:
+    - {style}
+    - Reply in the SAME language and SAME script the farmer used.
+    """
+
+    return llm.invoke([HumanMessage(content=prompt)]).content.strip()
+
+
 def get_farming_advice(location, state, crop, gathered, farmer_query,
                        channel: str = "web") -> str:
     """Compose the final advisory from whatever data was gathered.
@@ -216,11 +322,11 @@ class AgentResult:
     """
 
     __slots__ = ("answer", "crop", "state", "location", "latitude", "longitude",
-                 "tools_used", "missing_slots", "intent")
+                 "tools_used", "missing_slots", "intent", "message_type")
 
     def __init__(self, answer, crop=None, state=None, location=None,
                  latitude=None, longitude=None, tools_used=None,
-                 missing_slots=None, intent="general"):
+                 missing_slots=None, intent="general", message_type="question"):
         self.answer = answer
         self.crop = crop
         self.state = state
@@ -232,6 +338,7 @@ class AgentResult:
         # precise thing instead of a generic "where are you?".
         self.missing_slots = missing_slots or []
         self.intent = intent
+        self.message_type = message_type
 
 
 def _known(value) -> str | None:
@@ -246,21 +353,23 @@ def run_agent(
     longitude: Optional[float] = None,
     history: Optional[List[dict]] = None,
     channel: str = "web",
+    profile: Optional[dict] = None,
 ) -> AgentResult:
     """Answer a farmer's question and report what was learned and used."""
     query_final = get_farming_query(query, history)
     print(f"Final query after refinement: {query_final}")
 
-    structured_input = extract_farm_info(query_final)
+    structured_input = extract_farm_info(query_final, original=query)
 
     crop = structured_input.get("crop_type", "unknown")
     state = structured_input.get("state", "unknown")
     location = structured_input.get("location", "unknown")
     answer = structured_input.get("answer", "unknown")
     intent = planner.normalise_intent(structured_input.get("intent"))
+    message_type = planner.normalise_message_type(structured_input.get("message_type"))
 
     print(f"Extracted Crop: {crop}, State: {state}, Location: {location}, "
-          f"intent: {intent}, answer: {answer}")
+          f"intent: {intent}, type: {message_type}, answer: {answer}")
 
     facts = {
         "crop": _known(crop),
@@ -268,9 +377,17 @@ def run_agent(
         "location": _known(location),
     }
 
+    # A question about the assistant itself is answered from what the service
+    # actually does, not from the model's general knowledge of agronomy.
+    if message_type == "meta":
+        return AgentResult(
+            answer_about_system(query, history, channel, profile),
+            tools_used=["about"], intent=intent, message_type=message_type, **facts
+        )
+
     # Non-agricultural query: the parser already answered it.
     if answer != "unknown" and crop == "unknown" and state == "unknown" and location == "unknown":
-        return AgentResult(answer, tools_used=["direct"])
+        return AgentResult(answer, tools_used=["direct"], message_type=message_type)
 
     # A location named in this message beats a remembered or browser one, but
     # only if geocoding actually resolves it.
@@ -294,7 +411,29 @@ def run_agent(
     missing = planner.missing_slots(
         intent, crop=facts["crop"], location=facts["location"], state=facts["state"]
     )
-    print(f"Plan: intent={intent} tools={sorted(tools) or 'none'} missing={missing or 'nothing'}")
+    print(f"Plan: intent={intent} type={message_type} "
+          f"tools={sorted(tools) or 'none'} missing={missing or 'nothing'}")
+
+    # The farmer is objecting to the previous reply. Answer what they actually
+    # asked instead of apologising and repeating it.
+    if message_type == "correction":
+        return AgentResult(
+            handle_correction(query, history, channel),
+            tools_used=["correction"], missing_slots=missing,
+            intent=intent, message_type=message_type, **facts
+        )
+
+    # The farmer told us something rather than asking. Confirm what was noted
+    # and stop; unrequested advice is what prompted "I didnt ask about sowing?".
+    if message_type in ("statement", "smalltalk"):
+        return AgentResult(
+            acknowledge_statement(query, {
+                "crop": facts["crop"], "location": facts["location"],
+                "state": facts["state"],
+            }, channel),
+            tools_used=["acknowledge"], missing_slots=missing,
+            intent=intent, message_type=message_type, **facts
+        )
 
     if not tools:
         return AgentResult(

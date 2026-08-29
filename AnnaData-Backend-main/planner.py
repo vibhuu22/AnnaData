@@ -49,6 +49,18 @@ REQUIRED_SLOTS = {
 
 VALID_INTENTS = set(TOOLS_FOR_INTENT)
 
+# A message's kind decides how to respond at all, before its topic decides what
+# to look up. Treating every message as a request for advice is what made the
+# assistant lecture farmers who were simply telling it something.
+VALID_MESSAGE_TYPES = {"question", "statement", "meta", "correction", "smalltalk"}
+
+
+def normalise_message_type(value: str | None) -> str:
+    if not value:
+        return "question"
+    value = value.strip().lower()
+    return value if value in VALID_MESSAGE_TYPES else "question"
+
 
 def normalise_intent(intent: str | None) -> str:
     if not intent:

@@ -120,6 +120,7 @@ def run_agent_endpoint(request: QueryRequest):
             longitude=longitude,
             history=history,
             channel=channel,
+            profile=profile,
         )
     except Exception as e:
         # Previously this returned 200 with an {"error": ...} body, so callers
@@ -141,7 +142,8 @@ def run_agent_endpoint(request: QueryRequest):
         profile_store.log_message(
             user_id, "outbound", result.answer,
             meta={"tools": result.tools_used, "channel": channel,
-                  "intent": result.intent, "missing": result.missing_slots},
+                  "intent": result.intent,
+        "message_type": result.message_type, "missing": result.missing_slots},
         )
         # Re-read so the decision reflects anything just learned.
         needs_location = profile_store.should_ask_location(
@@ -155,6 +157,7 @@ def run_agent_endpoint(request: QueryRequest):
         "needs_location": needs_location,
         "tools_used": result.tools_used,
         "intent": result.intent,
+        "message_type": result.message_type,
         # Exactly what the farmer has not told us yet, so the caller can ask
         # for that one thing instead of a generic prompt.
         "missing_slots": result.missing_slots,
