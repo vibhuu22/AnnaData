@@ -251,7 +251,42 @@ def handle_correction(query: str, history, channel: str) -> str:
     return llm.invoke([HumanMessage(content=prompt)]).content.strip()
 
 
-def acknowledge_statement(query: str, facts: dict, channel: str) -> str:
+def greet(query: str, profile, channel: str) -> str:
+    """Answer a greeting by saying what this service can actually do.
+
+    A greeting previously fell through to the advice path and produced a
+    lecture on wheat sowing, which answers a question nobody asked. What a
+    farmer needs on first contact is to know what is worth asking.
+    """
+    style = style_for(channel)
+    known = []
+    if profile:
+        if profile.get("location_text"):
+            known.append(f"they farm near {profile['location_text']}")
+        if profile.get("crops"):
+            known.append(f"they grow {', '.join(profile['crops'])}")
+
+    prompt = f"""
+    A farmer has sent a greeting. Reply warmly and briefly, and tell them what
+    you can help with: pests and diseases, fertiliser, irrigation, sowing times,
+    weather, and market prices.
+
+    {"You already know that " + " and ".join(known) + "." if known else
+     "You do not know their location or crop yet, so invite them to say where they farm and what they grow."}
+
+    Do NOT give farming advice they did not ask for. Invite their question.
+
+    {script_instruction(query)}
+
+    Constraints:
+    - {style}
+    """
+
+    return llm.invoke([HumanMessage(content=prompt)]).content.strip()
+
+
+def acknowledge_statement(query: str, facts: dict, channel: str,
+                          script_query: str = "") -> str:
     """Reply to a farmer who told us something rather than asking anything.
 
     Confirming what was understood is useful; volunteering a page of unrelated
@@ -267,13 +302,17 @@ def acknowledge_statement(query: str, facts: dict, channel: str) -> str:
     What they said: {query}
     What you understood: {known}
 
-    Reply by confirming briefly what you noted, and invite their question.
-    One or two short sentences. Do not mention sowing, fertiliser, pests or any
-    other advice unless they asked.
+    Reply by confirming briefly what you noted, then invite their question by
+    naming one or two things you could help with for that crop - for example
+    pests, fertiliser, irrigation or when to sow. Do NOT actually give that
+    advice; just offer it.
+
+    Two short sentences.
+
+    {script_instruction(script_query or query)}
 
     Constraints:
     - {style}
-    - Reply in the SAME language and SAME script the farmer used.
     """
 
     return llm.invoke([HumanMessage(content=prompt)]).content.strip()
@@ -318,11 +357,12 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     - {style}
     - Be practical and farmer-friendly.
     - Identify the exact language and script of the farmer's question and reply in that same one. Punjabi in Gurmukhi is answered in Gurmukhi, Bengali in Bengali, Telugu in Telugu, English in English. Hindi is NOT a default: never answer an Indian-language question in Hindi unless the farmer wrote in Hindi. The location the farmer mentions NEVER decides the language: a question written in English about Nagpur is answered in English, not Marathi; about Ludhiana, in English, not Punjabi. Match the question, not the place.
-    - Always reference the relevant data points (soil values, weather, mandi prices, etc.) in your answer.
+    - Cite a data point ONLY where it changes what the farmer should do. Soil pH matters for a fertiliser question; today's rainfall matters if it affects spraying or drainage. Appending an unrelated figure - the day's rainfall onto a pest answer - is noise, and the farmer did not ask for it. When nothing in the data changes the advice, do not mention the data at all.
     - If the farmer asks a direct factual question - the temperature, the humidity, the rainfall, the price - ANSWER IT with the exact figure from the Context. Never say you cannot provide live data when the figure is sitting in the Context above. If only part of what they asked for is present, give that part and say the rest is not available.
     - The Context is measured data for this farmer's own location. Trust it over any assumption the farmer states: if they say the weather is dry and the data shows heavy rain, tell them plainly what the data says.
     - Do not invent facts beyond the given data.
     - CHEMICALS AND DOSES: if an APPROVED PESTICIDE USES section is present, you may name a pesticide and a dose ONLY if it appears there, quoted exactly, and you should say it is a registered use. If that section says nothing is registered, or warns the listed uses are for a different pest, then name NO chemical and NO dose at all - say you have no approved treatment on record and tell them to ask their Krishi Vigyan Kendra or agriculture officer. Never fall back on a chemical you happen to know.
+    - End with ONE short, specific question only where the answer would genuinely change with it - the crop stage, how widespread the damage is, whether they have irrigation. Never ask for something already given above. If nothing useful is missing, end with the advice.
     - Format response clearly into sections.
 
     Context:
@@ -422,6 +462,14 @@ def run_agent(
     intent = planner.normalise_intent(structured_input.get("intent"))
     message_type = planner.normalise_message_type(structured_input.get("message_type"))
 
+    # A farmer reporting damage is asking for help even though they phrased it
+    # as a fact. "My cotton has been attacked by locusts" is grammatically a
+    # statement and was being answered with "noted, what would you like to
+    # ask?" - which is useless, and reads as indifference to a crop being
+    # eaten. Naming a topic at all means they want something done about it.
+    if message_type == "statement" and intent != "general":
+        message_type = "question"
+
     print(f"Extracted Crop: {crop}, State: {state}, Location: {location}, "
           f"intent: {intent}, type: {message_type}, answer: {answer}")
 
@@ -431,12 +479,31 @@ def run_agent(
         "location": _known(location),
     }
 
+    # What this message did not say, the profile may already know. Without this
+    # the agent asks a farmer for a crop it recorded last week, and cannot look
+    # up a dose because it thinks it has no crop.
+    if profile:
+        for key, stored in (("crop", (profile.get("crops") or [None])[-1]),
+                            ("state", profile.get("state")),
+                            ("location", profile.get("location_text"))):
+            if not facts[key] and stored:
+                facts[key] = stored
+
     # A question about the assistant itself is answered from what the service
     # actually does, not from the model's general knowledge of agronomy.
     if message_type == "meta":
         return AgentResult(
             answer_about_system(query, history, channel, profile),
             tools_used=["about"], intent=intent, message_type=message_type, **facts
+        )
+
+    # A greeting is answered by saying what this service can do, which the
+    # parser's generic reply does not. This has to come before the direct
+    # answer below, which would otherwise swallow it.
+    if message_type == "smalltalk":
+        return AgentResult(
+            greet(query, profile, channel),
+            tools_used=["greeting"], intent=intent, message_type=message_type, **facts
         )
 
     # Non-agricultural query: the parser already answered it.
@@ -446,7 +513,7 @@ def run_agent(
     # A location named in this message beats a remembered or browser one, but
     # only if geocoding actually resolves it.
     lat, lon = latitude, longitude
-    if facts["location"]:
+    if _known(location):
         geo_lat, geo_lon = get_location(facts["location"])
         if geo_lat is not None and geo_lon is not None:
             lat, lon = geo_lat, geo_lon
@@ -480,12 +547,12 @@ def run_agent(
 
     # The farmer told us something rather than asking. Confirm what was noted
     # and stop; unrequested advice is what prompted "I didnt ask about sowing?".
-    if message_type in ("statement", "smalltalk"):
+    if message_type == "statement":
         return AgentResult(
             acknowledge_statement(query, {
                 "crop": facts["crop"], "location": facts["location"],
                 "state": facts["state"],
-            }, channel),
+            }, channel, script_query=query),
             tools_used=["acknowledge"], missing_slots=missing,
             intent=intent, message_type=message_type, **facts
         )
@@ -496,7 +563,7 @@ def run_agent(
             tools_used=["general"], missing_slots=missing, intent=intent, **facts
         )
 
-    gathered = gather(tools, lat=lat, lon=lon, state=state, crop=crop,
+    gathered = gather(tools, lat=lat, lon=lon, state=facts["state"], crop=facts["crop"],
                       query=query_final, pest=_known(structured_input.get("pest")))
 
     # A knowledge base answer is already a complete, sourced response.
@@ -505,7 +572,8 @@ def run_agent(
                            missing_slots=missing, intent=intent, **facts)
 
     final_response = extract_markdown_content(
-        get_farming_advice(location, state, crop, gathered, query, channel)
+        get_farming_advice(facts["location"], facts["state"], facts["crop"],
+                           gathered, query, channel)
     )
     print(f"Final response: {final_response}")
     return AgentResult(
