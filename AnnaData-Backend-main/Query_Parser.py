@@ -10,6 +10,7 @@ UNKNOWN = {
     "answer": "unknown",
     "intent": "general",
     "message_type": "question",
+    "pest": "unknown",
 }
 
 # Intent rides along on this extraction call, which runs for every query
@@ -55,6 +56,14 @@ def extract_farm_info(farmer_input: str, original: str | None = None) -> dict:
                         "short answer to the query in the query language.",
         ),
         ResponseSchema(
+            name="pest",
+            description="The pest, insect, weed or disease the farmer mentions, "
+                        "in English and as its common name - bollworm, stem borer, "
+                        "blast, rust, aphid, whitefly. Translate what they wrote: "
+                        "sundi and इल्ली are bollworm, tana chhedak is stem borer. "
+                        "'unknown' if they name no pest or disease.",
+        ),
+        ResponseSchema(
             name="message_type",
             description=f"What KIND of message this is. Exactly one of: {MESSAGE_TYPES}. "
                         "question = asking for farming advice or information. "
@@ -98,6 +107,7 @@ def extract_farm_info(farmer_input: str, original: str | None = None) -> dict:
     - "location" is just the location.
     - "state" is the state name, not the full address.
     - "crop_type" is only the crop name.
+    - "pest" is only the pest or disease name, in English.
     - "answer" is a short answer to the query if it is not related to agriculture.
     - "intent" is exactly one of the listed values, nothing else.
     - "message_type" is exactly one of the listed values, nothing else. A message that only states a location or crop, with no question, is a "statement".

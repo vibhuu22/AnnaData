@@ -12,6 +12,7 @@ from weather_tool import weather_openmeteo
 from Soil_Tool import soil_tool
 from Refined_Farmer_Query import get_farming_query
 from Web_Crawler import query_kb, is_available as kb_available
+import knowledge
 import planner
 import provenance
 import re
@@ -75,6 +76,44 @@ CHANNEL_STYLE = {
 }
 
 
+# Which script a message is written in, decided in code rather than left to the
+# model. Told to "match the farmer's language" it kept converting romanised
+# Hinglish into Devanagari; told "reply in the Latin alphabet" it complies. The
+# shared danda U+0964 sits in the Devanagari block but is used by Bengali and
+# Gurmukhi too, so it must not decide anything.
+SCRIPT_RANGES = (
+    ("Gurmukhi", 0x0A00, 0x0A7F),
+    ("Bengali", 0x0980, 0x09FF),
+    ("Gujarati", 0x0A80, 0x0AFF),
+    ("Tamil", 0x0B80, 0x0BFF),
+    ("Telugu", 0x0C00, 0x0C7F),
+    ("Kannada", 0x0C80, 0x0CFF),
+    ("Malayalam", 0x0D00, 0x0D7F),
+    ("Odia", 0x0B00, 0x0B7F),
+    ("Devanagari", 0x0900, 0x0963),
+)
+
+
+def script_of(text: str) -> str:
+    for name, lo, hi in SCRIPT_RANGES:
+        if any(lo <= ord(c) <= hi for c in text or ""):
+            return name
+    return "Latin"
+
+
+def script_instruction(query: str) -> str:
+    script = script_of(query)
+    if script == "Latin":
+        return ("The farmer wrote in the LATIN alphabet. You MUST reply in the "
+                "LATIN alphabet. If they wrote romanised Hindi or another Indian "
+                "language (Hinglish, 'Kapas me sundi lag gayi hai'), reply the same "
+                "way, in Latin letters. Do NOT reply in Devanagari or any other "
+                "Indian script.")
+    return (f"The farmer wrote in the {script} script. You MUST reply in the "
+            f"{script} script, in that same language. Do not switch to Hindi or "
+            f"English unless they did.")
+
+
 def style_for(channel: str) -> str:
     return CHANNEL_STYLE.get((channel or "web").lower(), CHANNEL_STYLE["web"])
 
@@ -100,6 +139,7 @@ def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: st
 
     style = style_for(channel)
     temporal = temporal_context()
+    script_rule = script_instruction(query)
 
     prompt = f"""
     **Role and Goal:**
@@ -108,10 +148,13 @@ def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: st
     **Current date and season:**
     {temporal}
 
+    **SCRIPT (this overrides every other instruction):**
+    {script_rule}
+
     **Critical Instructions:**
     1.  **Content:** The advice must be accurate, practical for Indian conditions, and directly address the farmer's latest query.
     2.  **Format:** {style}
-    3.  **Language (overrides everything above):** Identify the exact language and script of the farmer's latest question, and reply in that same one. Punjabi in Gurmukhi is answered in Gurmukhi, Bengali in Bengali, Telugu in Telugu, Marathi in Devanagari, English in English, Hinglish in Hinglish. Hindi is NOT a default: never answer an Indian-language question in Hindi unless the farmer wrote in Hindi. The location the farmer mentions NEVER decides the language: a question written in English about Nagpur is answered in English, not Marathi; about Ludhiana, in English, not Punjabi. Match the question, not the place. Never translate.
+    3.  **Language (overrides everything above):** Identify the exact language and script of the farmer's latest question, and reply in that same one. Punjabi in Gurmukhi is answered in Gurmukhi, Bengali in Bengali, Telugu in Telugu, Marathi in Devanagari, English in English, Hinglish in Hinglish. Hindi is NOT a default: never answer an Indian-language question in Hindi unless the farmer wrote in Hindi. The location the farmer mentions NEVER decides the language: a question written in English about Nagpur is answered in English, not Marathi; about Ludhiana, in English, not Punjabi. If the farmer wrote Hindi or another Indian language in the LATIN alphabet (Hinglish - 'Kapas me sundi lag gayi hai'), reply in the Latin alphabet too. Do not convert their romanised text into Devanagari; they chose to write in Latin script and the reply must match. Match the question, not the place. If the farmer wrote Hindi or another Indian language in the LATIN alphabet (Hinglish - 'Kapas me sundi lag gayi hai'), reply in the Latin alphabet too. Do not convert their romanised text into Devanagari; they chose to write in Latin script and the reply must match. Never translate.
 
     ---
 
@@ -246,13 +289,15 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     """
     style = style_for(channel)
     temporal = temporal_context()
+    script_rule = script_instruction(farmer_query)
 
     context_lines = [
         f"- Location: {location or 'unknown'}",
         f"- State: {state or 'unknown'}",
         f"- Crop: {crop or 'unknown'}",
     ]
-    for label, key in (("Soil", "soil"), ("Weather", "weather"),
+    for label, key in (("APPROVED PESTICIDE USES", "doses"),
+                       ("Soil", "soil"), ("Weather", "weather"),
                        ("Mandi Price", "mandi"), ("Knowledge Base", "kb")):
         value = gathered.get(key)
         if value:
@@ -267,6 +312,8 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
 
     {temporal}
 
+    SCRIPT (overrides everything else): {script_rule}
+
     Constraints:
     - {style}
     - Be practical and farmer-friendly.
@@ -275,6 +322,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     - If the farmer asks a direct factual question - the temperature, the humidity, the rainfall, the price - ANSWER IT with the exact figure from the Context. Never say you cannot provide live data when the figure is sitting in the Context above. If only part of what they asked for is present, give that part and say the rest is not available.
     - The Context is measured data for this farmer's own location. Trust it over any assumption the farmer states: if they say the weather is dry and the data shows heavy rain, tell them plainly what the data says.
     - Do not invent facts beyond the given data.
+    - CHEMICALS AND DOSES: if an APPROVED PESTICIDE USES section is present, you may name a pesticide and a dose ONLY if it appears there, quoted exactly, and you should say it is a registered use. If that section says nothing is registered, or warns the listed uses are for a different pest, then name NO chemical and NO dose at all - say you have no approved treatment on record and tell them to ask their Krishi Vigyan Kendra or agriculture officer. Never fall back on a chemical you happen to know.
     - Format response clearly into sections.
 
     Context:
@@ -285,7 +333,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     return llm.invoke([HumanMessage(content=prompt)]).content
 
 
-def gather(tools, *, lat, lon, state, crop, query) -> dict:
+def gather(tools, *, lat, lon, state, crop, query, pest=None) -> dict:
     """Run the selected tools concurrently.
 
     They are independent network calls, so running them in sequence meant the
@@ -296,6 +344,12 @@ def gather(tools, *, lat, lon, state, crop, query) -> dict:
         return {}
 
     calls = {
+        # Registered uses come from a table, not a model. The result carries
+        # whether the pest actually matched, because a use for a different pest
+        # must never be offered as an answer for this one.
+        "doses":   lambda: knowledge.format_uses(
+            knowledge.approved_uses(crop, pest), pest
+        ),
         "soil":    lambda: soil_tool(lat, lon),
         "weather": lambda: weather_openmeteo(lat, lon),
         "mandi":   lambda: get_state_data(state, crop),
@@ -407,6 +461,7 @@ def run_agent(
         has_coords=lat is not None and lon is not None,
         state=facts["state"],
         kb_available=kb_available(),
+        crop=facts["crop"],
     )
     missing = planner.missing_slots(
         intent, crop=facts["crop"], location=facts["location"], state=facts["state"]
@@ -441,7 +496,8 @@ def run_agent(
             tools_used=["general"], missing_slots=missing, intent=intent, **facts
         )
 
-    gathered = gather(tools, lat=lat, lon=lon, state=state, crop=crop, query=query_final)
+    gathered = gather(tools, lat=lat, lon=lon, state=state, crop=crop,
+                      query=query_final, pest=_known(structured_input.get("pest")))
 
     # A knowledge base answer is already a complete, sourced response.
     if gathered.get("kb") and tools == {"kb"}:

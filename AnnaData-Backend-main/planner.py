@@ -14,7 +14,10 @@ regardless, so tool selection is free.
 
 # Which tools each kind of question can actually use.
 TOOLS_FOR_INTENT = {
-    "disease_pest":         {"weather"},           # humidity and rain drive disease pressure
+    # "doses" is the registered pesticide table. It is what turns a chemical
+    # recommendation from something the model recalled into something the
+    # registration authority actually approved.
+    "disease_pest":         {"weather", "doses"},  # humidity and rain drive disease pressure
     "sowing_planting":      {"weather", "soil"},
     "fertiliser_nutrition": {"soil", "weather"},
     "irrigation_water":     {"weather"},
@@ -27,6 +30,7 @@ TOOLS_FOR_INTENT = {
 
 # Slots without which a tool cannot run at all.
 TOOL_REQUIREMENTS = {
+    "doses":   {"crop"},        # a dose is meaningless without knowing the crop
     "soil":    {"coords"},
     "weather": {"coords"},
     "mandi":   {"state"},
@@ -75,12 +79,14 @@ def plan_tools(
     has_coords: bool,
     state: str | None,
     kb_available: bool,
+    crop: str | None = None,
 ) -> set[str]:
     """Tools worth running for this question, given what is actually known."""
     intent = normalise_intent(intent)
     available = {
         "coords": has_coords,
         "state": bool(state),
+        "crop": bool(crop),
     }
 
     chosen = set()

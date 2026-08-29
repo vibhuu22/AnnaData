@@ -101,6 +101,38 @@ def embed(text: str, dim: int = EMBED_DIM) -> list[float] | None:
         return None
 
 
+# The register writes a crop one way; farmers write it several others. These
+# are the names that actually turn up in messages, including the transliterated
+# ones - a farmer typing "kapas" or "dhaan" must reach the same rows as one
+# typing the English name.
+CROP_SYNONYMS = {
+    "paddy": "rice", "dhaan": "rice", "dhan": "rice", "chawal": "rice",
+    "kapas": "cotton", "rui": "cotton",
+    "gehu": "wheat", "gehun": "wheat", "kanak": "wheat",
+    "bhindi": "okra", "ladyfinger": "okra", "lady finger": "okra",
+    "baingan": "brinjal", "eggplant": "brinjal", "aubergine": "brinjal",
+    "aloo": "potato", "batata": "potato",
+    "pyaz": "onion", "kanda": "onion",
+    "tamatar": "tomato",
+    "mirch": "chilli", "mirchi": "chilli", "chili": "chilli", "chile": "chilli",
+    "makka": "maize", "corn": "maize", "bhutta": "maize",
+    "ganna": "sugarcane", "genna": "sugarcane",
+    "soyabean": "soybean", "soya": "soybean",
+    "moongphali": "groundnut", "peanut": "groundnut", "mungfali": "groundnut",
+    "sarson": "mustard", "rai": "mustard",
+    "chana": "chickpea", "gram": "chickpea",
+    "arhar": "pigeonpea", "tur": "pigeonpea", "toor": "pigeonpea",
+    "haldi": "turmeric",
+}
+
+
+def canonical_crop(crop: str | None) -> str | None:
+    if not crop:
+        return None
+    key = crop.strip().lower()
+    return CROP_SYNONYMS.get(key, key)
+
+
 # --- approved doses ---------------------------------------------------------
 
 def approved_uses(crop: str | None, pest: str | None = None, limit: int = 8) -> dict:
@@ -114,29 +146,42 @@ def approved_uses(crop: str | None, pest: str | None = None, limit: int = 8) -> 
         return {"uses": [], "pest_matched": False}
     try:
         with db.connection() as conn:
+            # Crop matching stays tight - a use for one crop must never be
+            # returned for another - but tolerates how the register writes it:
+            # "Rice (Paddy)" has to be reachable from both "rice" and "paddy".
+            crop_match = """(
+                    lower(crop) = %(crop)s
+                 OR lower(crop) LIKE %(crop)s || ' (%%'
+                 OR lower(crop) LIKE '%%(' || %(crop)s || ')%%'
+                 OR lower(crop) LIKE %(crop)s || ',%%'
+            )"""
+            params = {"crop": canonical_crop(crop), "limit": limit,
+                      "pest_like": f"%{(pest or '').lower()}%", "pest": (pest or "").lower()}
+
             if pest:
                 rows = conn.execute(
-                    """
+                    f"""
                     SELECT product, crop, pest, dose_formulation, dose_ai,
                            dilution, waiting_period, source
                       FROM pesticide_uses
-                     WHERE lower(crop) = lower(%s)
-                       AND (lower(pest) LIKE lower(%s) OR lower(%s) LIKE '%%' || lower(pest) || '%%')
-                     LIMIT %s
+                     WHERE {crop_match}
+                       AND (lower(pest) LIKE %(pest_like)s
+                            OR %(pest)s LIKE '%%' || lower(pest) || '%%')
+                     LIMIT %(limit)s
                     """,
-                    (crop, f"%{pest}%", pest, limit),
+                    params,
                 ).fetchall()
                 if rows:
                     return {"uses": _rows_to_dicts(rows), "pest_matched": True}
             rows = conn.execute(
-                """
+                f"""
                 SELECT product, crop, pest, dose_formulation, dose_ai,
                        dilution, waiting_period, source
                   FROM pesticide_uses
-                 WHERE lower(crop) = lower(%s)
-                 LIMIT %s
+                 WHERE {crop_match}
+                 LIMIT %(limit)s
                 """,
-                (crop, limit),
+                params,
             ).fetchall()
             # Nothing registered for this pest. What is registered for the crop
             # is still worth showing, but it must never be presented as an
