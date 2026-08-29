@@ -160,12 +160,23 @@ required to get the web app working. `APP_USERNAME` and `PASSWORD` come from the
 Android app and are needed for SMS. Leave the rest blank; `/health` will report
 what is enabled.
 
-Cross-service URLs (`AI_ENDPOINT`, `PUBLIC_URL`, `REACT_APP_API_URL`) are wired
-automatically via `fromService`. Render supplies them as bare hostnames, which
-both the bridge and the frontend normalise into full URLs.
+**Step 4 — wire the services together.** Render cannot do this for you: its
+`fromService` resolves to an *internal* hostname (the bare service name, with no
+`.onrender.com`), which a browser cannot reach. Render also appends a random
+suffix when a service name is already taken, so the public host is often not the
+name in `render.yaml` — check the URL at the top of each service's page.
 
-**Step 4 — after the first deploy**, set `FRONTEND_URL` on `annadata-backend` to
-the frontend's URL so CORS allows it, then redeploy the backend.
+Using `<backend>` and `<frontend>` for the real public hosts:
+
+| Service | Variable | Value | Then |
+|---|---|---|---|
+| `annadata-backend` | `FRONTEND_URL` | `https://<frontend>.onrender.com` | restart |
+| `annadata-sms` | `AI_ENDPOINT` | `https://<backend>.onrender.com/agent` | restart |
+| `annadata-sms` | `PUBLIC_URL` | `https://<sms-bridge>.onrender.com` | restart |
+| `annadata-frontend` | `REACT_APP_API_URL` | `https://<backend>.onrender.com` | **redeploy** |
+
+The frontend needs a full redeploy, not a restart: Create React App inlines env
+vars at build time.
 
 **Step 5 — register the SMS webhook** (see section 3).
 

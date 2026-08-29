@@ -76,20 +76,21 @@ services:
         sync: false
       - key: PASSWORD
         sync: false
-      # The backend's Render host. A bare hostname is fine — it is normalised
-      # to a full https://.../agent URL at startup.
+      # Set these by hand after the first deploy, to the PUBLIC URLs shown at
+      # the top of each service's Render page.
+      #
+      # Do NOT use `fromService ... property: host` here: that resolves to
+      # Render's *internal* hostname (bare service name, no .onrender.com),
+      # which is not reachable as a public URL. Render also appends a random
+      # suffix when a service name is taken, so the public host is often not
+      # the name in this file.
+      #
+      #   AI_ENDPOINT = https://<backend-host>.onrender.com/agent
       - key: AI_ENDPOINT
-        fromService:
-          type: web
-          name: annadata-backend
-          property: host
-      # This service's own public URL, used by webhook.py to register the
-      # sms:received webhook with the gateway.
+        sync: false
+      #   PUBLIC_URL  = https://<this-service-host>.onrender.com
       - key: PUBLIC_URL
-        fromService:
-          type: web
-          name: annadata-sms
-          property: host
+        sync: false
       - key: MAX_SMS_SEGMENTS
         value: "4"
 
@@ -101,13 +102,16 @@ services:
     buildCommand: npm ci && npm run build
     staticPublishPath: build
     envVars:
-      # Create React App inlines this at BUILD time, so changing it needs a
-      # redeploy, not just a restart.
+      # Set by hand to the backend's PUBLIC URL after the first deploy, then
+      # redeploy this service - Create React App inlines env vars at BUILD
+      # time, so a restart alone will not pick up a change.
+      #
+      #   REACT_APP_API_URL = https://<backend-host>.onrender.com
+      #
+      # Not `fromService`: that gives the internal hostname, which a browser
+      # cannot resolve.
       - key: REACT_APP_API_URL
-        fromService:
-          type: web
-          name: annadata-backend
-          property: host
+        sync: false
     routes:
       # Single-page app: serve index.html for any unmatched path.
       - type: rewrite
