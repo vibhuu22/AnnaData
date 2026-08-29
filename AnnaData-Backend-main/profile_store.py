@@ -176,6 +176,7 @@ def log_message(
     body: str,
     gateway_message_id: str | None = None,
     meta: dict | None = None,
+    session_id: int | None = None,
 ) -> None:
     """Record one message. Duplicate gateway ids are ignored, not an error."""
     if not user_id or not db.is_available() or not body:
@@ -184,12 +185,13 @@ def log_message(
         with db.connection() as conn:
             conn.execute(
                 """
-                INSERT INTO messages (user_id, direction, body, gateway_message_id, meta)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO messages (user_id, direction, body, gateway_message_id,
+                                      meta, session_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (gateway_message_id) DO NOTHING
                 """,
                 (user_id, direction, body, gateway_message_id,
-                 json.dumps(meta) if meta else None),
+                 json.dumps(meta) if meta else None, session_id),
             )
     except Exception as e:
         print(f"Message log failed for {user_id}: {e}")

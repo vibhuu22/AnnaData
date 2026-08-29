@@ -423,6 +423,35 @@ geocoding, Open-Meteo and MET Norway weather, Earth Engine non-commercial, and
 the phone gateway. The only paid item the project needs is Gemini billing, and
 that is a quota question rather than an infrastructure one.
 
+### Asking farmers what they thought
+
+Two rules govern when a rating is requested, and they conflict if taken
+literally. A rating should be asked while the conversation is fresh - shortly
+after it ends - and at most once a month on a day drawn per farmer. Treating
+the drawn day as the day to *send* asks a farmer about a conversation from two
+weeks earlier that they no longer remember. So the drawn day is the earliest
+*eligible* day, and the ask goes out after the first conversation that finishes
+on or after it.
+
+The day is drawn per farmer rather than shared, because a single date would put
+a month of reminders through one handset in an afternoon.
+
+A rating alone says a farmer was unhappy. Stored beside what the conversation
+was about - intent, which tools ran, crop, state, whether a dose was given or
+refused, how many turns - it says what *kind* of question goes wrong, which is
+the part that can be acted on. Those features cannot be reconstructed later, so
+they are written with the number.
+
+Parsing needed a guard. "My 5 acre farm has bollworm" is a question that
+happens to contain a digit, and scoring it as a rating would both record
+nonsense and leave the farmer's problem unanswered. A bare number now counts
+only in a short reply; an explicit form - "4/5", "rating 4", "4 star" - counts
+at any length.
+
+Scheduling is driven by an external cron hitting an endpoint rather than a
+timer inside the process, because free hosting sleeps and a background loop
+would simply stop. The same ping also wakes the service.
+
 ---
 
 ## 7. Testing

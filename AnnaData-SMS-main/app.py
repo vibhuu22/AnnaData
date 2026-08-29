@@ -62,6 +62,59 @@ async def forget_farmer(phone: str) -> bool:
         return False
 
 
+async def record_rating(phone: str, message: str) -> bool:
+    """Offer the message to the backend as a rating.
+
+    Returns True when it was one, so the message is not also answered as a
+    farming question - a farmer replying "4" is not asking about anything.
+    """
+    base = config.backend_base()
+    if not base:
+        return False
+    http: aiohttp.ClientSession = app.config["HTTP"]
+    try:
+        async with http.post(f"{base}/feedback/rating",
+                             json={"user_id": phone, "message": message},
+                             timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            if resp.status != 200:
+                return False
+            data = await resp.json(content_type=None)
+            return bool(data.get("is_rating"))
+    except Exception as e:
+        print(f"Rating check failed for {phone}: {e}")
+        return False
+
+
+async def send_feedback_requests() -> dict:
+    """Ask farmers whose conversation has finished to rate it."""
+    base = config.backend_base()
+    if not base:
+        return {"asked": 0, "reason": "no backend configured"}
+
+    http: aiohttp.ClientSession = app.config["HTTP"]
+    try:
+        async with http.get(f"{base}/feedback/due",
+                            timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            due = (await resp.json(content_type=None)).get("due", [])
+    except Exception as e:
+        print(f"Could not fetch farmers due for feedback: {e}")
+        return {"asked": 0, "error": str(e)[:120]}
+
+    asked = 0
+    for phone in due:
+        if await send_sms(phone, config.FEEDBACK_PROMPT):
+            try:
+                await http.post(f"{base}/feedback/asked", json={"user_id": phone},
+                                timeout=aiohttp.ClientTimeout(total=30))
+            except Exception as e:
+                print(f"Could not mark {phone} as asked: {e}")
+            asked += 1
+
+    if asked:
+        print(f"Asked {asked} farmer(s) for a rating")
+    return {"asked": asked, "due": len(due)}
+
+
 async def generate_response(message: str, phone: str, message_id: str | None) -> str | None:
     """Ask the agent backend for a reply, already trimmed for SMS."""
     if not config.AI_ENDPOINT:
@@ -184,6 +237,12 @@ async def process_sms(data: dict):
         await send_sms(phone, config.STOP_REPLY)
         return
 
+    # A reply to the rating request is a number, not a question. Checking
+    # first stops "4" being answered as though it were about farming.
+    if await record_rating(phone, msg):
+        await send_sms(phone, config.FEEDBACK_THANKS)
+        return
+
     reply = await generate_response(msg, phone, payload.get("messageId"))
     if reply:
         print("AI Reply:", reply)
@@ -205,6 +264,17 @@ async def health():
         "problems": problems,
         "pending_dedup_entries": len(processed_ids),
     }), 200
+
+
+@app.post("/tasks/feedback")
+async def feedback_task():
+    """Send any rating requests that are due.
+
+    Driven by an external scheduler rather than a timer inside the process:
+    free hosting sleeps, so a background loop would simply stop, while a cron
+    ping also wakes the service.
+    """
+    return jsonify(await send_feedback_requests()), 200
 
 
 @app.post(config.WEBHOOK_PATH)

@@ -71,6 +71,17 @@ CONTEXT_TTL_HOURS = int(_get("CONTEXT_TTL_HOURS", "48"))
 # How long before a farmer who ignored the location question is asked again.
 LOCATION_ASK_COOLDOWN_HOURS = int(_get("LOCATION_ASK_COOLDOWN_HOURS", "24"))
 
+# --- Feedback ---
+# A conversation is considered finished after this much silence, which is also
+# when it becomes fair to ask what the farmer thought of it.
+SESSION_GAP_HOURS = int(_get("SESSION_GAP_HOURS", "2"))
+# Each farmer is asked at most once a calendar month, on a day drawn for them
+# rather than a shared one - a single date would send every reminder at once
+# and put a month of SMS through one handset in an afternoon.
+FEEDBACK_COOLDOWN_DAYS = int(_get("FEEDBACK_COOLDOWN_DAYS", "25"))
+# How long after asking a reply still counts as a rating rather than a question.
+FEEDBACK_WINDOW_HOURS = int(_get("FEEDBACK_WINDOW_HOURS", "48"))
+
 # --- Deployment ---
 FRONTEND_URL = _get("FRONTEND_URL")
 CORS_ORIGINS = _get("CORS_ORIGINS")              # comma-separated, optional

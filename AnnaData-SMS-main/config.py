@@ -50,11 +50,30 @@ def _normalise_endpoint(value: str | None) -> str | None:
 AI_ENDPOINT = _normalise_endpoint(_AI_ENDPOINT_RAW)
 
 
+# Asking for a rating costs a real SMS from the farmer's own SIM, so it is
+# deliberately one short message and sent at most once a month.
+FEEDBACK_PROMPT = _get(
+    "FEEDBACK_PROMPT",
+    "How helpful was AnnaData? Reply with a number from 1 to 5. "
+    "Your reply helps us improve. Reply STOP to opt out.",
+)
+FEEDBACK_THANKS = _get(
+    "FEEDBACK_THANKS",
+    "Thank you. Your rating helps us give better advice.",
+)
+
+
+def backend_base() -> str | None:
+    if not AI_ENDPOINT:
+        return None
+    return AI_ENDPOINT[: -len("/agent")]
+
+
 def forget_url() -> str | None:
     """Backend endpoint that erases a farmer's stored data."""
     if not AI_ENDPOINT:
         return None
-    return AI_ENDPOINT[: -len("/agent")] + "/forget"
+    return backend_base() + "/forget"
 
 DEDUP_TTL = int(_get("DEDUP_TTL", "600"))
 AI_TIMEOUT = int(_get("AI_TIMEOUT", "150"))
