@@ -5,10 +5,12 @@ Days are now located by matching the actual date strings the API returns rather
 than by fixed negative offsets, which silently reported the wrong day whenever
 the response range differed from the request.
 """
+import time
+
 import requests
 from datetime import date, timedelta
 
-from config import HTTP_TIMEOUT
+from config import WEATHER_TIMEOUT, WEATHER_ATTEMPTS
 
 PAST_DAYS = 30
 FORECAST_DAYS = 7
@@ -34,16 +36,30 @@ def weather_openmeteo(lat, lon) -> str:
         "timezone": "auto",
     }
 
-    try:
-        r = requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params=params,
-            timeout=HTTP_TIMEOUT,
-        )
-        r.raise_for_status()
-        data = r.json()
-    except Exception as e:
-        print(f"Weather lookup failed for ({lat}, {lon}): {e}")
+    data = None
+    last_error = None
+    for attempt in range(1, WEATHER_ATTEMPTS + 1):
+        try:
+            r = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params=params,
+                timeout=WEATHER_TIMEOUT,
+            )
+            r.raise_for_status()
+            data = r.json()
+            break
+        except Exception as e:
+            last_error = e
+            # Log every attempt with the status, so a rate limit is
+            # distinguishable from a timeout in the deployment logs.
+            status = getattr(getattr(e, "response", None), "status_code", "-")
+            print(f"Weather attempt {attempt}/{WEATHER_ATTEMPTS} failed "
+                  f"for ({lat}, {lon}) [http {status}]: {e}")
+            if attempt < WEATHER_ATTEMPTS:
+                time.sleep(attempt)
+
+    if data is None:
+        print(f"Weather lookup failed for ({lat}, {lon}): {last_error}")
         return "Weather data unavailable (lookup failed)."
 
     daily = data.get("daily")

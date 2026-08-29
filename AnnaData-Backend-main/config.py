@@ -92,6 +92,10 @@ HTTP_TIMEOUT = int(_get("HTTP_TIMEOUT", "20"))
 # load, so it gets its own budget and is retried rather than failing the answer.
 GOV_API_TIMEOUT = int(_get("GOV_API_TIMEOUT", "45"))
 GOV_API_ATTEMPTS = int(_get("GOV_API_ATTEMPTS", "2"))
+# Open-Meteo is fast from a laptop but shared cloud egress IPs see occasional
+# rate limiting, so weather retries rather than silently losing the reading.
+WEATHER_TIMEOUT = int(_get("WEATHER_TIMEOUT", "25"))
+WEATHER_ATTEMPTS = int(_get("WEATHER_ATTEMPTS", "3"))
 
 
 def feature_status() -> dict:
