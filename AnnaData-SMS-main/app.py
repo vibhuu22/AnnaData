@@ -1,0 +1,185 @@
+import encoding_setup  # noqa: F401  (must be first)
+
+import asyncio
+import time
+
+import aiohttp
+from quart import Quart, request, jsonify
+
+import config
+from sms_text import prepare, segment_count
+
+app = Quart(__name__)
+
+# In-memory cache for processed message IDs (deduplication).
+processed_ids: dict[str, float] = {}
+
+
+# === Lifecycle Hooks ===
+@app.before_serving
+async def startup():
+    app.config["HTTP"] = aiohttp.ClientSession()
+    problems = config.validate()
+    if problems:
+        for p in problems:
+            print(f"CONFIG WARNING: {p}")
+    print(f"SMS mode: {config.SMS_MODE} -> {config.messages_url()}")
+    print(f"AI endpoint: {config.AI_ENDPOINT}")
+    print("HTTP session ready")
+
+
+@app.after_serving
+async def shutdown():
+    await app.config["HTTP"].close()
+    print("Shutdown complete")
+
+
+# === Deduplication ===
+def is_processed(message_id: str) -> bool:
+    now = time.time()
+    for mid in [m for m, ts in processed_ids.items() if now - ts > config.DEDUP_TTL]:
+        processed_ids.pop(mid, None)
+    return message_id in processed_ids
+
+
+def mark_processed(message_id: str):
+    processed_ids[message_id] = time.time()
+
+
+# === AI Service ===
+async def generate_response(message: str) -> str | None:
+    """Ask the agent backend for a reply, already trimmed for SMS."""
+    if not config.AI_ENDPOINT:
+        print("AI_ENDPOINT not configured")
+        return None
+
+    http: aiohttp.ClientSession = app.config["HTTP"]
+    # The farmer's message is sent verbatim. Brevity and plain-text formatting
+    # are requested via `channel`, not by appending instructions to the query -
+    # appended text was being parsed as part of the question and skewed the
+    # crop and location extraction.
+    payload = {"query": message, "channel": "sms"}
+
+    try:
+        async with http.post(
+            config.AI_ENDPOINT,
+            json=payload,
+            headers={"accept": "application/json", "Content-Type": "application/json"},
+            timeout=aiohttp.ClientTimeout(total=config.AI_TIMEOUT),
+        ) as resp:
+            body = await resp.text()
+            if resp.status != 200:
+                print(f"AI API error {resp.status}: {body[:300]}")
+                return None
+
+            data = await resp.json(content_type=None)
+
+            # The backend returns {"answer": ...}. The previous version read
+            # "response", which never existed, so every reply was dropped.
+            answer = data.get("answer") or data.get("response")
+            if not answer:
+                print(f"AI API returned no answer field: {body[:300]}")
+                return None
+
+            return prepare(answer, config.MAX_SMS_CHARS, config.MAX_SMS_SEGMENTS)
+
+    except asyncio.TimeoutError:
+        print(f"AI request timed out after {config.AI_TIMEOUT}s")
+        return None
+    except Exception as e:
+        print(f"AI request failed: {e}")
+        return None
+
+
+# === SMS Sending ===
+async def send_sms(phone_number: str, message: str) -> bool:
+    http: aiohttp.ClientSession = app.config["HTTP"]
+    auth = aiohttp.BasicAuth(config.USERNAME or "", config.PASSWORD or "")
+    payload = {"phoneNumbers": [phone_number], "textMessage": {"text": message}}
+
+    try:
+        async with http.post(
+            config.messages_url(),
+            json=payload,
+            auth=auth,
+            timeout=aiohttp.ClientTimeout(total=config.SMS_TIMEOUT),
+        ) as resp:
+            if resp.status in (200, 201, 202):
+                print(f"SMS sent to {phone_number} "
+                      f"({len(message)} chars, {segment_count(message)} segment(s))")
+                return True
+            print(f"SMS send failed {resp.status}: {(await resp.text())[:300]}")
+            return False
+    except Exception as e:
+        print(f"SMS sending error: {e}")
+        return False
+
+
+# === Processing Logic ===
+async def process_sms(data: dict):
+    payload = data.get("payload", {})
+    msg = payload.get("message")
+
+    # The gateway sends the originating number as "sender". The previous code
+    # read "phoneNumber", so replies were addressed to None.
+    phone = payload.get("sender") or payload.get("phoneNumber")
+    received_at = payload.get("receivedAt")
+
+    print("\nIncoming SMS")
+    print(f" From: {phone}")
+    print(f" Text: {msg}")
+    print(f" At  : {received_at}")
+    print("-" * 40)
+
+    if not msg or not msg.strip():
+        print("Empty message body, nothing to answer")
+        return
+    if not phone:
+        print("No sender number in payload, cannot reply")
+        return
+
+    reply = await generate_response(msg)
+    if reply:
+        print("AI Reply:", reply)
+        await send_sms(phone, reply)
+    else:
+        await send_sms(
+            phone,
+            "Sorry, AnnaData could not answer right now. Please try again shortly.",
+        )
+
+
+# === Endpoints ===
+@app.get("/health")
+async def health():
+    problems = config.validate()
+    return jsonify({
+        "status": "ok" if not problems else "degraded",
+        "mode": config.SMS_MODE,
+        "problems": problems,
+        "pending_dedup_entries": len(processed_ids),
+    }), 200
+
+
+@app.post(config.WEBHOOK_PATH)
+async def incoming_sms():
+    data = await request.get_json(force=True, silent=True) or {}
+    message_id = data.get("payload", {}).get("messageId")
+    print("Received SMS with ID:", message_id)
+
+    if not message_id:
+        return jsonify({"status": "error", "reason": "missing messageId"}), 400
+
+    if is_processed(message_id):
+        print(f"Duplicate SMS (ID: {message_id}) - skipping")
+        return jsonify({"status": "duplicate"}), 200
+
+    mark_processed(message_id)
+
+    # Reply within the gateway's 30s webhook deadline; answer out of band.
+    asyncio.create_task(process_sms(data))
+    return jsonify({"status": "ok"}), 200
+
+
+# Run with:
+#   uvicorn app:app --host 0.0.0.0 --port 5000

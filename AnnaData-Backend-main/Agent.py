@@ -1,0 +1,223 @@
+from typing import List, Optional
+
+from langchain.schema import HumanMessage
+from langchain.output_parsers import ResponseSchema, StructuredOutputParser
+
+from utils import llm
+from Address_Convertor import get_location
+from Mandi_Price_Tool import get_state_data
+from Query_Parser import extract_farm_info
+from weather_tool import weather_openmeteo
+from Soil_Tool import soil_tool
+from Refined_Farmer_Query import get_farming_query
+from Web_Crawler import query_kb, is_available as kb_available
+import re
+
+
+# How the answer should be shaped, per delivery channel. SMS callers used to
+# append this instruction to the farmer's message, which meant the query parser
+# saw it as part of the question and could mis-extract crop and location.
+CHANNEL_STYLE = {
+    "web": (
+        "Keep the answer concise, ideally under 250 words. "
+        "Format it clearly using markdown."
+    ),
+    "sms": (
+        "This answer is delivered as an SMS to a basic phone. "
+        "Use plain text ONLY: no markdown, no asterisks, no hash headers, "
+        "no bullet characters, no tables, no links. "
+        "Write two or three short sentences giving the single most useful, "
+        "actionable step, and always include specific quantities. "
+        "Length: at most 45 words when answering in English or Hinglish. "
+        "When answering in a non-Latin script (Devanagari, Gurmukhi, Bengali, "
+        "Telugu, Tamil and so on) an SMS holds less than half as much, so keep "
+        "it to at most 30 words. "
+        "Always finish your final sentence - a complete short answer is much "
+        "more useful to a farmer than a longer one that gets cut off."
+    ),
+}
+
+
+def style_for(channel: str) -> str:
+    return CHANNEL_STYLE.get((channel or "web").lower(), CHANNEL_STYLE["web"])
+
+
+def extract_markdown_content(text: str) -> str:
+    """Unwrap a ```markdown fenced block if the model emitted one."""
+    match = re.search(r"```markdown\n([\s\S]*?)\n```", text)
+    return match.group(1).strip() if match else text
+
+
+def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: str = "web") -> str:
+    """
+    query: str - the farmer's latest question
+    history: list[dict] - [{"role": "user"/"assistant", "content": "..."}]
+    """
+    print("QUERY:", query)
+    print("HISTORY:", history)
+
+    history_text = "\n".join(
+        f"{h.get('role', 'user').capitalize()}: {h.get('content', '')}"
+        for h in (history or [])
+    )
+
+    style = style_for(channel)
+
+    prompt = f"""
+    **Role and Goal:**
+    You are a highly knowledgeable agronomist and expert agricultural advisor, specializing in Indian farming conditions. Your goal is to provide a detailed, scientifically valid, and practical answer to the farmer's question, using the provided conversation history for context.
+
+    **Critical Instructions:**
+    1.  **Language:** You MUST respond in the exact same language as the "Farmer's latest question". Do not translate or switch languages.
+    2.  **Content:** The advice must be accurate, practical for Indian conditions, and directly address the farmer's latest query.
+    3.  **Format:** {style}
+
+    ---
+
+    **Conversation Context:**
+
+    **Conversation so far:**
+    {history_text}
+
+    **Farmer's latest question:**
+    {query}
+
+    ---
+
+    **Assistant's Expert Agronomic Advice:**
+    """
+
+    return llm.invoke([HumanMessage(content=prompt)]).content.strip()
+
+
+def get_farming_advice(location, state, crop, soil, weather, mandi_price,
+                       kb_answer, farmer_query, channel: str = "web") -> str:
+    """Compose the final advisory from all gathered tool data.
+
+    Tools that are unconfigured or failed pass through an explicit "unavailable"
+    string; the prompt tells the model to ignore those rather than invent data.
+    """
+    style = style_for(channel)
+
+    prompt = f"""
+    You are an expert agronomist and agricultural advisor.
+    Answer the farmer's question using the provided data.
+    Always respond in the farmer's query language:
+    Farmer's Query: {farmer_query}.
+
+    Constraints:
+    - {style}
+    - Be practical and farmer-friendly.
+    - Always reference the relevant data points (soil values, weather, mandi prices, etc.) in your answer.
+    - Some data sources may be marked unavailable. Silently ignore those; never mention missing data sources to the farmer, and never invent values for them.
+    - Do not invent facts beyond the given data.
+    - Format response clearly into sections.
+
+    Context:
+    - Location: {location}
+    - State: {state}
+    - Crop: {crop}
+    - Soil: {soil}
+    - Weather: {weather}
+    - Mandi Price: {mandi_price}
+    - Knowledge Base Answer: {kb_answer}
+    - Farmer's Question: {farmer_query}
+    """
+
+    return llm.invoke([HumanMessage(content=prompt)]).content
+
+
+def kb_router(query: str) -> bool:
+    """Decide whether the query needs a knowledge base lookup.
+
+    Returns True for cold storage or government scheme questions. Skips the LLM
+    call entirely when no knowledge base is configured.
+    """
+    if not kb_available():
+        return False
+
+    response_schemas = [
+        ResponseSchema(
+            name="query",
+            description='Return "YES" if the query is about storage or government schemes, otherwise "NO".',
+        )
+    ]
+    output_parser = StructuredOutputParser.from_response_schemas(response_schemas)
+
+    prompt = f"""
+    You are a query classifier for an agricultural assistant.
+
+    Farmer's query: "{query}"
+
+    Task:
+    Classify the query:
+    - If it's about "storage or cold storage" OR "government schemes" (subsidies, support schemes, loan schemes, insurance, etc.), return YES.
+    - Otherwise, return NO.
+
+    {output_parser.get_format_instructions()}
+    """
+
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        parsed = output_parser.parse(response.content)
+        return parsed["query"].strip().upper() == "YES"
+    except Exception as e:
+        print("Router parsing error:", e)
+        return False
+
+
+def agent(
+    query: str,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    history: Optional[List[dict]] = None,
+    channel: str = "web",
+) -> str:
+    query_final = get_farming_query(query, history)
+    print(f"Final query after refinement: {query_final}")
+
+    structured_input = extract_farm_info(query_final)
+
+    crop = structured_input.get("crop_type", "unknown")
+    state = structured_input.get("state", "unknown")
+    location = structured_input.get("location", "unknown")
+    answer = structured_input.get("answer", "unknown")
+
+    print(f"Extracted Crop: {crop}, State: {state}, Location: {location}, answer: {answer}")
+
+    # Non-agricultural query: the parser already answered it.
+    if answer != "unknown" and crop == "unknown" and state == "unknown" and location == "unknown":
+        return answer
+
+    # A named location beats browser coordinates, but only if geocoding succeeds.
+    lat, lon = latitude, longitude
+    if location != "unknown":
+        geo_lat, geo_lon = get_location(location)
+        if geo_lat is not None and geo_lon is not None:
+            lat, lon = geo_lat, geo_lon
+
+    print(f"Coordinates: lat={lat}, lon={lon}")
+
+    # Schemes / storage questions are location-independent, so check the
+    # knowledge base before falling back for want of coordinates.
+    if kb_router(query_final):
+        print("Routing to knowledge base")
+        kb_answer = query_kb(query_final)
+        if kb_answer:
+            return kb_answer
+    else:
+        kb_answer = ""
+
+    if lat is None or lon is None:
+        return extract_markdown_content(get_open_ended_answer(query_final, history, channel))
+
+    soil = soil_tool(lat, lon)
+    weather = weather_openmeteo(lat, lon)
+    mandi_price = get_state_data(state, crop)
+
+    final_response = extract_markdown_content(
+        get_farming_advice(location, state, crop, soil, weather,
+                           mandi_price, kb_answer or "", query, channel)
+    )
+    print(f"Final response: {final_response}")
+    return final_response

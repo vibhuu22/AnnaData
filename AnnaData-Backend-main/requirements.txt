@@ -1,0 +1,23 @@
+# Direct dependencies only. Transitive packages are resolved by pip.
+# The previous file was a full `pip freeze` in UTF-16, which pip could not
+# read and which pinned transitive deps too tightly to install cleanly.
+
+# --- Web framework ---
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+python-multipart==0.0.20
+pydantic==2.11.7
+
+# --- LLM / agent ---
+langchain==0.3.27
+langchain-core==0.3.74
+langchain-google-genai==2.1.9
+google-genai==1.30.0
+
+# --- Data tools ---
+earthengine-api==1.6.3
+boto3==1.40.11
+requests==2.32.4
+
+# --- Config ---
+python-dotenv==1.1.1
