@@ -1,8 +1,16 @@
 """
 Soil properties from OpenLandMap via Google Earth Engine.
 
+Values are read at b0 - the surface layer - which is the depth agronomic advice
+is concerned with. Both source datasets store scaled integers, and getting the
+scaling wrong is not a cosmetic problem: organic carbon reported at twice its
+real value turns "low, add compost" into "adequate".
+
+  pH             stored x10   -> divide by 10        (4.2-11.0)
+  organic carbon stored /5    -> multiply by 5 = g/kg, and /10 again for %
+
 Earth Engine is optional; if it is not configured the tool returns a short
-"unavailable" string that the prompt can safely include.
+notice the prompt can safely include.
 """
 import startup
 
@@ -11,6 +19,35 @@ TEXTURE_MAP = {
     6: "Silt", 7: "Sandy clay loam", 8: "Clay loam", 9: "Silty clay loam",
     10: "Sandy clay", 11: "Silty clay", 12: "Clay",
 }
+
+# Indian Soil Health Card interpretation bands. The rating drives the advice
+# far more than the raw number does.
+def _rate_organic_carbon(percent: float) -> str:
+    if percent < 0.5:
+        return "low"
+    if percent <= 0.75:
+        return "medium"
+    return "high"
+
+
+def _rate_ph(ph: float) -> str:
+    if ph < 5.5:
+        return "strongly acidic"
+    if ph < 6.5:
+        return "slightly acidic"
+    if ph <= 7.5:
+        return "neutral"
+    if ph <= 8.5:
+        return "slightly alkaline"
+    return "strongly alkaline"
+
+
+def _sample(image_id: str, point, scale: int = 250):
+    """Read band b0 at a point, or None if the sample misses."""
+    import ee
+
+    value = ee.Image(image_id).sample(point, scale).first().get("b0").getInfo()
+    return None if value is None else float(value)
 
 
 def soil_tool(lat: float, lon: float) -> str:
@@ -22,23 +59,41 @@ def soil_tool(lat: float, lon: float) -> str:
         import ee
 
         point = ee.Geometry.Point(lon, lat)
+        lines = [f"Soil Report for ({lat}, {lon}):"]
 
-        texture_img = ee.Image("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02")
-        texture_val = texture_img.sample(point, 250).first().get("b0").getInfo()
-        texture = TEXTURE_MAP.get(texture_val, f"Unknown ({texture_val})")
+        # Each property is read independently so one missing layer does not
+        # cost the farmer the other two.
+        try:
+            raw = _sample("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02", point)
+            texture = TEXTURE_MAP.get(int(raw), f"Unknown ({raw})") if raw else "unknown"
+            lines.append(f"- Soil texture (USDA class): {texture}")
+        except Exception as e:
+            print(f"Soil texture unavailable at ({lat}, {lon}): {e}")
 
-        ph_img = ee.Image("OpenLandMap/SOL/SOL_PH-H2O_USDA-4C1A2A_M/v02")
-        ph_val = ph_img.sample(point, 250).first().get("b0").getInfo() / 10
+        try:
+            raw = _sample("OpenLandMap/SOL/SOL_PH-H2O_USDA-4C1A2A_M/v02", point)
+            if raw is not None:
+                ph = raw / 10.0
+                lines.append(f"- Soil pH (H2O): {ph:.1f} ({_rate_ph(ph)})")
+        except Exception as e:
+            print(f"Soil pH unavailable at ({lat}, {lon}): {e}")
 
-        soc_img = ee.Image("OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02")
-        soc_val = soc_img.sample(point, 250).first().get("b0").getInfo()
+        try:
+            raw = _sample("OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02", point)
+            if raw is not None:
+                g_per_kg = raw * 5.0
+                percent = g_per_kg / 10.0
+                lines.append(
+                    f"- Soil organic carbon: {percent:.2f}% "
+                    f"({g_per_kg:.1f} g/kg, {_rate_organic_carbon(percent)})"
+                )
+        except Exception as e:
+            print(f"Soil organic carbon unavailable at ({lat}, {lon}): {e}")
 
-        return (
-            f"Soil Report for ({lat}, {lon}):\n"
-            f"- Soil texture (USDA class): {texture}\n"
-            f"- Soil pH: {ph_val:.2f}\n"
-            f"- Soil organic carbon: {soc_val:.2f}%\n"
-        )
+        if len(lines) == 1:
+            return "Soil data unavailable (no readings at this location)."
+
+        return "\n".join(lines) + "\n"
 
     except Exception as e:
         print(f"Soil lookup failed for ({lat}, {lon}): {e}")

@@ -36,6 +36,9 @@ NOMINATIM_USER_AGENT = _get(
 GEOCODE_COUNTRY = _get("GEOCODE_COUNTRY", "in")
 GOV_API_KEY = _get("GOV_API_KEY")                # data.gov.in mandi prices
 EE_SERVICE_KEY = _get("EE_SERVICE_KEY")          # Earth Engine soil data
+# Usually read from the service account key itself; set only if the project
+# registered with Earth Engine differs from the key's own project.
+EE_PROJECT = _get("EE_PROJECT")
 KNOWLEDGE_BASE_ID = _get("KNOWLEDGE_BASE_ID")    # AWS Bedrock knowledge base
 AWS_REGION = _get("AWS_REGION", "ap-south-1")
 AWS_ACCESS_KEY = _get("AWS_ACCESS_KEY")

@@ -10,7 +10,7 @@ import json
 import os
 import tempfile
 
-from config import EE_SERVICE_KEY
+from config import EE_SERVICE_KEY, EE_PROJECT
 
 _initialized = False
 _init_error: str | None = None
@@ -42,7 +42,18 @@ def init_earth_engine() -> bool:
             with os.fdopen(fd, "w") as f:
                 json.dump(key_data, f)
             credentials = ee.ServiceAccountCredentials(service_account, temp_key_path)
-            ee.Initialize(credentials)
+
+            # Earth Engine now expects the Cloud project the service account
+            # belongs to. It is in the key file, so there is no reason to make
+            # anyone configure it twice - though EE_PROJECT can override when
+            # the registered project differs from the key's own.
+            project = EE_PROJECT or key_data.get("project_id")
+            if project:
+                ee.Initialize(credentials, project=project)
+                print(f"Google Earth Engine initialized (project: {project})")
+            else:
+                ee.Initialize(credentials)
+                print("Google Earth Engine initialized")
         finally:
             try:
                 os.unlink(temp_key_path)
@@ -50,7 +61,6 @@ def init_earth_engine() -> bool:
                 pass
 
         _initialized = True
-        print("Google Earth Engine initialized")
         return True
 
     except Exception as e:
