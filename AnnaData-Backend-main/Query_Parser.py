@@ -1,5 +1,6 @@
 from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langchain.prompts import PromptTemplate
+from planner import normalise_intent
 from utils import llm
 
 UNKNOWN = {
@@ -7,7 +8,15 @@ UNKNOWN = {
     "state": "unknown",
     "crop_type": "unknown",
     "answer": "unknown",
+    "intent": "general",
 }
+
+# Intent rides along on this extraction call, which runs for every query
+# anyway, so choosing tools costs no extra model call.
+INTENTS = (
+    "disease_pest, sowing_planting, fertiliser_nutrition, irrigation_water, "
+    "weather_query, market_price, scheme_subsidy, storage_postharvest, general"
+)
 
 
 def extract_farm_info(farmer_input: str) -> dict:
@@ -32,6 +41,19 @@ def extract_farm_info(farmer_input: str) -> dict:
             description="If the query is not related to agriculture, provide a "
                         "short answer to the query in the query language.",
         ),
+        ResponseSchema(
+            name="intent",
+            description=f"What the farmer wants. Exactly one of: {INTENTS}. "
+                        "disease_pest for crop problems, pests, diseases or damage. "
+                        "sowing_planting for when or how to sow or plant. "
+                        "fertiliser_nutrition for fertiliser, manure or deficiency. "
+                        "irrigation_water for watering and drainage. "
+                        "weather_query for a direct question about weather. "
+                        "market_price for prices, selling or what is profitable. "
+                        "scheme_subsidy for government schemes, subsidies, loans, insurance. "
+                        "storage_postharvest for storage, cold storage or after harvest. "
+                        "general for anything else.",
+        ),
     ]
 
     output_parser = StructuredOutputParser.from_response_schemas(response_schemas)
@@ -52,6 +74,7 @@ def extract_farm_info(farmer_input: str) -> dict:
     - "state" is the state name, not the full address.
     - "crop_type" is only the crop name.
     - "answer" is a short answer to the query if it is not related to agriculture.
+    - "intent" is exactly one of the listed values, nothing else.
     If information is missing, put "unknown".
     """,
         input_variables=["farmer_input"],
@@ -68,7 +91,9 @@ def extract_farm_info(farmer_input: str) -> dict:
 
         parsed = output_parser.parse(output)
         # Normalise: guarantee all four keys, never None.
-        return {k: (parsed.get(k) or "unknown") for k in UNKNOWN}
+        result = {k: (parsed.get(k) or UNKNOWN[k]) for k in UNKNOWN}
+        result["intent"] = normalise_intent(result["intent"])
+        return result
 
     except Exception as e:
         print(f"Query parsing failed: {e}")

@@ -140,7 +140,8 @@ def run_agent_endpoint(request: QueryRequest):
         )
         profile_store.log_message(
             user_id, "outbound", result.answer,
-            meta={"tools": result.tools_used, "channel": channel},
+            meta={"tools": result.tools_used, "channel": channel,
+                  "intent": result.intent, "missing": result.missing_slots},
         )
         # Re-read so the decision reflects anything just learned.
         needs_location = profile_store.should_ask_location(
@@ -153,6 +154,10 @@ def run_agent_endpoint(request: QueryRequest):
         "answer": result.answer,
         "needs_location": needs_location,
         "tools_used": result.tools_used,
+        "intent": result.intent,
+        # Exactly what the farmer has not told us yet, so the caller can ask
+        # for that one thing instead of a generic prompt.
+        "missing_slots": result.missing_slots,
     }
 
 

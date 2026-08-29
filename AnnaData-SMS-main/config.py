@@ -74,6 +74,13 @@ LOCATION_PROMPT = _get(
     "LOCATION_PROMPT",
     "Reply with your district for advice specific to your area.",
 )
+# Asking for the one detail actually missing beats a generic prompt: a farmer
+# asking about prices needs to tell us the crop, not their village.
+SLOT_PROMPTS = {
+    "crop": _get("PROMPT_CROP", "Reply with your crop name for specific advice."),
+    "location": _get("PROMPT_LOCATION", "Reply with your district for advice specific to your area."),
+    "state": _get("PROMPT_STATE", "Reply with your state so I can check local mandi prices."),
+}
 # Words that erase a farmer's stored profile, in the languages we have seen.
 STOP_WORDS = {
     w.strip().lower()

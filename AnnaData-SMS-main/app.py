@@ -108,10 +108,16 @@ async def generate_response(message: str, phone: str, message_id: str | None) ->
                     print(f"AI API returned no answer field: {body[:300]}")
                     return None
 
-                # The backend decides when it still needs a location; the
+                # Ask for the single most useful thing still missing. The
                 # prompt shares this message's segment budget rather than
                 # adding a paid segment of its own.
-                suffix = config.LOCATION_PROMPT if data.get("needs_location") else ""
+                suffix = ""
+                for slot in data.get("missing_slots") or []:
+                    if slot in config.SLOT_PROMPTS:
+                        suffix = config.SLOT_PROMPTS[slot]
+                        break
+                if not suffix and data.get("needs_location"):
+                    suffix = config.LOCATION_PROMPT
                 return prepare(answer, config.MAX_SMS_CHARS,
                                config.MAX_SMS_SEGMENTS, suffix)
 
