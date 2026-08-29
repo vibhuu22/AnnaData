@@ -11,6 +11,7 @@ import time
 import requests
 from datetime import date, timedelta
 
+import weather_fallback
 from config import (
     WEATHER_TIMEOUT,
     WEATHER_ATTEMPTS,
@@ -51,6 +52,15 @@ def weather_openmeteo(lat, lon) -> str:
             return hit[1]
 
     report = _fetch_weather(lat, lon)
+
+    # Open-Meteo's limit is per IP and shared with everyone else on this host,
+    # so being refused says nothing about our own usage and retrying will not
+    # help. Fall back to a provider with its own quota.
+    if report.startswith("Weather data unavailable"):
+        fallback = weather_fallback.fetch(lat, lon)
+        if fallback:
+            print(f"Weather served by fallback provider for ({lat}, {lon})")
+            report = fallback
 
     # Never cache a failure - the next farmer deserves a fresh attempt.
     if not report.startswith("Weather data unavailable"):

@@ -106,6 +106,12 @@ WEATHER_ATTEMPTS = int(_get("WEATHER_ATTEMPTS", "3"))
 # into one upstream call and keeps us well under Open-Meteo's rate limit.
 WEATHER_CACHE_TTL = int(_get("WEATHER_CACHE_TTL", "3600"))
 WEATHER_CACHE_PRECISION = int(_get("WEATHER_CACHE_PRECISION", "1"))  # ~11 km
+# MET Norway is the fallback when Open-Meteo rate limits us. Their terms require
+# a User-Agent naming the application with a way to make contact.
+METNO_USER_AGENT = _get(
+    "METNO_USER_AGENT",
+    "AnnaData/1.0 agricultural advisory (+https://github.com/vibhuu22/AnnaData)",
+)
 
 
 def feature_status() -> dict:
