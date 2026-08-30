@@ -604,6 +604,7 @@ routing was added while the call count went **down**.
 | | |
 |---|---|
 | Registered pesticide uses loaded | **2,456** |
+| Minimum Support Prices loaded | **20 commodities, 39 aliases** |
 | Distinct crops covered | **314** |
 | Distinct products | **825** |
 | Source | 6 CIB&RC PDFs, as on 31.03.2026 |
@@ -630,7 +631,8 @@ the wrong chemical.
 | | |
 |---|---|
 | Scripts verified end to end | 4 — Latin, Devanagari, Gurmukhi, Bengali |
-| Evaluation cases | 23, all passing |
+| Evaluation cases (language and behaviour) | 28, all passing |
+| Database tests (rating schedule) | 6, all passing |
 | Embedding dimensions | 768 |
 | Embedding separation | 0.814 related vs 0.521 unrelated (cosine) |
 | Retrieval corpus | 86 chunks across 5 documents |
