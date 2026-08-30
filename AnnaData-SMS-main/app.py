@@ -29,9 +29,30 @@ async def startup():
     print("HTTP session ready")
 
 
+def http_session() -> aiohttp.ClientSession:
+    """The shared client session, rebuilt if it has been closed.
+
+    Every outbound call - to the gateway and to the agent backend - goes through
+    one session created at startup. When that session dies the process keeps
+    accepting webhooks and failing every one of them, while /health, which only
+    checked configuration, went on reporting "ok". Recovering took someone
+    noticing the silence and restarting the service by hand.
+
+    A closed session is cheap to replace, so it is replaced rather than reported.
+    """
+    session = app.config.get("HTTP")
+    if session is None or session.closed:
+        print("HTTP session was closed; opening a new one")
+        session = aiohttp.ClientSession()
+        app.config["HTTP"] = session
+    return session
+
+
 @app.after_serving
 async def shutdown():
-    await app.config["HTTP"].close()
+    session = app.config.get("HTTP")
+    if session is not None and not session.closed:
+        await session.close()
     print("Shutdown complete")
 
 
@@ -53,7 +74,7 @@ async def forget_farmer(phone: str) -> bool:
     url = config.forget_url()
     if not url:
         return False
-    http: aiohttp.ClientSession = app.config["HTTP"]
+    http = http_session()
     try:
         async with http.post(url, json={"user_id": phone},
                              timeout=aiohttp.ClientTimeout(total=30)) as resp:
@@ -72,7 +93,7 @@ async def record_rating(phone: str, message: str) -> bool:
     base = config.backend_base()
     if not base:
         return False
-    http: aiohttp.ClientSession = app.config["HTTP"]
+    http = http_session()
     try:
         async with http.post(f"{base}/feedback/rating",
                              json={"user_id": phone, "message": message},
@@ -92,7 +113,7 @@ async def send_feedback_requests() -> dict:
     if not base:
         return {"asked": 0, "reason": "no backend configured"}
 
-    http: aiohttp.ClientSession = app.config["HTTP"]
+    http = http_session()
     try:
         async with http.get(f"{base}/feedback/due",
                             timeout=aiohttp.ClientTimeout(total=60)) as resp:
@@ -122,7 +143,7 @@ async def generate_response(message: str, phone: str, message_id: str | None) ->
         print("AI_ENDPOINT not configured")
         return None
 
-    http: aiohttp.ClientSession = app.config["HTTP"]
+    http = http_session()
     # The farmer's message is sent verbatim. Brevity and plain-text formatting
     # are requested via `channel`, not by appending instructions to the query -
     # appended text was being parsed as part of the question and skewed the
@@ -185,7 +206,7 @@ async def generate_response(message: str, phone: str, message_id: str | None) ->
 
 # === SMS Sending ===
 async def send_sms(phone_number: str, message: str) -> bool:
-    http: aiohttp.ClientSession = app.config["HTTP"]
+    http = http_session()
     auth = aiohttp.BasicAuth(config.USERNAME or "", config.PASSWORD or "")
     payload = {"phoneNumbers": [phone_number], "textMessage": {"text": message}}
 
@@ -277,12 +298,38 @@ async def process_sms(data: dict):
 
 
 # === Endpoints ===
-@app.get("/health")
+@app.route("/health", methods=["GET", "HEAD"])
 async def health():
-    problems = config.validate()
+    """Whether the bridge can actually do its job, not merely whether it is configured.
+
+    It reports on the two things every reply depends on - a usable HTTP session
+    and a reachable agent backend - because the failure that took the service
+    down was invisible to a check that only read configuration.
+    """
+    problems = list(config.validate())
+
+    session = app.config.get("HTTP")
+    session_ok = session is not None and not session.closed
+    if not session_ok:
+        problems.append("HTTP session is closed (it will be reopened on next use)")
+
+    backend_ok = None
+    base = config.backend_base()
+    if base:
+        try:
+            async with http_session().get(
+                f"{base}/health", timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp:
+                backend_ok = resp.status == 200
+        except Exception as e:
+            backend_ok = False
+            problems.append(f"agent backend unreachable: {str(e)[:80]}")
+
     return jsonify({
         "status": "ok" if not problems else "degraded",
         "mode": config.SMS_MODE,
+        "http_session": "open" if session_ok else "closed",
+        "backend_reachable": backend_ok,
         "problems": problems,
         "pending_dedup_entries": len(processed_ids),
     }), 200

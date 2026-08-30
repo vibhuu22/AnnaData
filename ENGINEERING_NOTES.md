@@ -336,6 +336,33 @@ are dropped.
 The cost of getting this wrong is not a clumsy sentence. It is a farmer selling
 a harvest against a price nobody guaranteed.
 
+### A health check that could not see the outage
+
+Inbound messages stopped for half an hour. Both services reported `status: ok`
+throughout, the webhook route answered correctly when probed directly, and the
+farmer's number passed every filter. Nothing anywhere said a word.
+
+The gateway had been holding the messages and retrying: when the service was
+restarted by hand, three arrived in the same second. So the outage was inside
+the bridge, and the diagnosis that mattered was not which component had failed
+but why nothing had noticed.
+
+Every outbound call - to the gateway and to the agent backend - goes through one
+`ClientSession` created at startup. If that session dies, the process keeps
+accepting webhooks and failing every one of them, and `/health`, which only read
+configuration, cannot tell: the configuration is still perfectly valid. It was
+answering a question nobody was asking.
+
+Two changes. The session is now fetched through a helper that reopens it if it
+has been closed, so this particular wedge resolves itself instead of waiting to
+be noticed. And `/health` reports what a reply actually depends on - whether the
+session is open, whether the backend answers - so the monitor already pinging it
+every fifteen minutes can see a failure rather than certify a healthy config
+while nothing works.
+
+The general form: a health check that reports only what the process knows about
+itself will pass for exactly as long as it takes someone to notice the silence.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not
