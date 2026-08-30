@@ -244,6 +244,24 @@ be answered is a phone number and anything containing a letter is a machine.
 The check now runs at ingest, before a model call or a database row - and again
 in the due-check, for rows already stored.
 
+### Ninety seconds to say "unavailable"
+
+With data.gov.in down, a market-price question took 90.4s to return "Mandi price
+data unavailable" - two attempts at a 45-second timeout, on SMS, where nothing
+tells the farmer the question was even received.
+
+A generous timeout is worth having when an upstream is slow. This one is not
+slow: it answers in a second or two when it is up and not at all when it is
+down, so the extra thirty seconds bought nothing and were paid every time. The
+per-request timeout is now 12s with one attempt, the paged fetch has an overall
+20s deadline (paging multiplied the timeout by the page count), and the circuit
+opens after two failures rather than three.
+
+| Market-price question, upstream down | Before | After |
+|---|---|---|
+| First question | 90.4s | 12.2s |
+| Once the circuit is open | 90.4s | 0.0s |
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not

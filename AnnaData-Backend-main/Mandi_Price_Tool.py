@@ -15,6 +15,7 @@ from config import (
     GOV_API_KEY,
     MANDI_MAX_RECORDS,
     GOV_API_TIMEOUT,
+    GOV_API_DEADLINE,
     GOV_API_ATTEMPTS,
     GOV_FAILURE_THRESHOLD,
     GOV_CIRCUIT_COOLDOWN,
@@ -81,8 +82,16 @@ def format_state_data(records) -> str:
 def _fetch(state: str, commodity: str | None) -> list:
     records = []
     offset = 0
+    deadline = time.monotonic() + GOV_API_DEADLINE
 
     while len(records) < MANDI_MAX_RECORDS:
+        # Paging multiplies the per-request timeout, so the fetch as a whole
+        # gets a deadline. Whatever has arrived by then is returned: a partial
+        # list of markets is a usable answer, a timeout is not.
+        if time.monotonic() > deadline:
+            print(f"Mandi fetch deadline reached with {len(records)} record(s)")
+            break
+
         params = {
             "api-key": GOV_API_KEY,
             "format": "json",

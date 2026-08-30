@@ -117,12 +117,19 @@ MANDI_MAX_RECORDS = int(_get("MANDI_MAX_RECORDS", "80"))
 HTTP_TIMEOUT = int(_get("HTTP_TIMEOUT", "20"))
 # data.gov.in is markedly slower than the other upstreams and returns 502 under
 # load, so it gets its own budget and is retried rather than failing the answer.
-GOV_API_TIMEOUT = int(_get("GOV_API_TIMEOUT", "45"))
-GOV_API_ATTEMPTS = int(_get("GOV_API_ATTEMPTS", "2"))
+# data.gov.in answers in a second or two when it is up, and not at all when it
+# is not - so a generous timeout buys nothing and costs the farmer the wait.
+# At 45s x 2 attempts a market-price question sat for ninety seconds before
+# reporting failure, on SMS, where nothing indicates the question was received.
+GOV_API_TIMEOUT = int(_get("GOV_API_TIMEOUT", "12"))
+# The whole paged fetch, not one request: the per-request timeout multiplies by
+# the number of pages, so the deadline is what actually bounds the answer.
+GOV_API_DEADLINE = int(_get("GOV_API_DEADLINE", "20"))
+GOV_API_ATTEMPTS = int(_get("GOV_API_ATTEMPTS", "1"))
 # data.gov.in goes down for long stretches. Once it has failed repeatedly there
 # is no sense making every farmer wait out the timeouts to learn the same
 # thing, so calls are suspended briefly and answered instantly instead.
-GOV_FAILURE_THRESHOLD = int(_get("GOV_FAILURE_THRESHOLD", "3"))
+GOV_FAILURE_THRESHOLD = int(_get("GOV_FAILURE_THRESHOLD", "2"))
 GOV_CIRCUIT_COOLDOWN = int(_get("GOV_CIRCUIT_COOLDOWN", "600"))
 # Open-Meteo is fast from a laptop but shared cloud egress IPs see occasional
 # rate limiting, so weather retries rather than silently losing the reading.
