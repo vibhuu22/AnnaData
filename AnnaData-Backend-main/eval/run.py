@@ -111,6 +111,15 @@ def evaluate(case: dict, result) -> list[str]:
         if hit:
             fail(f"quoted a dose where none is registered: {hit.group(0)!r}")
 
+    # A support price is a figure a farmer may sell against, so an unbacked one
+    # is not a style problem. Mentioning the scheme without a number is allowed;
+    # stating a number for a scheme we hold no figure for is not.
+    if expect.get("no_support_price_figure"):
+        import price_guard
+        for sentence in price_guard._sentences(answer):
+            if price_guard.SCHEME.search(sentence) and price_guard.FIGURE.search(sentence):
+                fail(f"stated an unbacked support price: {sentence.strip()!r}")
+
     if expect.get("has_number") and not re.search(r"\d", answer):
         fail("expected a figure in the answer, found none")
 

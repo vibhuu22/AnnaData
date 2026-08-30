@@ -15,6 +15,7 @@ from Web_Crawler import query_kb, is_available as kb_available
 import knowledge
 import msp
 import planner
+import price_guard
 import provenance
 import re
 
@@ -330,7 +331,7 @@ def acknowledge_statement(query: str, facts: dict, channel: str,
 
 
 def get_farming_advice(location, state, crop, gathered, farmer_query,
-                       channel: str = "web") -> str:
+                       channel: str = "web", history=None) -> str:
     """Compose the final advisory from whatever data was gathered.
 
     Only tools that actually ran appear in the prompt. Padding the context with
@@ -340,6 +341,20 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     style = style_for(channel)
     temporal = temporal_context()
     script_rule = script_instruction(farmer_query)
+
+    # The advisory prompt used to see only the current question, so it could not
+    # tell that it had already asked something, or that the farmer had answered
+    # it. A farmer who said "it is harvested" was asked for the crop stage
+    # again in the very next reply. Closing questions are only worth asking once.
+    recent = "\n    ".join(
+        f"{h.get('role', 'user').capitalize()}: {h.get('content', '')}"
+        for h in (history or [])[-6:]
+    )
+    conversation = (
+        "\n    CONVERSATION SO FAR (do not repeat a question already asked "
+        "here, and treat anything the farmer has already told you as known):"
+        f"\n    {recent}\n" if recent else ""
+    )
 
     context_lines = [
         f"- Location: {location or 'unknown'}",
@@ -373,12 +388,14 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     - Cite a data point ONLY where it changes what the farmer should do. Soil pH matters for a fertiliser question; today's rainfall matters if it affects spraying or drainage. Appending an unrelated figure - the day's rainfall onto a pest answer - is noise, and the farmer did not ask for it. When nothing in the data changes the advice, do not mention the data at all.
     - If the farmer asks a direct factual question - the temperature, the humidity, the rainfall, the price - ANSWER IT with the exact figure from the Context. Never say you cannot provide live data when the figure is sitting in the Context above. If only part of what they asked for is present, give that part and say the rest is not available.
     - The Context is measured data for this farmer's own location. Trust it over any assumption the farmer states: if they say the weather is dry and the data shows heavy rain, tell them plainly what the data says.
+    - NEVER name a price scheme you have no figure for. If there is no MINIMUM SUPPORT PRICE section above, then you do not have the support price for this crop: say plainly that you do not have it and name who does - the local APMC mandi, a cooperative sugar mill for sugarcane. Do NOT mention MSP, FRP, "Fair and Remunerative Price", "government support price" or "a reliable floor" as though it were an answer while quoting no number, and never invite the farmer to go and look it up themselves as a substitute for answering. A named scheme with no figure attached is worse than admitting you do not have it.
     - PRICES: the mandi rate and the Minimum Support Price answer different questions and are not interchangeable. If a MINIMUM SUPPORT PRICE section is present, give that figure - it is current for the whole marketing year and is a real answer, not a substitute for one. When the live mandi rate is unavailable, say so in a few words and then give the support price as the floor the farmer is guaranteed; do not end on "unavailable" while the support price is sitting in the Context. Never present the support price as today's market rate, and never quote a support price that is not in the Context - most vegetables have none.
     - Do not invent facts beyond the given data.
     - CHEMICALS AND DOSES: if an APPROVED PESTICIDE USES section is present, you may name a pesticide and a dose ONLY if it appears there, quoted exactly, and you should say it is a registered use. If that section says nothing is registered, or warns the listed uses are for a different pest, then name NO chemical and NO dose at all - say you have no approved treatment on record and tell them to ask their Krishi Vigyan Kendra or agriculture officer. Never fall back on a chemical you happen to know.
     - End with ONE short, specific question only where the answer would genuinely change with it - the crop stage, how widespread the damage is, whether they have irrigation. Never ask for something already given above. If nothing useful is missing, end with the advice.
     - Format response clearly into sections.
 
+    {conversation}
     Context:
     {context}
     - Farmer's Question: {farmer_query}
@@ -489,6 +506,15 @@ def run_agent(
     if message_type == "statement" and intent != "general":
         message_type = "question"
 
+    # A bare "yes" or "haan" is classified from the raw message, which looks
+    # like smalltalk, while the intent is read from the rewritten query, which
+    # has the conversation folded into it. When those disagree the rewrite is
+    # the one that knows what is going on: a farmer answering "yess" to an offer
+    # was being greeted from scratch, losing the thread entirely. Smalltalk that
+    # carries a topic is a contradiction - it is a continuation.
+    if message_type == "smalltalk" and intent != "general":
+        message_type = "question"
+
     print(f"Extracted Crop: {crop}, State: {state}, Location: {location}, "
           f"intent: {intent}, type: {message_type}, answer: {answer}")
 
@@ -587,8 +613,13 @@ def run_agent(
 
     final_response = extract_markdown_content(
         get_farming_advice(facts["location"], facts["state"], facts["crop"],
-                           gathered, query, channel)
+                           gathered, query, channel, history=history)
     )
+    # A support price is a number a farmer may sell against. If none was
+    # retrieved, no sentence claiming one survives, whatever the model wrote.
+    final_response, scrubbed = price_guard.scrub(final_response, gathered)
+    if scrubbed:
+        print("Removed an unsupported support-price claim from the answer")
     print(f"Final response: {final_response}")
     return AgentResult(
         final_response, tools_used=sorted(gathered.keys()),

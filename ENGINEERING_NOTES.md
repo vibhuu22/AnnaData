@@ -298,6 +298,44 @@ a model that has seen the phrase in twenty other answers will readily produce a
 plausible one. Asked for the tomato rate it now says no MSP exists for tomato
 rather than inventing a number, and an eval case holds it there.
 
+### Three failures in one SMS thread
+
+A farmer asked about sugarcane and the thread fell apart in three separate ways,
+each with a different cause.
+
+**"yess" was answered with "Namaste! Greetings from Nagpur."** The rewriter had
+done its job - it turned "yess" into "Yes, I would like to check the government
+support price for sugarcane" - but `message_type` is classified from the raw
+message while `intent` is read from the rewrite. They disagreed, `smalltalk`
+against `scheme_subsidy`, and the message type decides the routing, so the
+farmer accepting an offer was greeted from scratch. Smalltalk carrying a topical
+intent is a contradiction; it is now treated as a continuation, the same way a
+statement carrying one is treated as a question.
+
+**It asked for the crop stage twice, the second time right after being told the
+crop was harvested.** The advisory prompt had never been given the conversation
+- only the current question - so it could not know what it had just asked or
+what had been answered. It now receives the last six turns, with instructions
+not to repeat a question already asked and to treat what the farmer has said as
+known.
+
+**Then it invented a price.** Asked for the sugarcane MSP with no figure on
+file, it produced "the Fair and Remunerative Price for the 2026-27 season is 340
+rupees per quintal" - fluent, specific, and made up - which carried into the
+next turn as established fact. Sugarcane is covered by FRP rather than MSP, and
+we hold no FRP data at all.
+
+The prompt already forbade this. That is the point: an instruction not to state
+a figure competes with a fluent continuation and loses often enough to matter,
+exactly as it did with pesticide doses. The check is now code. If no support
+price was retrieved for the crop, a sentence naming a support scheme and a
+number does not leave the building - and since telling a farmer to ask the sugar
+mill is genuinely useful, only sentences asserting both a scheme and a figure
+are dropped.
+
+The cost of getting this wrong is not a clumsy sentence. It is a farmer selling
+a harvest against a price nobody guaranteed.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not
