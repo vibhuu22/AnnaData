@@ -165,10 +165,13 @@ def due_for_feedback() -> list[str]:
                   FROM farmers f
                   JOIN messages m ON m.user_id = f.user_id
                  WHERE (f.feedback_asked_at IS NULL OR f.feedback_asked_at < %s)
+                   AND NOT EXISTS (SELECT 1 FROM feedback fb
+                                    WHERE fb.user_id = f.user_id
+                                      AND fb.created_at >= %s)
               GROUP BY f.user_id, f.feedback_day
                 HAVING MAX(m.created_at) < %s
                 """,
-                (cooldown, quiet_since),
+                (cooldown, cooldown, quiet_since),
             ).fetchall()
 
             due = []
@@ -200,13 +203,25 @@ def mark_asked(user_id: str) -> None:
 
 
 def awaiting_reply(user_id: str) -> bool:
-    """Whether a recent ask means the next message might be a rating."""
+    """Whether a recent ask is still unanswered, so the next message may be a rating.
+
+    Answered by comparing the ask against the ratings, rather than by clearing
+    the ask. The two facts - "a reply is pending" and "when this farmer was last
+    asked" - were once the same column, so recording a rating erased the record
+    of having asked, and the farmer became due again immediately: one was rated
+    at 12:01 and asked a second time at 12:02.
+    """
     if not db.is_available():
         return False
     try:
         with db.connection() as conn:
             row = conn.execute(
-                "SELECT feedback_asked_at FROM farmers WHERE user_id = %s",
+                """
+                SELECT f.feedback_asked_at,
+                       (SELECT max(created_at) FROM feedback
+                         WHERE user_id = f.user_id) AS last_rated
+                  FROM farmers f WHERE f.user_id = %s
+                """,
                 (user_id,),
             ).fetchone()
     except Exception:
@@ -214,9 +229,14 @@ def awaiting_reply(user_id: str) -> bool:
 
     if not row or not row[0]:
         return False
-    asked = row[0]
+    asked, rated = row[0], row[1]
     if asked.tzinfo is None:
         asked = asked.replace(tzinfo=timezone.utc)
+    if rated is not None:
+        if rated.tzinfo is None:
+            rated = rated.replace(tzinfo=timezone.utc)
+        if rated >= asked:
+            return False          # this ask has already been answered
     return datetime.now(timezone.utc) - asked < timedelta(hours=FEEDBACK_WINDOW_HOURS)
 
 
@@ -325,11 +345,6 @@ def record(user_id: str, rating: int, raw_message: str, session_id: int | None) 
                 VALUES (%s, %s, %s, %s, %s)
                 """,
                 (user_id, session_id, rating, raw_message[:500], json.dumps(features)),
-            )
-            # Clear the flag so a later message is treated as a question again.
-            conn.execute(
-                "UPDATE farmers SET feedback_asked_at = NULL WHERE user_id = %s",
-                (user_id,),
             )
         print(f"Recorded rating {rating} from {user_id}")
         return True

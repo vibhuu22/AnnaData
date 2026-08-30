@@ -394,6 +394,31 @@ outage and then called itself healthy.
 The chain is worth keeping in view. A monitoring job that could not read a
 seventy-byte response ended with farmers' questions being silently discarded.
 
+### Asked to rate, rated, asked again a minute later
+
+A farmer was asked for a rating, replied 5 at 12:01, and was asked again at
+12:02. The timestamps name the cause exactly: `feedback_asked_at` read 12:02:26
+while the rating was recorded at 12:01:19 - the ask came after the answer.
+
+One column was carrying two facts. `feedback_asked_at` recorded both "a reply is
+pending, so read the next message as a rating" and "this is when the farmer was
+last asked, so do not ask again this month". Recording a rating cleared the flag
+to stop the following message being parsed as a score, and in doing so erased
+the only record that the farmer had been asked at all. The next scheduler run
+found a farmer with no ask on file and asked again.
+
+The two facts are now separate. The ask is never cleared, and whether a reply is
+pending is answered by comparing it against the ratings: an ask older than the
+most recent rating has been answered. The due-check also excludes anyone with a
+rating inside the cooldown, so a farmer who rates unprompted still counts as
+heard from.
+
+This one could not be written as an eval case - there is no language in it, only
+scheduling - so it is a database test instead, `eval/test_feedback.py`, which
+walks a synthetic farmer through ask, rate and cooldown. Restoring the original
+behaviour makes it fail on exactly the assertion that matters, which is the only
+evidence that a regression test is worth having.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not
