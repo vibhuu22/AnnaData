@@ -712,8 +712,9 @@ is where the risk sits.
   Nothing has ever been load tested. One phone, one SIM, and a 20-request daily
   model quota.
 - **Delivery rate.** No measurement of how many SMS replies actually arrive.
-- **Whether any of it helps.** No feedback loop exists. Nothing records whether
-  a farmer found an answer useful, acted on it, or came back.
+- **Whether any of it helps.** A rating loop now exists and is live, but it has
+  collected two ratings from one farmer. That is plumbing, not evidence. Nothing
+  yet records whether a farmer acted on an answer or came back because of it.
 - **Retrieval breadth.** Five documents covering four schemes. Retrieval works
   and refuses outside its coverage, but a farmer can ask about far more than
   four schemes. Breadth is limited by what can be obtained, not by the
@@ -740,4 +741,7 @@ unmeasured.
   system says so when asked.
 - **data.gov.in** has been returning 502 for days. A circuit breaker stops
   farmers waiting out the timeouts.
-- **No feedback loop.** Nothing records whether an answer helped.
+- **One farmer.** The rating loop, the session features and the eval harness are
+  all built and working; what is missing is people using the service. Every
+  measurement of quality below the level of "does it behave correctly" waits on
+  that.
