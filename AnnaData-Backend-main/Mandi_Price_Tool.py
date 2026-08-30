@@ -117,6 +117,84 @@ def _fetch(state: str, commodity: str | None) -> list:
     return records[:MANDI_MAX_RECORDS]
 
 
+# Successful lookups are kept so an outage degrades to a stale price rather
+# than to nothing. A farmer deciding when to sell is better served by "cotton
+# was Rs 7,200 a quintal in Nagpur on 25 August" than by silence, provided the
+# date is stated plainly and they can see how old it is.
+CACHE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS mandi_cache (
+    state      TEXT NOT NULL,
+    commodity  TEXT NOT NULL DEFAULT '',
+    summary    TEXT NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (state, commodity)
+);
+"""
+
+
+def _cache_key(state: str, commodity: str | None) -> tuple:
+    return (state.strip().lower(), (commodity or "").strip().lower())
+
+
+def _cache_store(state: str, commodity: str | None, summary: str) -> None:
+    import db
+
+    if not db.is_available() or not summary:
+        return
+    st, cm = _cache_key(state, commodity)
+    try:
+        with db.connection() as conn:
+            conn.execute(CACHE_SCHEMA)
+            conn.execute(
+                """
+                INSERT INTO mandi_cache (state, commodity, summary, fetched_at)
+                VALUES (%s, %s, %s, now())
+                ON CONFLICT (state, commodity)
+                DO UPDATE SET summary = EXCLUDED.summary, fetched_at = now()
+                """,
+                (st, cm, summary),
+            )
+    except Exception as e:
+        print(f"Could not cache mandi prices: {e}")
+
+
+def _cache_lookup(state: str, commodity: str | None) -> str | None:
+    import db
+    from datetime import datetime, timezone
+
+    if not db.is_available():
+        return None
+    st, cm = _cache_key(state, commodity)
+    try:
+        with db.connection() as conn:
+            conn.execute(CACHE_SCHEMA)
+            row = conn.execute(
+                """
+                SELECT summary, fetched_at FROM mandi_cache
+                 WHERE state = %s AND (commodity = %s OR commodity = '')
+              ORDER BY (commodity = %s) DESC, fetched_at DESC
+                 LIMIT 1
+                """,
+                (st, cm, cm),
+            ).fetchone()
+    except Exception as e:
+        print(f"Mandi cache lookup failed: {e}")
+        return None
+
+    if not row:
+        return None
+
+    summary, fetched = row
+    age_days = (datetime.now(timezone.utc) - fetched).days
+    when = fetched.strftime("%d %B %Y")
+    return (
+        f"Mandi prices are temporarily unavailable from the government service. "
+        f"These are the last prices on record, from {when} "
+        f"({age_days} day(s) old) - tell the farmer the date and that they "
+        f"should confirm today's rate at the mandi:\n{summary}"
+    )
+
+
 def get_state_data(state: str, commodity: str | None = None) -> str:
     """Mandi prices for a state, narrowed to a commodity when one is known."""
     if not state or state.lower() == "unknown":
@@ -129,7 +207,7 @@ def get_state_data(state: str, commodity: str | None = None) -> str:
         commodity = None
 
     if _circuit_open():
-        return "Mandi price data unavailable (price service is down)."
+        return _cache_lookup(state, commodity) or             "Mandi price data unavailable (the government price service is down)."
 
     try:
         records = _fetch(state, commodity)
@@ -139,9 +217,12 @@ def get_state_data(state: str, commodity: str | None = None) -> str:
             records = _fetch(state, None)
 
         _record_success()
-        return format_state_data(records)
+        summary = format_state_data(records)
+        if records:
+            _cache_store(state, commodity, summary)
+        return summary
 
     except Exception as e:
         _record_failure()
         print(f"Mandi price lookup failed for state={state!r}: {e}")
-        return "Mandi price data unavailable (lookup failed)."
+        return _cache_lookup(state, commodity) or             "Mandi price data unavailable (lookup failed)."

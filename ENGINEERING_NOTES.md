@@ -207,6 +207,21 @@ Four chunks of a nine-page factsheet vanished with
 and other control characters in the text; they are now stripped during
 cleaning.
 
+### There is no second source for mandi prices
+
+data.gov.in has returned 502 for days, and the obvious replacements do not
+exist in machine-readable form. Agmarknet - which is where data.gov.in gets the
+figures - serves a one-kilobyte JavaScript shell; eNAM's trade endpoint returns
+its own homepage to a POST; CEDA is a dashboard. The government API *is* the
+readable Agmarknet feed, so there is nothing to switch to.
+
+What can be done is degrade better. Successful lookups are now cached, so an
+outage serves the last known price with its date rather than nothing: a farmer
+deciding when to sell is better served by "cotton was Rs 7,200 a quintal in
+Nagpur on 25 August, confirm today's rate at the mandi" than by silence. It
+does not help the first outage, which is this one, but it means the next is not
+a blackout.
+
 ### Most government agricultural sources cannot be fetched
 
 Of eight candidate sources probed, one downloaded cleanly. `agricoop.gov.in`
