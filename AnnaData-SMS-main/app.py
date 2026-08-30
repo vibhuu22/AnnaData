@@ -323,9 +323,13 @@ async def health():
     if not session_ok:
         problems.append("HTTP session is closed (it will be reopened on next use)")
 
+    # A HEAD request is the keep-warm ping, and it must stay instant: probing a
+    # third party would make this endpoint's latency depend on that party's cold
+    # start, against a scheduler timeout of thirty seconds. HEAD answers "this
+    # process is alive"; GET answers "and here is what it can reach".
     backend_ok = None
     base = config.backend_base()
-    if base:
+    if base and request.method != "HEAD":
         try:
             async with http_session().get(
                 f"{base}/health", timeout=aiohttp.ClientTimeout(total=15)
