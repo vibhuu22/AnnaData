@@ -363,6 +363,37 @@ while nothing works.
 The general form: a health check that reports only what the process knows about
 itself will pass for exactly as long as it takes someone to notice the silence.
 
+### One broken cron job, and farmers lose their messages
+
+Two complaints arrived together - the scheduler was failing again, and messages
+were not going through. They were the same fault.
+
+The scheduler had been rejecting the keep-warm pings, so nothing kept the
+backend awake. A farmer wrote after a quiet spell, the bridge called a sleeping
+backend, and the message was dropped. The bridge already carried a 150-second
+timeout and a retry for exactly this case, and neither helped: free hosting does
+not hold the connection while it wakes, it refuses immediately, so both attempts
+landed inside the same cold start and the whole thing failed in under a second.
+A timeout cannot save you from a service that answers quickly with a refusal.
+
+Retries now wait, and the wait grows - attempts fall at roughly 0, 20, 60 and
+120 seconds, against a cold start of about 140 - so the last one arrives after
+the backend is up rather than during.
+
+The scheduler failure had the same shape as before. Render sends every response
+chunked with no `Content-Length`, and a scheduler that cannot bound a response
+rejects even a twenty-byte one. `/health` answers HEAD, which has no body; the
+feedback task cannot, because it has to run, so it now returns `204 No Content`
+and logs its result instead. The numbers are on `/feedback/summary`.
+
+One more thing surfaced: the health check added the day before reported
+`backend_reachable: false` beside `status: "ok"`, because a problem was recorded
+only when the request raised, not when it returned a refusal. It had found the
+outage and then called itself healthy.
+
+The chain is worth keeping in view. A monitoring job that could not read a
+seventy-byte response ended with farmers' questions being silently discarded.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not

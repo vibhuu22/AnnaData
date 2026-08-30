@@ -171,6 +171,16 @@ async def generate_response(message: str, phone: str, message_id: str | None) ->
                 if resp.status != 200:
                     print(f"AI API error {resp.status} (attempt {attempt}): {body[:300]}")
                     if 500 <= resp.status < 600 and attempt < config.AI_ATTEMPTS:
+                        # A cold backend refuses immediately, so retrying at
+                        # once just collects the same refusal. Waiting is what
+                        # gives it time to finish waking; without this, a farmer
+                        # who wrote after a quiet spell lost their message.
+                        # The wait grows, so the attempts land at roughly 0, 20,
+                        # 60 and 120 seconds. A free-tier cold start takes about
+                        # 140, which a flat retry would spend entirely inside.
+                        wait = config.AI_RETRY_WAIT * attempt
+                        print(f"Backend is waking; retrying in {wait}s")
+                        await asyncio.sleep(wait)
                         continue
                     return None
 
@@ -321,6 +331,8 @@ async def health():
                 f"{base}/health", timeout=aiohttp.ClientTimeout(total=15)
             ) as resp:
                 backend_ok = resp.status == 200
+            if not backend_ok:
+                problems.append(f"agent backend returned HTTP {resp.status}")
         except Exception as e:
             backend_ok = False
             problems.append(f"agent backend unreachable: {str(e)[:80]}")
@@ -345,8 +357,16 @@ async def feedback_task():
 
     GET is accepted as well as POST because scheduling services default to GET,
     and a 405 from a cron job is a confusing way to discover that.
+
+    The result is logged rather than returned. Render sends every response
+    chunked with no Content-Length, and a scheduler that cannot bound a response
+    rejects even a twenty-byte one as "output too large" - so the endpoint that
+    has to be called on a schedule returns no body at all. Ask
+    /feedback/summary on the backend for the numbers.
     """
-    return jsonify(await send_feedback_requests()), 200
+    result = await send_feedback_requests()
+    print(f"Feedback task: {result}")
+    return "", 204
 
 
 @app.post(config.WEBHOOK_PATH)

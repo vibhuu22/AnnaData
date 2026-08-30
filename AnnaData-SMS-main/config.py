@@ -79,7 +79,12 @@ DEDUP_TTL = int(_get("DEDUP_TTL", "600"))
 AI_TIMEOUT = int(_get("AI_TIMEOUT", "150"))
 # Attempts at the backend per incoming SMS. The first can be spent waking a
 # sleeping free-tier instance, so more than one matters in practice.
-AI_ATTEMPTS = int(_get("AI_ATTEMPTS", "2"))
+AI_ATTEMPTS = int(_get("AI_ATTEMPTS", "4"))
+# Seconds to wait before retrying a backend that answered 5xx. A sleeping
+# service on free hosting refuses fast rather than holding the connection, so
+# retrying at once simply collects a second refusal from the same cold start;
+# the wait is what lets it finish waking.
+AI_RETRY_WAIT = int(_get("AI_RETRY_WAIT", "20"))
 SMS_TIMEOUT = int(_get("SMS_TIMEOUT", "30"))
 MAX_SMS_CHARS = int(_get("MAX_SMS_CHARS", "480"))    # hard character ceiling
 # Billed segments. Latin fits 153 chars per segment, Devanagari only 67, so
