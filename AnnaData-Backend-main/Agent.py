@@ -13,6 +13,7 @@ from Soil_Tool import soil_tool
 from Refined_Farmer_Query import get_farming_query
 from Web_Crawler import query_kb, is_available as kb_available
 import knowledge
+import msp
 import planner
 import provenance
 import re
@@ -347,7 +348,9 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     ]
     for label, key in (("APPROVED PESTICIDE USES", "doses"),
                        ("Soil", "soil"), ("Weather", "weather"),
-                       ("Mandi Price", "mandi"), ("Knowledge Base", "kb")):
+                       ("Mandi Price", "mandi"),
+                       ("MINIMUM SUPPORT PRICE", "msp"),
+                       ("Knowledge Base", "kb")):
         value = gathered.get(key)
         if value:
             context_lines.append(f"- {label}: {value}")
@@ -370,6 +373,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     - Cite a data point ONLY where it changes what the farmer should do. Soil pH matters for a fertiliser question; today's rainfall matters if it affects spraying or drainage. Appending an unrelated figure - the day's rainfall onto a pest answer - is noise, and the farmer did not ask for it. When nothing in the data changes the advice, do not mention the data at all.
     - If the farmer asks a direct factual question - the temperature, the humidity, the rainfall, the price - ANSWER IT with the exact figure from the Context. Never say you cannot provide live data when the figure is sitting in the Context above. If only part of what they asked for is present, give that part and say the rest is not available.
     - The Context is measured data for this farmer's own location. Trust it over any assumption the farmer states: if they say the weather is dry and the data shows heavy rain, tell them plainly what the data says.
+    - PRICES: the mandi rate and the Minimum Support Price answer different questions and are not interchangeable. If a MINIMUM SUPPORT PRICE section is present, give that figure - it is current for the whole marketing year and is a real answer, not a substitute for one. When the live mandi rate is unavailable, say so in a few words and then give the support price as the floor the farmer is guaranteed; do not end on "unavailable" while the support price is sitting in the Context. Never present the support price as today's market rate, and never quote a support price that is not in the Context - most vegetables have none.
     - Do not invent facts beyond the given data.
     - CHEMICALS AND DOSES: if an APPROVED PESTICIDE USES section is present, you may name a pesticide and a dose ONLY if it appears there, quoted exactly, and you should say it is a registered use. If that section says nothing is registered, or warns the listed uses are for a different pest, then name NO chemical and NO dose at all - say you have no approved treatment on record and tell them to ask their Krishi Vigyan Kendra or agriculture officer. Never fall back on a chemical you happen to know.
     - End with ONE short, specific question only where the answer would genuinely change with it - the crop stage, how widespread the damage is, whether they have irrigation. Never ask for something already given above. If nothing useful is missing, end with the advice.
@@ -403,6 +407,7 @@ def gather(tools, *, lat, lon, state, crop, query, pest=None) -> dict:
         "soil":    lambda: soil_tool(lat, lon),
         "weather": lambda: weather_openmeteo(lat, lon),
         "mandi":   lambda: get_state_data(state, crop),
+        "msp":     lambda: msp.for_crop(crop),
         # Retrieval runs against the local pgvector store. The Bedrock path is
         # kept as a fallback for anyone who has that configured, but it is no
         # longer what the feature depends on.

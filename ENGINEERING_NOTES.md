@@ -262,6 +262,42 @@ opens after two failures rather than three.
 | First question | 90.4s | 12.2s |
 | Once the circuit is open | 90.4s | 0.0s |
 
+### Support prices, because they are the part that keeps
+
+Agmarknet was re-probed for a live price feed and is now a React application:
+the old .aspx report pages return a 1 KB shell, and the API behind it
+(`api.agmarknet.gov.in/v1/`) answers `commodities` and `agmarknet-live-date`
+without credentials but gates every price endpoint behind
+`TOKEN_OR_CAPTCHA_REQUIRED`. Their robots.txt allows crawling and disallows only
+auth, data-entry and admin paths, so reading is permitted - but a captcha is not
+something to work around, so there is still no automated daily feed.
+
+What the site's CSV export does carry is worth more than the day's prices. Its
+"Marketwise" report has no market column - it is a national daily summary - but
+it includes the Minimum Support Price for twenty commodities. An MSP is set once
+a marketing year by the Cabinet Committee on Economic Affairs, applies
+nationally, and does not move, which makes it the rare agricultural figure that
+is still correct months after it is stored.
+
+So it is stored. A price question now answers with the guaranteed floor even
+while the live service is down, which turns the most common failure from
+"unavailable" into a real answer:
+
+> Current mandi price data for Maharashtra is unavailable. However, the
+> government guaranteed Minimum Support Price for cotton for the 2026-27 season
+> is Rs 7,710 per quintal. You should not sell your crop below this floor price
+> at procurement centers.
+
+The commodity labels are unpacked into the vocabulary farmers actually use -
+`Red gram/Arhar/Tur(whole)` becomes arhar, tur, red gram and pigeonpea,
+`Sesamum(Sesame,Gingelly,Til)` becomes til - giving 39 aliases across 20
+commodities, so a question in Hindi finds the figure.
+
+The safety case is the crop with no MSP. Onion, potato and tomato have none, and
+a model that has seen the phrase in twenty other answers will readily produce a
+plausible one. Asked for the tomato rate it now says no MSP exists for tomato
+rather than inventing a number, and an eval case holds it there.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not

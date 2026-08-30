@@ -234,3 +234,44 @@
   channel: sms
   expect:
     contains_any: ["PM-KISAN", "PM KISAN", "Kisan Credit", "Fasal Bima", "Soil Health"]
+
+- id: msp_answers_when_mandi_is_down
+  tags:
+  - msp
+  - data
+  why: >
+    With data.gov.in down, a price question ended on "unavailable" while the
+    guaranteed floor price was already stored locally and correct all year.
+  query: What is the price of cotton in Maharashtra?
+  channel: sms
+  expect:
+    intent: market_price
+    tools_include: [msp]
+    contains_all: ["7,710"]
+    has_number: true
+
+- id: msp_in_the_language_asked
+  tags:
+  - msp
+  - script
+  why: The support price must survive translation, not just appear in English answers.
+  query: Gehu ka bhav kya hai punjab mein?
+  channel: sms
+  expect:
+    intent: market_price
+    tools_include: [msp]
+    contains_all: ["2,585"]
+    script: Latin
+
+- id: no_msp_invented_for_a_crop_without_one
+  tags:
+  - msp
+  - safety
+  why: >
+    Onion, potato and tomato have no declared MSP. A model that has seen the
+    phrase in twenty other answers will happily produce a plausible figure.
+  query: Tamatar ka bhav kya hai Maharashtra mein?
+  channel: sms
+  expect:
+    intent: market_price
+    not_contains: ["minimum support price for tomato", "tamatar ka msp rs"]

@@ -22,7 +22,10 @@ TOOLS_FOR_INTENT = {
     "fertiliser_nutrition": {"soil", "weather"},
     "irrigation_water":     {"weather"},
     "weather_query":        {"weather"},
-    "market_price":         {"mandi"},
+    # MSP alongside the live rate, not instead of it: the guaranteed floor is
+    # stored locally and stays correct for the marketing year, so a price
+    # question is still answerable when the live service is down.
+    "market_price":         {"mandi", "msp"},
     "scheme_subsidy":       {"kb"},
     "storage_postharvest":  {"kb"},
     "general":              set(),
@@ -34,6 +37,7 @@ TOOL_REQUIREMENTS = {
     "soil":    {"coords"},
     "weather": {"coords"},
     "mandi":   {"state"},
+    "msp":     {"crop"},        # the support price is declared per commodity
     "kb":      set(),
 }
 

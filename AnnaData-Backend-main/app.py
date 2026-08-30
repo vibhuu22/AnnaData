@@ -10,6 +10,7 @@ from pydantic import BaseModel
 import config
 import db
 import feedback
+import msp
 import profile_store
 import startup
 import weather_tool
@@ -49,6 +50,7 @@ def on_startup():
     startup.init_earth_engine()
     db.init()
     feedback.init()
+    msp.init()
     print(f"CORS origins: {_build_origins()}")
     print(f"Features: {config.feature_status()}")
 

@@ -23,6 +23,7 @@ system is a self-description that goes stale silently.
 import config
 import db
 import knowledge
+import msp
 import startup
 import Web_Crawler
 
@@ -82,6 +83,12 @@ def capabilities() -> list[str]:
         "and when the next window opens."
     )
 
+    n_msp = msp.counts().get("msp_commodities") or 0
+    if n_msp:
+        items.append(
+            f"Support prices - the government's guaranteed floor price for "
+            f"{n_msp} major crops, which holds all marketing year."
+        )
     if config.GOV_API_KEY:
         items.append(
             "Market prices - daily mandi rates for a crop in the farmer's state."
@@ -139,6 +146,12 @@ def data_sources() -> list[str]:
         "fallback, for the farmer's coordinates."
     )
 
+    if msp.counts().get("msp_commodities"):
+        sources.append(
+            "Support prices: the Minimum Support Prices announced by the "
+            "Government of India for the marketing year, as published by "
+            "Agmarknet."
+        )
     if config.GOV_API_KEY:
         sources.append(
             "Market prices: daily mandi prices published by the Government of "
