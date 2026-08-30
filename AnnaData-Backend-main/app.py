@@ -73,12 +73,16 @@ def on_shutdown():
     db.close()
 
 
-@app.get("/")
+# HEAD as well as GET. Render serves every response chunked with no
+# Content-Length, and monitoring services that cannot bound a response in
+# advance reject even a seventy-byte one as "output too large". A HEAD request
+# has no body at all, which sidesteps the problem entirely.
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"message": "AnnaData Agent API is running!"}
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     """Readiness plus which integrations are actually configured."""
     return {
@@ -171,6 +175,11 @@ def run_agent_endpoint(request: QueryRequest):
     }
 
 
+class UserRequest(BaseModel):
+    """Anything addressed at a single farmer by their identifier."""
+    user_id: str
+
+
 class RatingRequest(BaseModel):
     user_id: str
     message: str
@@ -211,7 +220,7 @@ def feedback_due():
 
 
 @app.post("/feedback/asked")
-def feedback_asked(request: ForgetRequest):
+def feedback_asked(request: UserRequest):
     """Record that a farmer has been asked, so they are not asked again."""
     feedback.mark_asked((request.user_id or "").strip())
     return {"ok": True}
@@ -223,12 +232,8 @@ def feedback_summary():
     return feedback.summary()
 
 
-class ForgetRequest(BaseModel):
-    user_id: str
-
-
 @app.post("/forget")
-def forget(request: ForgetRequest):
+def forget(request: UserRequest):
     """Erase a farmer's profile and message history. Backs the STOP keyword."""
     user_id = (request.user_id or "").strip()
     if not user_id:

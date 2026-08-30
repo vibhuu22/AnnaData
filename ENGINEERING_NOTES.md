@@ -207,6 +207,25 @@ Four chunks of a nine-page factsheet vanished with
 and other control characters in the text; they are now stripped during
 cleaning.
 
+### A 71-byte response rejected as "output too large"
+
+Every keep-warm ping failed with that message, and after enough failures the
+scheduler disabled all three jobs - so the services then slept, and the pings
+that remained hit cold starts and returned 503. A self-sustaining outage from a
+monitor that was supposed to prevent one.
+
+The responses were 71 and 247 bytes. The cause was in the headers:
+
+    Transfer-Encoding: chunked
+
+Render serves everything chunked with no `Content-Length`, so a client cannot
+know the size before reading it, and a monitor that refuses to read an unbounded
+response reports even a tiny one as too large. Nothing about the payload was
+wrong.
+
+`/health` and `/` now answer HEAD as well as GET. A HEAD response has no body,
+so there is nothing to bound and the check cannot trip.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not
