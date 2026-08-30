@@ -226,6 +226,24 @@ wrong.
 `/health` and `/` now answer HEAD as well as GET. A HEAD response has no body,
 so there is nothing to bound and the check cannot trip.
 
+### A bank alert became a farmer
+
+The first live run of the rating scheduler reported one farmer due and none
+asked. The farmer was `JR-JIOPAY-S`.
+
+That is a DLT sender ID - the alphanumeric identifier banks, delivery services
+and marketers send from. An Indian handset receives far more of this machine
+traffic than conversation, and one of them had been treated as a farmer: it was
+answered by the agent at the cost of a model call, written to the farmer table,
+assigned a rating day, and then came up due on every scheduler run, because the
+ask was recorded only when the send succeeded and a send to an alphanumeric
+sender ID can never succeed. A quarter-hourly loop that could not terminate.
+
+The test that matters is whether a reply could ever arrive, so a sender that can
+be answered is a phone number and anything containing a letter is a machine.
+The check now runs at ingest, before a model call or a database row - and again
+in the due-check, for rows already stored.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not

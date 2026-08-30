@@ -133,6 +133,21 @@ def _ensure_feedback_day(conn, user_id: str) -> int:
     return day
 
 
+def _replyable(user_id: str) -> bool:
+    """Whether a rating request could ever reach this identifier.
+
+    Bank alerts and marketing arrive from DLT sender IDs like "JR-JIOPAY-S",
+    which cannot receive SMS. One such sender was written to the farmer table
+    and then came up due on every scheduler run, since the ask was counted only
+    when it succeeded. The bridge now drops these on arrival; this is the second
+    guard, for rows already stored.
+    """
+    digits = re.sub(r"[\s()\-.]", "", user_id or "")
+    if digits.startswith("+"):
+        digits = digits[1:]
+    return digits.isdigit() and len(digits) >= 8
+
+
 def due_for_feedback() -> list[str]:
     """Farmers whose conversation has finished and who are due to be asked."""
     if not db.is_available():
@@ -158,6 +173,8 @@ def due_for_feedback() -> list[str]:
 
             due = []
             for user_id, day, _last_seen in rows:
+                if not _replyable(user_id):
+                    continue
                 day = day or _ensure_feedback_day(conn, user_id)
                 # The drawn day is the earliest eligible date, not the only one:
                 # the ask waits for a conversation to finish on or after it.

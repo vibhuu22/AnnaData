@@ -1,6 +1,7 @@
 import encoding_setup  # noqa: F401  (must be first)
 
 import asyncio
+import re
 import time
 
 import aiohttp
@@ -206,6 +207,24 @@ async def send_sms(phone_number: str, message: str) -> bool:
         return False
 
 
+# An Indian handset receives far more machine traffic than conversation: bank
+# alerts, OTPs, delivery notices, marketing. Those arrive from DLT sender IDs
+# like "JR-JIOPAY-S" or "VM-HDFCBK" rather than from a number, and they are not
+# people. One reached the agent, was answered as though it were a farming
+# question, and was written to the farmer table - where it was then permanently
+# due for a rating request that could never be delivered, since an alphanumeric
+# sender ID cannot receive SMS.
+#
+# The test is whether a reply could ever arrive: a sender we can answer is a
+# phone number. Anything containing a letter is a machine, and is ignored
+# before it costs a model call or a database row.
+def is_replyable(sender: str) -> bool:
+    digits = re.sub(r"[\s()\-.]", "", sender or "")
+    if digits.startswith("+"):
+        digits = digits[1:]
+    return digits.isdigit() and len(digits) >= 8
+
+
 # === Processing Logic ===
 async def process_sms(data: dict):
     payload = data.get("payload", {})
@@ -227,6 +246,9 @@ async def process_sms(data: dict):
         return
     if not phone:
         print("No sender number in payload, cannot reply")
+        return
+    if not is_replyable(phone):
+        print(f"Ignoring machine sender {phone!r} (not a number we can reply to)")
         return
 
     # Opting out has to work before anything else, and must never depend on the
