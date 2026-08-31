@@ -16,7 +16,6 @@ The farmer is the same person on both channels, so identifiers are normalised to
 the same form the SMS side stores. Someone who asks over SMS and later asks on
 WhatsApp keeps their district, their crops and their history.
 """
-import json
 
 import aiohttp
 
@@ -49,6 +48,11 @@ def extract(body: dict) -> dict | None:
     the same webhook as real messages. Only an inbound message with text is
     something to answer; everything else is acknowledged and ignored.
     """
+    # The endpoint is public, so confirm this is actually WhatsApp traffic
+    # before reading anything out of it.
+    if body.get("object") != "whatsapp_business_account":
+        return None
+
     try:
         change = body["entry"][0]["changes"][0]["value"]
     except (KeyError, IndexError, TypeError):

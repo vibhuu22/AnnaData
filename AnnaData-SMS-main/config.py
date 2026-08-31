@@ -35,7 +35,7 @@ WHATSAPP_PHONE_NUMBER_ID = _get("WHATSAPP_PHONE_NUMBER_ID")
 # Any string; it is echoed back to Meta during webhook verification to prove
 # the endpoint belongs to whoever configured the app.
 WHATSAPP_VERIFY_TOKEN = _get("WHATSAPP_VERIFY_TOKEN", "annadata-verify")
-WHATSAPP_API_VERSION = _get("WHATSAPP_API_VERSION", "v21.0")
+WHATSAPP_API_VERSION = _get("WHATSAPP_API_VERSION", "v23.0")
 
 
 def whatsapp_enabled() -> bool:
