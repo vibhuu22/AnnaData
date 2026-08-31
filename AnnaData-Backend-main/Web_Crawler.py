@@ -1,12 +1,15 @@
 """
 AWS Bedrock knowledge base lookup (government schemes, cold storage).
 
-The boto3 client is now built lazily so that missing AWS credentials do not
-raise at import time. query_kb returns the answer text or None; the agent falls
-through to its normal tool path when it gets None.
-"""
-import boto3
+The boto3 client is built lazily so that missing AWS credentials do not raise at
+import time. query_kb returns the answer text or None; the agent falls through
+to its normal tool path when it gets None.
 
+boto3 itself is imported lazily too. Retrieval runs on pgvector now and this
+path is only a fallback for anyone who still has Bedrock configured, so paying
+for a large AWS SDK in the container image - and in every cold start - to
+support a route almost nobody takes is the wrong trade.
+"""
 from config import (
     KNOWLEDGE_BASE_ID,
     AWS_REGION,
@@ -26,6 +29,11 @@ def is_available() -> bool:
 def _get_client():
     global _client
     if _client is None:
+        try:
+            import boto3
+        except ImportError:
+            print("boto3 is not installed; the Bedrock fallback is unavailable")
+            return None
         _client = boto3.client(
             "bedrock-agent-runtime",
             region_name=AWS_REGION,
@@ -41,8 +49,12 @@ def query_kb(question: str) -> str | None:
         print("Knowledge base skipped: AWS credentials or KNOWLEDGE_BASE_ID not set")
         return None
 
+    client = _get_client()
+    if client is None:
+        return None
+
     try:
-        response = _get_client().retrieve_and_generate(
+        response = client.retrieve_and_generate(
             input={"text": question},
             retrieveAndGenerateConfiguration={
                 "type": "KNOWLEDGE_BASE",

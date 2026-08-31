@@ -1,6 +1,13 @@
-# Direct dependencies only. Transitive packages are resolved by pip.
-# The previous file was a full `pip freeze` in UTF-16, which pip could not
-# read and which pinned transitive deps too tightly to install cleanly.
+# Runtime dependencies only - what the serving container actually needs.
+#
+# Direct dependencies only. Transitive packages are resolved by pip. The
+# original file was a full `pip freeze` in UTF-16, which pip could not read and
+# which pinned transitive deps too tightly to install cleanly.
+#
+# PDF parsing, YAML and the AWS SDK are NOT here: they are used by tools/ and
+# eval/, or by a Bedrock fallback that is now imported lazily. Carrying them in
+# the image costs size and cold-start time on every request for code the serving
+# path never reaches. Install requirements-tools.txt for that work.
 
 # --- Web framework ---
 fastapi==0.116.1
@@ -16,16 +23,8 @@ google-genai==1.30.0
 
 # --- Data tools ---
 earthengine-api==1.6.3
-boto3==1.40.11
 requests==2.32.4
 
-# --- Knowledge ingestion ---
-pdfplumber==0.11.10
-pypdf==6.7.0
-
-# --- Evaluation ---
-PyYAML==6.0.3
-
-# --- Config ---
+# --- Config and storage ---
 python-dotenv==1.1.1
 psycopg[binary,pool]==3.2.3

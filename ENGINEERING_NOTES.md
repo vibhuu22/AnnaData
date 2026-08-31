@@ -450,6 +450,40 @@ segments. And Meta delivers delivery receipts and read receipts through the same
 webhook as messages, so anything that is not an inbound message is acknowledged
 and ignored.
 
+### The keep-warm problem was arithmetic, not configuration
+
+Three times the scheduler was fixed and three times the services went back to
+sleep, so the fourth attempt started with the platform's own numbers rather than
+with the scheduler. A free web service sleeps after 15 minutes idle, takes about
+a minute to wake, and the whole workspace has **750 instance-hours a month**.
+
+One service awake around the clock is 730 hours. Two is 1,460.
+
+So keeping both warm was never a configuration problem to solve - it needs
+almost twice the entire monthly allowance, and pinging hard enough to try would
+exhaust it in a fortnight and suspend every service until the next month. Every
+fix so far had been aimed at the wrong layer.
+
+It also explains the scheduler's behaviour exactly. The ping interval was 15
+minutes against a 15-minute idle timer, which is a race; the request timeout was
+30 seconds against a 60-second wake. So a ping landing just after a spin-down
+always failed, and enough failures disabled the job, after which nothing kept
+anything warm at all.
+
+The answer is a platform that starts in seconds instead of a minute, which makes
+keeping anything warm unnecessary. Cloud Run scales to zero the same way and
+needs no scheduler.
+
+Moving revealed two things worth fixing regardless. Both Dockerfiles carried a
+literal `
+` where a line continuation was meant - invisible on Render, which
+builds from a start command rather than the Dockerfile, and fatal to a container
+build. And the image was installing PDF parsing, YAML and the AWS SDK, none of
+which the serving path reaches: the ingestion scripts and the evaluation harness
+use them, and the Bedrock fallback is now imported lazily. They moved to
+`requirements-tools.txt`, because paying for them in every cold start to support
+code that never runs is the wrong trade.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not
