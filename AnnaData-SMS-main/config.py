@@ -27,6 +27,21 @@ DEVICE_PORT = _get("DEVICE_PORT", "8080")
 USERNAME = _get("APP_USERNAME")
 PASSWORD = _get("PASSWORD")
 
+# --- WhatsApp Cloud API (optional second channel) -------------------------
+# Absent credentials disable the channel and nothing else, the same way every
+# other integration in this project is optional rather than fatal.
+WHATSAPP_TOKEN = _get("WHATSAPP_TOKEN")
+WHATSAPP_PHONE_NUMBER_ID = _get("WHATSAPP_PHONE_NUMBER_ID")
+# Any string; it is echoed back to Meta during webhook verification to prove
+# the endpoint belongs to whoever configured the app.
+WHATSAPP_VERIFY_TOKEN = _get("WHATSAPP_VERIFY_TOKEN", "annadata-verify")
+WHATSAPP_API_VERSION = _get("WHATSAPP_API_VERSION", "v21.0")
+
+
+def whatsapp_enabled() -> bool:
+    return bool(WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID)
+
+
 _AI_ENDPOINT_RAW = _get("AI_ENDPOINT")     # e.g. https://api.example.com/agent
 PUBLIC_URL = _get("PUBLIC_URL") or _get("NGROK_URL")  # where this bridge is reachable
 

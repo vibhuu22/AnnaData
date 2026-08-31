@@ -419,6 +419,37 @@ walks a synthetic farmer through ask, rate and cooldown. Restoring the original
 behaviour makes it fail on exactly the assertion that matters, which is the only
 evidence that a regression test is worth having.
 
+### A second way in, after the first one broke
+
+The gateway handset stopped enumerating over USB - `VID_0000`, code 43, no
+descriptor at all - and with a failing screen it could not be driven any other
+way. The service was unreachable, and the single point of failure the notes had
+been describing since the start stopped being hypothetical.
+
+WhatsApp Cloud API is now a second channel. It is worth having for three
+reasons beyond redundancy. Meta hosts the connection, so nothing depends on a
+device staying awake. Free-form replies are permitted inside the twenty-four
+hour window a farmer's own message opens, which is exactly the regulatory
+problem the SMS path cannot solve at scale. And a test number is issued before
+any business verification, so the channel runs without a SIM.
+
+It reaches a different farmer - one with a smartphone - so it widens the
+audience rather than replacing the SMS path, which remains the one that reaches
+a feature phone.
+
+The farmer is the same person on either channel, so WhatsApp's bare
+`917388535376` is normalised to the `+917388535376` the profile store already
+keys on. Someone who asks over SMS and later asks on WhatsApp keeps their
+district, their crops and their history. Both channels run the same pipeline -
+opt-out, then a possible rating, then the agent - because a farmer switching
+channels should not meet a different assistant.
+
+Two things differ, and both are in the channel rather than the agent. The
+segment budget is an SMS constraint, so trimming is skipped where there are no
+segments. And Meta delivers delivery receipts and read receipts through the same
+webhook as messages, so anything that is not an inbound message is acknowledged
+and ignored.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not

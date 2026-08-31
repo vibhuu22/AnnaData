@@ -63,6 +63,17 @@ CHANNEL_STYLE = {
         "Keep the answer concise, ideally under 250 words. "
         "Format it clearly using markdown."
     ),
+    # WhatsApp has no segment budget, so the SMS economy does not apply - but a
+    # farmer reading on a phone still wants the answer, not an essay. Light
+    # formatting is supported and markdown headers are not.
+    "whatsapp": (
+        "This answer is delivered on WhatsApp. "
+        "Use plain text with short paragraphs. You may use *single asterisks* "
+        "for emphasis on a key figure, but no headers, no bullet characters, "
+        "no tables, no links and no markdown. "
+        "Give the most useful, actionable steps in under 90 words, always with "
+        "specific quantities. Finish every sentence you begin."
+    ),
     "sms": (
         "This answer is delivered as an SMS to a basic phone. "
         "Use plain text ONLY: no markdown, no asterisks, no hash headers, "

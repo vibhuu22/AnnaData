@@ -8,6 +8,7 @@ import aiohttp
 from quart import Quart, request, jsonify
 
 import config
+import whatsapp
 from sms_text import prepare, segment_count
 
 app = Quart(__name__)
@@ -137,7 +138,8 @@ async def send_feedback_requests() -> dict:
     return {"asked": asked, "due": len(due)}
 
 
-async def generate_response(message: str, phone: str, message_id: str | None) -> str | None:
+async def generate_response(message: str, phone: str, message_id: str | None,
+                            channel: str = "sms") -> str | None:
     """Ask the agent backend for a reply, already trimmed for SMS."""
     if not config.AI_ENDPOINT:
         print("AI_ENDPOINT not configured")
@@ -151,7 +153,7 @@ async def generate_response(message: str, phone: str, message_id: str | None) ->
     # this farmer's location and recent conversation.
     payload = {
         "query": message,
-        "channel": "sms",
+        "channel": channel,
         "user_id": phone,
         "message_id": message_id,
     }
@@ -203,6 +205,11 @@ async def generate_response(message: str, phone: str, message_id: str | None) ->
                         break
                 if not suffix and data.get("needs_location"):
                     suffix = config.LOCATION_PROMPT
+                # The segment budget is an SMS constraint. WhatsApp has no
+                # segments, so trimming there would discard useful advice for
+                # no reason; only the slot prompt is appended.
+                if channel != "sms":
+                    return f"{answer}\n\n{suffix}" if suffix else answer
                 return prepare(answer, config.MAX_SMS_CHARS,
                                config.MAX_SMS_SEGMENTS, suffix)
 
@@ -345,6 +352,7 @@ async def health():
         "status": "ok" if not problems else "degraded",
         "mode": config.SMS_MODE,
         "http_session": "open" if session_ok else "closed",
+        "whatsapp": "configured" if config.whatsapp_enabled() else "not configured",
         "backend_reachable": backend_ok,
         "problems": problems,
         "pending_dedup_entries": len(processed_ids),
@@ -371,6 +379,76 @@ async def feedback_task():
     result = await send_feedback_requests()
     print(f"Feedback task: {result}")
     return "", 204
+
+
+async def process_whatsapp(incoming: dict):
+    """Answer one WhatsApp message.
+
+    Deliberately the same pipeline as SMS - opt-out first, then a possible
+    rating, then the agent - because a farmer switching channels should not get
+    a different assistant. Only the delivery differs.
+    """
+    sender, text = incoming["sender"], incoming["text"]
+
+    if not text:
+        await whatsapp.send(
+            http_session(), sender,
+            "I can only read text messages at the moment. Please type your "
+            "farming question and I will answer it."
+        )
+        return
+
+    print(f"\nIncoming WhatsApp\n From: {sender}\n Text: {text}\n" + "-" * 40)
+
+    if text.strip().lower() in config.STOP_WORDS:
+        print(f"Opt-out from {sender}")
+        await forget_farmer(sender)
+        await whatsapp.send(http_session(), sender, config.STOP_REPLY)
+        return
+
+    if await record_rating(sender, text):
+        await whatsapp.send(http_session(), sender, config.FEEDBACK_THANKS)
+        return
+
+    reply = await generate_response(text, sender, incoming.get("message_id"),
+                                    channel="whatsapp")
+    await whatsapp.send(
+        http_session(), sender,
+        reply or "Sorry, AnnaData could not answer right now. Please try again shortly."
+    )
+
+
+@app.get("/whatsapp")
+async def whatsapp_verify():
+    """Meta's one-time webhook handshake."""
+    body, status = whatsapp.verify_challenge(request.args)
+    return body, status, {"Content-Type": "text/plain"}
+
+
+@app.post("/whatsapp")
+async def whatsapp_incoming():
+    """Inbound WhatsApp events.
+
+    Meta retries anything it does not get a prompt 200 for, and delivers status
+    callbacks through the same endpoint as messages, so this acknowledges
+    everything immediately and answers out of band - exactly as the SMS webhook
+    does for the same reason.
+    """
+    body = await request.get_json(force=True, silent=True) or {}
+    incoming = whatsapp.extract(body)
+
+    if not incoming:
+        return jsonify({"status": "ignored"}), 200      # status callback, not a message
+
+    message_id = incoming.get("message_id")
+    if message_id:
+        if is_processed(message_id):
+            print(f"Duplicate WhatsApp message ({message_id}) - skipping")
+            return jsonify({"status": "duplicate"}), 200
+        mark_processed(message_id)
+
+    asyncio.create_task(process_whatsapp(incoming))
+    return jsonify({"status": "ok"}), 200
 
 
 @app.post(config.WEBHOOK_PATH)
