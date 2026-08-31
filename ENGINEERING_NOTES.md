@@ -511,11 +511,34 @@ false` beside `status: ok`, because a problem was only recorded when a request
 raised rather than when it was refused. Now a gateway app showed a live
 connection it was not receiving on.
 
-The fix here was already in the app, switched off: a **Ping interval**, labelled
-"online status at the cost of battery life", set to `Not set`. It is now 60
-seconds. A connection nobody exercises is a connection nobody can tell is dead,
-and on a device that exists only to relay messages, battery is the cheaper side
-of that trade.
+The fix was already in the app, switched off: a **Ping interval**, labelled
+"online status at the cost of battery life", set to `Not set`. A connection
+nobody exercises is a connection nobody can tell is dead, and on a device that
+exists only to relay messages, battery is the cheaper side of that trade.
+
+Setting it to 60 seconds fixed the stall and created a latency problem, because
+push was evidently not reaching this handset at all: the app was collecting
+messages only on its ping cycle, so every reply waited an average of half the
+interval. The gateway's own timestamps separate the outbound leg cleanly, and
+the interval is visible in them:
+
+| Period | Pickup | Send | Deliver | Total |
+|---|---|---|---|---|
+| Push working | 2.0-4.3s | 0.4s | 1-3s | 3.6-7.0s |
+| Connection stale | 19.8-254.6s | 0.5s | 2-4s | 22.6-258.4s |
+| Ping at 60s | 50.6-80.9s | 0.5s | 3-4s | 56.4-84.6s |
+| **Ping at 10s** | **5.8s** | **0.4s** | **4.5s** | **10.7s** |
+
+Sending and delivery were never the problem - they are consistently under five
+seconds. The whole variance is in the handset noticing there is something to
+send. At 10 seconds the outbound leg is back to its healthy baseline, and the
+tablet stays on mains power, where Android throttles background networking far
+less aggressively.
+
+End to end a farmer now waits roughly 20 seconds: two to eight for the inbound
+SMS, nine to sixteen for the agent, and about ten to get the reply back out. The
+agent is now the largest share, which is the first time in this project that the
+slow part has been our own code rather than something waiting on a network.
 
 ### There is no second source for mandi prices
 
