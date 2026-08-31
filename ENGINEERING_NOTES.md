@@ -484,6 +484,39 @@ use them, and the Bedrock fallback is now imported lazily. They moved to
 `requirements-tools.txt`, because paying for them in every cold start to support
 code that never runs is the wrong trade.
 
+### The third connection that reported healthy while doing nothing
+
+After the move to Cloud Run, replies stopped arriving. The logs made the shape
+of it obvious in a way Render never could:
+
+    09:59:56  Received SMS: "are you active now?"
+    10:00:10  AI Reply: "Yes, I am active and ready to help..."
+    10:00:13  SMS sent to +917388535376 (209 chars, 2 segments)
+
+Everything on our side worked. The gateway's own record showed why nothing
+arrived: five replies had gone `Pending -> Processed -> Sent -> Delivered`, and
+the sixth sat at `Pending` and never moved. The message had been queued for a
+handset that was not collecting it.
+
+The handset looked fine. The app was running with a foreground service, doze
+reported `ACTIVE`, and its own screen said `Internet connection: available` with
+the cloud server connected. Stopping and starting the service cleared the queue
+within four seconds. The connection had died without anyone noticing, including
+the app holding it.
+
+That is the third time this project has been bitten by the same thing. The SMS
+bridge kept accepting webhooks through a dead HTTP session while `/health`
+reported `ok`. The health check that replaced it reported `backend_reachable:
+false` beside `status: ok`, because a problem was only recorded when a request
+raised rather than when it was refused. Now a gateway app showed a live
+connection it was not receiving on.
+
+The fix here was already in the app, switched off: a **Ping interval**, labelled
+"online status at the cost of battery life", set to `Not set`. It is now 60
+seconds. A connection nobody exercises is a connection nobody can tell is dead,
+and on a device that exists only to relay messages, battery is the cheaper side
+of that trade.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not
