@@ -119,6 +119,26 @@ In this order, and not before a real message has been answered end to end:
 
 ---
 
+## Two things that will bite on a fresh project
+
+**The build fails before it starts.** A newly created project does not grant its
+default compute service account the roles Cloud Build needs, so the first deploy
+ends in `PERMISSION_DENIED ... could not resolve source`. Grant them once:
+
+    SA=PROJECT_NUMBER-compute@developer.gserviceaccount.com
+    for role in cloudbuild.builds.builder storage.objectViewer                 artifactregistry.writer logging.logWriter; do
+      gcloud projects add-iam-policy-binding PROJECT_ID         --member="serviceAccount:$SA" --role="roles/$role"
+    done
+
+**Do not deploy into the project that owns the Gemini API key.** Cloud Run
+requires billing; a Gemini project with billing attached leaves the free tier and
+starts answering `429 Your prepayment credits are depleted` - everywhere at once,
+including any other deployment using that key. The two requirements are opposite,
+so they need separate projects: billing on the one running Cloud Run, none on the
+one that owns the key. Unlinking restores the free tier immediately.
+
+---
+
 ## Cost, honestly
 
 The always-free allowance is generous relative to this workload, and idle costs
