@@ -313,3 +313,24 @@
   expect:
     message_type: question
     not_contains: ["namaste", "greetings from", "what is your question today"]
+
+- id: self_contained_question_skips_refinement
+  tags:
+  - dialogue
+  - fast
+  why: >
+    Refinement costs about 3.3s of the roughly 10s an answer takes, and exists
+    only to resolve a message against what came before. A question that names
+    its own crop has nothing to resolve, so it skips that call - and must still
+    be answered correctly, with history present and unused.
+  query: My cotton crop has bollworm damage, what should I spray?
+  channel: sms
+  history:
+  - role: user
+    content: when should I sow wheat
+  - role: assistant
+    content: Wheat sowing in your area opens in October. Wait for the soil to dry.
+  expect:
+    intent: disease_pest
+    tools_include: [doses]
+    script: Latin

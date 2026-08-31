@@ -540,6 +540,54 @@ SMS, nine to sixteen for the agent, and about ten to get the reply back out. The
 agent is now the largest share, which is the first time in this project that the
 slow part has been our own code rather than something waiting on a network.
 
+### Two optimisations, and the measurement that redirected both
+
+With the delivery path fixed, the agent became the largest share of what a
+farmer waits for, so it was worth measuring properly rather than guessing. A
+single sample suggested refinement cost 4.19s of a 9.84s answer - 43%, an
+obvious target. Four runs said otherwise:
+
+| Call | Median |
+|---|---|
+| refine | 3.32s |
+| extract | 3.82s |
+| advise | 3.49s |
+
+The three calls cost about the same. There is no dominant one to tune, and the
+only way to make the agent meaningfully faster is to make one of them not
+happen. Trimming the conversation passed to refinement was tried first and did
+nothing - 10 turns took 2.17s against 1.81s for 2, which is noise.
+
+Refinement is the one that can sometimes be skipped, because it exists solely to
+resolve a message against what came before, and a question naming its own
+subject has nothing to resolve. The skip is deliberately timid: it happens only
+on positive evidence that the message stands alone - it names a crop the system
+knows, and it is at least five words. Everything short, ambiguous or unfamiliar
+is refined exactly as before, because getting this wrong is precisely how "yess"
+was once answered with a greeting.
+
+**The Indic segment penalty was a compliance problem, not a physics one.** A
+Devanagari answer went out as four segments for 204 characters. The prompt
+already said to keep non-Latin replies under 30 words; measured, the model was
+writing 45 and 36, because counting its own output is not something it does
+reliably.
+
+So the budget is computed in code and given as a number, the same reason the
+script is decided in code rather than described: 67 characters a segment for
+UCS-2, 153 for GSM-7, three segments, stated as a hard character ceiling.
+
+| Answer | Before | After |
+|---|---|---|
+| Bollworm, Devanagari | 230 chars, **4 segments** | 195 chars, **3 segments** |
+| Sowing, Devanagari | 168 chars, 3 segments | 175 chars, 3 segments |
+| Bollworm, English | - | 260 chars, 2 segments |
+
+A quarter off the delivery cost of the worst case, with the registered dose and
+the pre-harvest interval both still in the answer. The English budget is 459
+characters against Devanagari's 201, which is the honest shape of the
+constraint: the same advice costs more than twice as much to deliver in the
+farmer's own script.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not

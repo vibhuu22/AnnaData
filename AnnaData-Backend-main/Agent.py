@@ -80,9 +80,6 @@ CHANNEL_STYLE = {
         "no bullet characters, no tables, no links. "
         "Write two or three short sentences giving the single most useful, "
         "actionable step, and always include specific quantities. "
-        "Keep it under 45 words, or under 30 if the farmer's own language "
-        "needs more than the Latin alphabet, since an SMS carries less than "
-        "half as much text in that case. "
         "Always finish your final sentence - a complete short answer is much "
         "more useful to a farmer than a longer one that gets cut off."
     ),
@@ -127,8 +124,35 @@ def script_instruction(query: str) -> str:
             f"English unless they did.")
 
 
-def style_for(channel: str) -> str:
-    return CHANNEL_STYLE.get((channel or "web").lower(), CHANNEL_STYLE["web"])
+# What one SMS segment holds. A message outside the GSM-7 alphabet is sent as
+# UCS-2, where a segment carries 67 characters instead of 153 - so the same
+# advice in Devanagari costs well over twice as much to deliver.
+SEGMENT_CHARS = {"latin": 153, "other": 67}
+SMS_SEGMENT_BUDGET = 3
+
+
+def sms_char_budget(query: str) -> int:
+    """How many characters an SMS answer may use, for this farmer's script.
+
+    Asking the model to "keep it under 30 words" did not work: measured on real
+    answers it produced 45 and 36, because counting its own output is not
+    something it does reliably. A character ceiling computed here from the script
+    and the segment budget is a number it can be given rather than asked to
+    derive - the same reason the script itself is decided in code.
+    """
+    per_segment = SEGMENT_CHARS["latin" if script_of(query) == "Latin" else "other"]
+    return per_segment * SMS_SEGMENT_BUDGET
+
+
+def style_for(channel: str, query: str = "") -> str:
+    channel = (channel or "web").lower()
+    style = CHANNEL_STYLE.get(channel, CHANNEL_STYLE["web"])
+    if channel == "sms" and query:
+        budget = sms_char_budget(query)
+        style += (f" Your entire reply must be at most {budget} characters. "
+                  f"This is a hard limit: past it the message is cut off "
+                  f"mid-sentence and the farmer loses the end of the advice.")
+    return style
 
 
 def extract_markdown_content(text: str) -> str:
@@ -150,7 +174,7 @@ def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: st
         for h in (history or [])
     )
 
-    style = style_for(channel)
+    style = style_for(channel, query)
     temporal = temporal_context()
     script_rule = script_instruction(query)
 
@@ -194,7 +218,7 @@ def answer_about_system(query: str, history, channel: str, profile=None) -> str:
     farmer asking where a soil figure came from is told the truth about this
     service rather than a textbook account of how soil is tested in general.
     """
-    style = style_for(channel)
+    style = style_for(channel, query)
     history_text = "\n".join(
         f"{h.get('role', 'user').capitalize()}: {h.get('content', '')}"
         for h in (history or [])
@@ -243,7 +267,7 @@ def handle_correction(query: str, history, channel: str) -> str:
     asked. The useful move is to find the question they actually put and answer
     that one.
     """
-    style = style_for(channel)
+    style = style_for(channel, query)
     history_text = "\n".join(
         f"{h.get('role', 'user').capitalize()}: {h.get('content', '')}"
         for h in (history or [])
@@ -281,7 +305,7 @@ def greet(query: str, profile, channel: str) -> str:
     lecture on wheat sowing, which answers a question nobody asked. What a
     farmer needs on first contact is to know what is worth asking.
     """
-    style = style_for(channel)
+    style = style_for(channel, query)
     known = []
     if profile:
         if profile.get("location_text"):
@@ -315,7 +339,7 @@ def acknowledge_statement(query: str, facts: dict, channel: str,
     Confirming what was understood is useful; volunteering a page of unrelated
     advice is not, and is what prompted 'I didnt ask about sowing?'.
     """
-    style = style_for(channel)
+    style = style_for(channel, query)
     known = ", ".join(f"{k}: {v}" for k, v in facts.items() if v) or "nothing specific"
 
     prompt = f"""
@@ -349,7 +373,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     "unavailable" placeholders for tools this question never needed gave the
     model more to ignore and, in practice, more to get confused by.
     """
-    style = style_for(channel)
+    style = style_for(channel, farmer_query)
     temporal = temporal_context()
     script_rule = script_instruction(farmer_query)
 
