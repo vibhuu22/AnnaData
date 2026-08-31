@@ -96,13 +96,23 @@ fifteen minutes, then
 
 ## 4. Point the gateway at the new bridge
 
-Only after step 3 passes. The webhook is registered per account, so there is one
-URL to change:
+Only after step 3 passes. The webhook is registered per account rather than per
+device, so there is one URL to change and any handset on the account is covered.
 
-    curl -X PATCH https://api.sms-gate.app/3rdparty/v1/webhooks/WEBHOOK_ID \
+The API has no PATCH for webhooks - it answers 404. Delete and recreate instead,
+in that order: registering the new one first would leave both live for a moment,
+and a farmer would get two replies to one question.
+
+    curl -X DELETE https://api.sms-gate.app/3rdparty/v1/webhooks/OLD_ID \
+      -u 'APP_USERNAME:PASSWORD'
+
+    curl -X POST https://api.sms-gate.app/3rdparty/v1/webhooks \
       -u 'APP_USERNAME:PASSWORD' \
       -H 'Content-Type: application/json' \
       -d '{"url":"https://BRIDGE_URL/incoming-sms","event":"sms:received"}'
+
+Keep the old URL to hand: if the create fails, re-register it immediately rather
+than leaving the gateway with nowhere to deliver.
 
 Send one real SMS and confirm a reply arrives.
 
@@ -126,8 +136,10 @@ default compute service account the roles Cloud Build needs, so the first deploy
 ends in `PERMISSION_DENIED ... could not resolve source`. Grant them once:
 
     SA=PROJECT_NUMBER-compute@developer.gserviceaccount.com
-    for role in cloudbuild.builds.builder storage.objectViewer                 artifactregistry.writer logging.logWriter; do
-      gcloud projects add-iam-policy-binding PROJECT_ID         --member="serviceAccount:$SA" --role="roles/$role"
+    for role in cloudbuild.builds.builder storage.objectViewer \
+                artifactregistry.writer logging.logWriter; do
+      gcloud projects add-iam-policy-binding PROJECT_ID \
+        --member="serviceAccount:$SA" --role="roles/$role"
     done
 
 **Do not deploy into the project that owns the Gemini API key.** Cloud Run
