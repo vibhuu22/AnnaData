@@ -115,10 +115,19 @@ def evaluate(case: dict, result) -> list[str]:
     # is not a style problem. Mentioning the scheme without a number is allowed;
     # stating a number for a scheme we hold no figure for is not.
     if expect.get("no_support_price_figure"):
-        import price_guard
-        for sentence in price_guard._sentences(answer):
-            if price_guard.SCHEME.search(sentence) and price_guard.FIGURE.search(sentence):
+        import output_guards
+        for sentence in output_guards._sentences(answer):
+            if output_guards.PRICE_SCHEME.search(sentence) and output_guards.FIGURE.search(sentence):
                 fail(f"stated an unbacked support price: {sentence.strip()!r}")
+
+    # A subsidy amount is a figure a farmer travels to claim. Naming the scheme
+    # without one is fine; naming it with one that nothing retrieved supports is
+    # what the guard exists to stop.
+    if expect.get("no_scheme_figure"):
+        import output_guards
+        for sentence in output_guards._sentences(answer):
+            if output_guards.WELFARE_SCHEME.search(sentence) and output_guards.FIGURE.search(sentence):
+                fail(f"stated an unsupported scheme figure: {sentence.strip()!r}")
 
     if expect.get("has_number") and not re.search(r"\d", answer):
         fail("expected a figure in the answer, found none")

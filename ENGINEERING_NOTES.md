@@ -728,9 +728,21 @@ must contain no invented subsidy figure - began failing **two runs in four**.
 The instruction had bled across from pest control to schemes. Scoping it
 explicitly restored four passes in four.
 
-That fix rests on wording, which is precisely what this project has twice found
-insufficient for numbers. The scheme-figure property deserves the same
-code-level guard the support price has, and does not yet have one.
+That fix rested on wording, which is precisely what this project had twice found
+insufficient for numbers, so it did not stay there. `price_guard.py` became
+`output_guards.py` and now checks both claims with the same machinery: a
+sentence asserting a scheme **and** a figure is removed when retrieval reported
+it covered nothing, exactly as a sentence asserting a support price and a figure
+is removed when no support price was retrieved.
+
+The distinction that makes it usable is what it leaves alone. Naming a scheme
+without a figure survives, because telling a farmer which office to visit is
+useful and true. A helpline number survives, because a phone number is not a
+claim about money. And a figure that retrieval *did* support survives, because a
+farmer who asks what PM-KISAN pays, and whose question the corpus covers, should
+be told.
+
+The case that had failed two runs in four now passes five in five.
 
 ### The harness outruns the quota
 

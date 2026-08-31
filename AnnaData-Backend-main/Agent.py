@@ -15,7 +15,7 @@ from Web_Crawler import query_kb, is_available as kb_available
 import knowledge
 import msp
 import planner
-import price_guard
+import output_guards
 import provenance
 import re
 
@@ -685,11 +685,11 @@ def run_agent(
         get_farming_advice(facts["location"], facts["state"], facts["crop"],
                            gathered, query, channel, history=history)
     )
-    # A support price is a number a farmer may sell against. If none was
-    # retrieved, no sentence claiming one survives, whatever the model wrote.
-    final_response, scrubbed = price_guard.scrub(final_response, gathered)
+    # A price or a subsidy is a number a farmer acts on. If nothing retrieved
+    # supports it, no sentence claiming one survives, whatever the model wrote.
+    final_response, scrubbed = output_guards.scrub(final_response, gathered)
     if scrubbed:
-        print("Removed an unsupported support-price claim from the answer")
+        print("Removed an unsupported figure from the answer")
     print(f"Final response: {final_response}")
     return AgentResult(
         final_response, tools_used=sorted(gathered.keys()),
