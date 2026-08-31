@@ -588,6 +588,48 @@ characters against Devanagari's 201, which is the honest shape of the
 constraint: the same advice costs more than twice as much to deliver in the
 farmer's own script.
 
+### Reading a day of real conversation
+
+Thirty-four messages from one farmer in one morning, read end to end, showed
+three faults that no eval case had caught because none of them had been thought
+of.
+
+**A refusal lost the thread.** Asked whether he kept animals whose dung he could
+use, the farmer answered "nahin" and was greeted from scratch - then again eight
+minutes later, after he asked "you forgot what we were talking about?". The
+earlier fix caught affirmations, because "yess" rewritten against the
+conversation carries a topic and smalltalk carrying a topic is a contradiction.
+A refusal carries nothing. One word, no subject, no clue.
+
+So the signal cannot be the message; it has to be what preceded it. Every reply
+ends with a question where one would help, so a short message following one of
+our questions is an answer to it, whatever the classifier reads out of a single
+word.
+
+**The answer was a dead end even when it kept the thread.** Told the farmer had
+no animals, the assistant had nothing further to offer. A farmer who cannot do
+what was suggested needs the next option that fits what they do have - dung
+bought from a neighbour, poultry manure, green manure grown in place - and the
+prompt now says so. Refusing without offering is the unhelpful half of honesty,
+and it applies to the farmer's constraints as much as to our own gaps.
+
+**The profile had been accumulating things that are not crops.** The stored list
+read `watermelon, small plant, flower, indoor potted plant, indoor potted
+plants, wheat, potato` - the last two of the junk entries the same non-crop
+recorded twice. The greeting offered help with "your watermelons and plants",
+and an acknowledgement described five acres of indoor potted plants.
+
+Whether a name is a crop is a question the dose register can answer, since it
+lists 314 of them. A name is now stored only if it resolves against that
+register or the synonym table, 352 names in all, with plurals folded so
+"tomatoes" becomes tomato while "indoor potted plants" becomes nothing. The
+polluted profile was cleaned to `watermelon, wheat, potato`.
+
+One more thing came out of reading the log rather than the code: the assistant
+recited its full capability list to a farmer on his third greeting of the
+morning. A greeting to someone already known is a resumption, not an
+introduction, and it now reads like one.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not

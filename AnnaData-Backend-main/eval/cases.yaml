@@ -334,3 +334,49 @@
     intent: disease_pest
     tools_include: [doses]
     script: Latin
+
+- id: negative_answer_continues_the_conversation
+  tags:
+  - dialogue
+  - memory
+  why: >
+    Asked whether he kept animals whose dung he could use, a farmer answered
+    "nahin" and was greeted from scratch. The earlier fix caught affirmations
+    carrying a topic; a refusal carries none, so the signal has to be that our
+    own last turn asked a question.
+  query: nahin
+  channel: sms
+  profile:
+    state: West Bengal
+    location_text: Kharagpur
+    crops: [wheat]
+  history:
+  - role: user
+    content: compost kaise banaye
+  - role: assistant
+    content: Gaddha khodkar usme faslon ke avshesh aur gobar daalkar dhak dein. Kya aapke paas pashu hai jiska gobar aap istemal kar sakte hain?
+  expect:
+    message_type: question
+    not_contains: ["namaste! it is great to hear", "what would you like to know today"]
+
+- id: offers_an_alternative_when_the_farmer_lacks_something
+  tags:
+  - dialogue
+  - safety
+  why: >
+    A farmer who cannot do what was suggested needs the next option, not the
+    same suggestion again and not a fresh unrelated question. Refusing without
+    offering is the unhelpful half of honesty, and it applies to the farmer's
+    constraints as much as to our own gaps.
+  query: mere paas koi pashu nahi hai
+  channel: sms
+  profile:
+    state: West Bengal
+    location_text: Kharagpur
+    crops: [wheat]
+  history:
+  - role: assistant
+    content: Compost banane ke liye gobar chahiye. Kya aapke paas pashu hai?
+  expect:
+    message_type: question
+    has_number: true

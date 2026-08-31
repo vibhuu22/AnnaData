@@ -144,6 +144,35 @@ def sms_char_budget(query: str) -> int:
     return per_segment * SMS_SEGMENT_BUDGET
 
 
+# A message this short is a reply, not a new subject. Long enough to be a
+# question in its own right and it no longer needs the turn before it.
+SHORT_REPLY_WORDS = 6
+
+
+def answers_our_question(query: str, history: Optional[List[dict]]) -> bool:
+    """Whether this short message is answering something we just asked.
+
+    Every reply the agent gives ends with a question where one would help, so a
+    farmer's next message is usually an answer to it. "yess" was fixed by
+    noticing that smalltalk carrying a topic is a contradiction, but that missed
+    the negative case: asked whether he kept animals whose dung he could use, a
+    farmer answered "nahin" and was greeted from scratch, twice in one
+    conversation. A refusal is an answer, and it carries no topic of its own to
+    give it away.
+
+    So the signal is not the message, it is what preceded it: if our last turn
+    asked something and this reply is short, it belongs to that question.
+    """
+    if not history or not query:
+        return False
+    if len(query.split()) > SHORT_REPLY_WORDS:
+        return False
+    for turn in reversed(history):
+        if turn.get("role") == "assistant":
+            return "?" in (turn.get("content") or "")
+    return False
+
+
 def style_for(channel: str, query: str = "") -> str:
     channel = (channel or "web").lower()
     style = CHANNEL_STYLE.get(channel, CHANNEL_STYLE["web"])
@@ -313,14 +342,14 @@ def greet(query: str, profile, channel: str) -> str:
         if profile.get("crops"):
             known.append(f"they grow {', '.join(profile['crops'])}")
 
+    returning = bool(known)
     prompt = f"""
-    A farmer has sent a greeting. Reply warmly and briefly, and tell them what
-    you can help with: pests and diseases, fertiliser, irrigation, sowing times,
-    weather, and market prices.
+    A farmer has sent a greeting.
 
-    {"You already know that " + " and ".join(known) + "." if known else
-     "You do not know their location or crop yet, so invite them to say where they farm and what they grow."}
+    {"This is someone you already know: " + " and ".join(known) + ". Greet them as you would someone you have spoken to before - briefly and by name of place if you know it. Do NOT recite your full list of capabilities to a farmer who has already used the service; they know. Ask what they need today." if returning else
+     "You have not spoken to this farmer before. Introduce yourself in one sentence: you are AnnaData, an agricultural advisor they can text any time, free. Then say what is worth asking about - pests and diseases, fertiliser, irrigation, sowing times, weather, and support prices - and invite them to say where they farm and what they grow."}
 
+    Be warm and human. No lists, no bullet points, no formal announcements.
     Do NOT give farming advice they did not ask for. Invite their question.
 
     {script_instruction(query)}
@@ -427,6 +456,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     - PRICES: the mandi rate and the Minimum Support Price answer different questions and are not interchangeable. If a MINIMUM SUPPORT PRICE section is present, give that figure - it is current for the whole marketing year and is a real answer, not a substitute for one. When the live mandi rate is unavailable, say so in a few words and then give the support price as the floor the farmer is guaranteed; do not end on "unavailable" while the support price is sitting in the Context. Never present the support price as today's market rate, and never quote a support price that is not in the Context - most vegetables have none.
     - Do not invent facts beyond the given data.
     - CHEMICALS AND DOSES: if an APPROVED PESTICIDE USES section is present, you may name a pesticide and a dose ONLY if it appears there, quoted exactly, and you should say it is a registered use. If that section says nothing is registered, or warns the listed uses are for a different pest, then name NO chemical and NO dose at all - say you have no approved treatment on record and tell them to ask their Krishi Vigyan Kendra or agriculture officer. Never fall back on a chemical you happen to know.
+    - WHEN THE FARMER SAYS THEY CANNOT DO WHAT YOU SUGGESTED - no animals for dung, no irrigation, no money for a product, no tractor - that is not the end of the conversation and it is not a reason to start over. Do not repeat the suggestion they just ruled out, and do not ask a fresh unrelated question. Give them the next best option that fits what they DO have: compost can be bought or made from crop residue alone, green manure can be grown, a neighbour's dairy sells dung. Name the alternative in the same breath as acknowledging the constraint.
     - End with ONE short, specific question only where the answer would genuinely change with it - the crop stage, how widespread the damage is, whether they have irrigation. Never ask for something already given above. If nothing useful is missing, end with the advice.
     - Format response clearly into sections.
 
@@ -548,6 +578,11 @@ def run_agent(
     # was being greeted from scratch, losing the thread entirely. Smalltalk that
     # carries a topic is a contradiction - it is a continuation.
     if message_type == "smalltalk" and intent != "general":
+        message_type = "question"
+
+    # And a short reply to a question we asked is an answer, whatever topic the
+    # classifier managed to read out of one word. "nahin" carries none.
+    if message_type in ("smalltalk", "statement") and answers_our_question(query, history):
         message_type = "question"
 
     print(f"Extracted Crop: {crop}, State: {state}, Location: {location}, "

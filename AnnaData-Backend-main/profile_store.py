@@ -25,14 +25,58 @@ from config import CONTEXT_MESSAGES, CONTEXT_TTL_HOURS, LOCATION_ASK_COOLDOWN_HO
 SEASON_WORDS = ("kharif", "rabi", "zaid", "summer", "winter", "monsoon")
 
 
+# Whether a name is a crop at all is a question the dose register can answer:
+# it lists 314 of them. Without this check the profile accumulated whatever the
+# parser returned, and one farmer ended up recorded as growing "small plant",
+# "flower", "indoor potted plant" and "indoor potted plants" - the last two the
+# same non-crop stored twice. The greeting then offered help with their
+# "watermelons and plants", and an acknowledgement described five acres of
+# indoor potted plants.
+_KNOWN_CROPS: set[str] | None = None
+
+
+def _known_crops() -> set[str]:
+    """Every crop name the system recognises, loaded once."""
+    global _KNOWN_CROPS
+    if _KNOWN_CROPS is not None:
+        return _KNOWN_CROPS
+
+    import knowledge
+    names = set(knowledge.CROP_SYNONYMS) | set(knowledge.CROP_SYNONYMS.values())
+    try:
+        with db.connection() as conn:
+            names |= {r[0].strip().lower()
+                      for r in conn.execute("SELECT DISTINCT crop FROM pesticide_uses").fetchall()
+                      if r[0]}
+    except Exception as e:
+        # The synonym list alone still covers the common crops.
+        print(f"Could not load crop names from the dose table: {e}")
+    _KNOWN_CROPS = names
+    return names
+
+
 def _clean_crop(value: str | None) -> str | None:
-    """Normalise a crop name so the same crop is stored once."""
+    """Normalise a crop name, and reject anything that is not a crop."""
     crop = _clean(value)
     if not crop:
         return None
     words = [w for w in crop.lower().split() if w not in SEASON_WORDS]
     crop = " ".join(words).strip()
-    return crop or None
+    if not crop:
+        return None
+
+    known = _known_crops()
+    if crop in known:
+        return crop
+    # "tomatoes" and "indoor potted plants" both arrive plural; only one of them
+    # is a crop, and the singular decides which.
+    for plural, singular in (("ies", "y"), ("es", ""), ("s", "")):
+        if crop.endswith(plural):
+            candidate = crop[: -len(plural)] + singular
+            if candidate in known:
+                return candidate
+    print(f"Not storing {crop!r} as a crop: not a name the system recognises")
+    return None
 
 
 def _clean(value: str | None) -> str | None:
