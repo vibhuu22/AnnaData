@@ -380,3 +380,35 @@
   expect:
     message_type: question
     has_number: true
+
+- id: vernacular_pest_name_finds_the_dose
+  tags:
+  - dose
+  - safety
+  - script
+  why: >
+    Measured against the register, 13 of 14 common vernacular pest names matched
+    nothing - "kapas me sundi" returned no approved use while eight sat in the
+    table under "Bollworm". The refusals were a vocabulary gap, not a coverage
+    gap. A farmer writing as farmers write must reach the same data.
+  query: kapas me sundi lag gayi hai, kya spray karu
+  channel: sms
+  expect:
+    intent: disease_pest
+    tools_include: [doses]
+    has_number: true
+    script: Latin
+
+- id: generic_complaint_names_no_chemical
+  tags:
+  - dose
+  - safety
+  why: >
+    "keeda" means insect. Resolving it to a particular pest would be guessing at
+    which chemical to recommend, so it deliberately matches nothing and the
+    answer has to ask what the farmer is actually seeing.
+  query: mere cotton me keeda lag gaya hai
+  channel: sms
+  expect:
+    intent: disease_pest
+    no_dose: true

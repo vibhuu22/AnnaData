@@ -630,6 +630,47 @@ recited its full capability list to a farmer on his third greeting of the
 morning. A greeting to someone already known is a resumption, not an
 introduction, and it now reads like one.
 
+### The refusals were a vocabulary gap, not a coverage gap
+
+The dose table refuses when it holds no registered use for a crop and pest, and
+the obvious worry is that farmers grow anything and everything: at scale, does a
+register of 2,456 uses just refuse constantly?
+
+Measuring it first gave a different answer. Against realistic English pest names
+the register hit 16 of 18 - the top crops are well covered, with 199 rows for
+cotton, 165 for chilli, 132 for tomato - and one of the two misses was correct,
+since tomato leaf curl is a virus and not something a pesticide register treats.
+
+Against the words farmers actually use it hit **1 of 14**.
+
+    kapas me sundi   ->  no approved use
+    (eight rows sat in the table under "Bollworm")
+
+The register is written in English and scientific names; farmers write "sundi",
+"safed makkhi", "gerua", "tela". The docstring on the matching function had
+claimed for months that it was loose enough to handle exactly this - "farmers say
+sundi and bollworm and इल्ली for the same insect" - and nothing implemented it.
+Matching was plain substring, so the two vocabularies could never meet.
+
+A synonym table closes it, mapping each vernacular term to several register
+fragments rather than one name, because the vernacular is broader than the
+register's vocabulary and the crop already narrows it. "sundi" is any caterpillar
+or borer: in cotton that reaches bollworm, in rice stem borer, in gram pod borer.
+Letting the crop disambiguate is more honest than pretending one Hindi word names
+one species. Thirteen of thirteen now match.
+
+Generic words are deliberately excluded. "keeda" means insect; resolving it to a
+particular pest would be guessing at which chemical to recommend, so it matches
+nothing and the answer asks what the farmer is actually seeing.
+
+The refusal itself is unchanged and was re-checked: elephant damage, hailstorm,
+drought and cow trampling all still return nothing, and a cotton query still
+returns only cotton rows.
+
+Worth stating for anyone extending this: the coverage question was worth
+measuring before answering. The instinct was to go and find more data. The
+measurement said the data was already there and could not be reached.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not

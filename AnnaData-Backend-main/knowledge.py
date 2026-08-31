@@ -18,6 +18,7 @@ Both live in the Postgres already provisioned for farmer profiles, so this adds
 no infrastructure and no cost.
 """
 import json
+import re
 import urllib.request
 
 import db
@@ -139,6 +140,96 @@ def canonical_crop(crop: str | None) -> str | None:
     return CROP_SYNONYMS.get(key, key)
 
 
+# What a farmer calls a pest, mapped to the words the register uses.
+#
+# Measured against the loaded register, 13 of 14 common vernacular pest names
+# matched nothing - "kapas me sundi" returned no approved use while eight sat in
+# the table under "Bollworm". The refusals were a vocabulary gap, not a coverage
+# gap, which is a far better problem to have and a much cheaper one to fix.
+#
+# Each term maps to several register fragments rather than one name, because the
+# vernacular is broader than the register's vocabulary and the crop already
+# narrows it. "sundi" is any caterpillar or borer: in cotton that reaches
+# bollworm, in rice stem borer, in gram pod borer. Letting the crop disambiguate
+# is more honest than pretending one Hindi word names one species.
+PEST_SYNONYMS = {
+    # caterpillars and borers
+    "sundi": ["worm", "borer", "caterpillar"],
+    "sundhi": ["worm", "borer", "caterpillar"],
+    "illi": ["worm", "borer", "caterpillar"],
+    "lat": ["worm", "caterpillar", "larva"],
+    "lal sundi": ["pink bollworm"],
+    "gulabi sundi": ["pink bollworm"],
+    "american sundi": ["helicoverpa", "american bollworm"],
+    "tana chhedak": ["stem borer", "borer"],
+    "tana bhedak": ["stem borer", "borer"],
+    "phal chhedak": ["fruit borer", "borer"],
+    "katua": ["cutworm"],
+    "kambli puzhu": ["hairy caterpillar", "caterpillar"],
+    # sucking pests
+    "safed makkhi": ["whitefly", "white fly"],
+    "makkhi": ["fly"],
+    "mahu": ["aphid"],
+    "mahoo": ["aphid"],
+    "chepa": ["aphid"],
+    "lahi": ["aphid"],
+    "tela": ["jassid", "hopper"],
+    "hara tela": ["jassid", "hopper"],
+    "tudtuda": ["jassid", "hopper"],
+    "fudka": ["planthopper", "hopper"],
+    "bhura fudka": ["brown planthopper", "planthopper"],
+    "makdi": ["mite"],
+    "lal makdi": ["mite"],
+    "thrips": ["thrips"],
+    "deemak": ["termite"],
+    "dimak": ["termite"],
+    # diseases
+    "gerua": ["rust"],
+    "gerui": ["rust"],
+    "ratua": ["rust"],
+    "kungi": ["rust"],
+    "jhulsa": ["blight"],
+    "angmari": ["blight"],
+    "ang mari": ["blight"],
+    "kandua": ["smut"],
+    "galan": ["rot"],
+    "sadan": ["rot"],
+    "murjhan": ["wilt"],
+    "ukhta": ["wilt"],
+    "chepki": ["scale"],
+    "phaphundi": ["mildew", "mould"],
+    "bhura dhabba": ["brown spot"],
+}
+
+# Words that name no particular pest. Resolving these to a specific one would be
+# guessing at which chemical to recommend, so they deliberately match nothing -
+# the answer then asks the farmer what they are actually seeing.
+GENERIC_PEST_WORDS = {
+    "keeda", "keede", "kida", "kide", "insect", "insects", "pest", "pests",
+    "bimari", "beemari", "rog", "disease", "problem", "damage", "kuch",
+}
+
+
+def pest_terms(pest: str | None) -> list[str]:
+    """The register fragments to search for, given what the farmer called it.
+
+    Returns an empty list for a word that names no particular pest, so a
+    generic complaint cannot be silently resolved into a specific chemical.
+    """
+    if not pest:
+        return []
+    key = pest.strip().lower()
+    if key in GENERIC_PEST_WORDS:
+        return []
+    if key in PEST_SYNONYMS:
+        return PEST_SYNONYMS[key]
+    # A phrase may carry a known term inside it: "safed makkhi ka prakop".
+    for term, targets in PEST_SYNONYMS.items():
+        if re.search(r"\b" + re.escape(term) + r"\b", key):
+            return targets
+    return [key]
+
+
 # --- approved doses ---------------------------------------------------------
 
 def approved_uses(crop: str | None, pest: str | None = None, limit: int = 8) -> dict:
@@ -164,14 +255,20 @@ def approved_uses(crop: str | None, pest: str | None = None, limit: int = 8) -> 
             params = {"crop": canonical_crop(crop), "limit": limit,
                       "pest_like": f"%{(pest or '').lower()}%", "pest": (pest or "").lower()}
 
-            if pest:
+            # What the farmer called it, expanded into the register's own
+            # vocabulary. A generic complaint expands to nothing and falls
+            # through to the crop-level path, which carries the warning that
+            # these uses are for other pests.
+            terms = pest_terms(pest)
+            if terms:
+                params["terms"] = [f"%{t}%" for t in terms]
                 rows = conn.execute(
                     f"""
                     SELECT product, crop, pest, dose_formulation, dose_ai,
                            dilution, waiting_period, source
                       FROM pesticide_uses
                      WHERE {crop_match}
-                       AND (lower(pest) LIKE %(pest_like)s
+                       AND (lower(pest) LIKE ANY(%(terms)s)
                             OR %(pest)s LIKE '%%' || lower(pest) || '%%')
                      LIMIT %(limit)s
                     """,
