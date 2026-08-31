@@ -671,6 +671,79 @@ Worth stating for anyone extending this: the coverage question was worth
 measuring before answering. The instinct was to go and find more data. The
 measurement said the data was already there and could not be reached.
 
+### Why the dose table will not be extended by the model
+
+The obvious way to widen coverage is to let the model answer when the register
+cannot: give the dose it recalls, attach a caution, let the farmer verify. It
+was considered and rejected, for reasons this project has already paid to learn.
+
+The model fabricates confidently in exactly this shape. Asked for a support
+price it did not hold, it produced "the Fair and Remunerative Price for the
+2026-27 season is 340 rupees per quintal" - fluent, specific, invented, and
+produced *despite an explicit instruction in the same prompt forbidding it*.
+`price_guard.py` exists because that instruction failed. Extending the same
+mechanism to pesticide doses would reverse the work.
+
+The second reason is stronger and particular to this data. The register does not
+record what is *known*; it records what is **registered**, and registration is
+crop-and-pest specific. A recommendation outside it is a recommendation to apply
+a pesticide off-label. That is a different category of wrong from inaccurate, and
+a caution does not address it - the farmer receives a chemical and a quantity,
+and the quantity is what gets sprayed. "Please verify" is read once; so is the
+label, and the label is what governs.
+
+The consequences are asymmetric in a way that settles it. A wrong scheme name
+wastes a trip to an office. A wrong dose damages the crop, exposes whoever
+sprays it, can leave residues that fail procurement, and drives resistance.
+
+**The register is already fully loaded.** All six lists CIB&RC publishes -
+insecticides, fungicides, herbicides, bio-insecticides, bio-fungicides and plant
+growth regulators - are in the table, 2,456 uses. There is no seventh list. And
+248 of 331 crops carry only one or two approved uses, which is not a gap in our
+collection but the regulatory reality: that is what has been registered.
+
+So coverage grows by adding *authoritative* sources, not generated ones: state
+agricultural university Packages of Practices, which are authoritative for their
+state and cover local crops the central register handles thinly; ICAR
+crop-institute recommendations; and NCIPM's integrated pest management packages.
+All are documents, and the ingestion path for documents already exists.
+
+### What a refusal owes the farmer
+
+Refusal being common and permanent makes its quality a first-order concern
+rather than an edge case. The thing that must not be generated is a chemical and
+a quantity. Everything else is fair, useful and carries no chemical risk:
+destroying affected material, field sanitation, pheromone and bait traps,
+bagging fruit, burying fallen fruit, rotation, resistant varieties, timing,
+hand-picking. These are frequently what the extension officer advises first.
+
+The refusal was inconsistent about this - offering pruning advice for one crop
+and nothing at all for another - and is now required to carry at least one
+measure that needs no registered product.
+
+Adding that instruction immediately broke something else, which is the
+recurring lesson arriving again. "Do not stop at the refusal" was written
+without scope, and an unrelated safety case - a scheme question whose answer
+must contain no invented subsidy figure - began failing **two runs in four**.
+The instruction had bled across from pest control to schemes. Scoping it
+explicitly restored four passes in four.
+
+That fix rests on wording, which is precisely what this project has twice found
+insufficient for numbers. The scheme-figure property deserves the same
+code-level guard the support price has, and does not yet have one.
+
+### The harness outruns the quota
+
+Running the full suite repeatedly produced erratic results - 33 passed, then 32
+with one failure, then 28 with two failures and four errors - while the model
+itself answered five consecutive probes in 1.6s each. The suite fires roughly a
+hundred requests back to back, which exceeds the free tier's rate limit, and the
+failures were the harness starving rather than the system regressing.
+
+A suite that cannot be trusted on a single run is worth knowing about before a
+result from it is believed. Cases must be confirmed individually or by tag, with
+spacing, until the quota question is settled.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not
