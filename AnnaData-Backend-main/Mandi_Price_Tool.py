@@ -58,6 +58,82 @@ def _record_failure():
                   f"failures; pausing calls for {GOV_CIRCUIT_COOLDOWN}s")
 
 
+# The circuit breaker above lives in one process, so a freshly started instance
+# believes the upstream is healthy until it fails once - and on a platform that
+# scales to zero, that is most instances. Recording the outcome makes the outage
+# survive a restart, which matters because it is what the service consults
+# before telling a farmer it can quote market prices.
+HEALTH_SCHEMA = """
+CREATE TABLE IF NOT EXISTS mandi_health (
+    id                   BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    last_success         TIMESTAMPTZ,
+    last_failure         TIMESTAMPTZ,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+
+def _record_outcome(ok: bool) -> None:
+    import db
+
+    if not db.is_available():
+        return
+    try:
+        with db.connection() as conn:
+            conn.execute(HEALTH_SCHEMA)
+            if ok:
+                conn.execute(
+                    """INSERT INTO mandi_health (id, last_success, consecutive_failures)
+                       VALUES (TRUE, now(), 0)
+                       ON CONFLICT (id) DO UPDATE
+                       SET last_success = now(), consecutive_failures = 0"""
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO mandi_health (id, last_failure, consecutive_failures)
+                       VALUES (TRUE, now(), 1)
+                       ON CONFLICT (id) DO UPDATE
+                       SET last_failure = now(),
+                           consecutive_failures = mandi_health.consecutive_failures + 1"""
+                )
+    except Exception as e:
+        print(f"Could not record mandi outcome: {e}")
+
+
+def is_available() -> bool:
+    """Whether market prices can currently be expected to work.
+
+    Consulted before the service describes itself. Announcing a capability that
+    is failing is the same fault as denying one that works - the difference is
+    only which way the farmer is misled.
+    """
+    if not GOV_API_KEY:
+        return False
+    if _circuit_open():
+        return False
+
+    import db
+    from datetime import datetime, timedelta, timezone
+
+    if not db.is_available():
+        return True                       # no record either way; assume usable
+    try:
+        with db.connection() as conn:
+            conn.execute(HEALTH_SCHEMA)
+            row = conn.execute(
+                "SELECT last_failure, consecutive_failures FROM mandi_health WHERE id = TRUE"
+            ).fetchone()
+    except Exception:
+        return True
+
+    if not row or not row[0]:
+        return True
+    last_failure, failures = row
+    if failures < GOV_FAILURE_THRESHOLD:
+        return True
+    return datetime.now(timezone.utc) - last_failure > timedelta(seconds=GOV_CIRCUIT_COOLDOWN)
+
+
 def format_state_data(records) -> str:
     """Convert market records into a readable summary."""
     if not records:
@@ -226,6 +302,7 @@ def get_state_data(state: str, commodity: str | None = None) -> str:
             records = _fetch(state, None)
 
         _record_success()
+        _record_outcome(True)
         summary = format_state_data(records)
         if records:
             _cache_store(state, commodity, summary)
@@ -233,5 +310,6 @@ def get_state_data(state: str, commodity: str | None = None) -> str:
 
     except Exception as e:
         _record_failure()
+        _record_outcome(False)
         print(f"Mandi price lookup failed for state={state!r}: {e}")
         return _cache_lookup(state, commodity) or             "Mandi price data unavailable (lookup failed)."

@@ -756,6 +756,37 @@ A suite that cannot be trusted on a single run is worth knowing about before a
 result from it is believed. Cases must be confirmed individually or by tag, with
 spacing, until the quota question is settled.
 
+### Not offering what is not working
+
+data.gov.in has now been failing continuously since 29 August. The diagnosis is
+unambiguous and is not ours: the portal answers in 1.7s while the API host
+accepts the TCP connection and then sends nothing at all until the timeout
+expires. Not a 500, not a 404 - silence.
+
+Meanwhile `/health` reported `mandi_prices: true` and, asked what it could help
+with, the assistant offered daily market prices. Both were answering a question
+about *configuration* - a key is set - rather than about reality.
+
+That is the same fault as the one fixed months earlier in the opposite
+direction, when the assistant denied holding scheme documents while the store
+held eighty-six passages about them. Announcing a capability that is failing
+misleads a farmer exactly as much as denying one that works; only the direction
+differs.
+
+The capability is now withdrawn while the upstream is down, and returns on the
+first success. Two details made it work properly:
+
+The circuit breaker lives in one process, and on a platform that scales to zero
+most processes are new - so a fresh instance believed the upstream was healthy
+until it failed once, and advertised prices in the meantime. The outcome of each
+call is now recorded in the database, so the outage survives a restart and is
+shared across instances.
+
+And the withdrawal is narrow. Support prices are still offered, because the MSP
+table is local and still correct; only the live feed is gone. A farmer asking
+about prices still gets the guaranteed floor, which is the whole reason that
+table exists.
+
 ### There is no second source for mandi prices
 
 data.gov.in has returned 502 for days, and the obvious replacements do not

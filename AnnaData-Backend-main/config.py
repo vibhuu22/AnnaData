@@ -156,6 +156,20 @@ def _documents_loaded() -> bool:
         return False
 
 
+def _mandi_reachable() -> bool:
+    """Whether market prices actually work, not merely whether a key is set.
+
+    /health reported mandi_prices true throughout a multi-day upstream outage,
+    because it was answering a question about configuration. A health check that
+    describes intent rather than reality is worse than none.
+    """
+    try:
+        import Mandi_Price_Tool
+        return Mandi_Price_Tool.is_available()
+    except Exception:
+        return bool(GOV_API_KEY)
+
+
 def feature_status() -> dict:
     """Which integrations are configured. Surfaced on /health."""
     return {
@@ -163,7 +177,7 @@ def feature_status() -> dict:
         # Geocoding always works now: Nominatim needs no key.
         "geocoding": True,
         "geocoding_provider": "google" if LOCATION_API_KEY else "nominatim",
-        "mandi_prices": bool(GOV_API_KEY),
+        "mandi_prices": _mandi_reachable(),
         "soil": bool(EE_SERVICE_KEY),
         # Retrieval is served from the local vector store; Bedrock is optional.
         "knowledge_base": _documents_loaded() or bool(

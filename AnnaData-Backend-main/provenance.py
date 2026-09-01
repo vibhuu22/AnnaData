@@ -23,6 +23,7 @@ system is a self-description that goes stale silently.
 import config
 import db
 import knowledge
+import Mandi_Price_Tool
 import msp
 import startup
 import Web_Crawler
@@ -89,7 +90,10 @@ def capabilities() -> list[str]:
             f"Support prices - the government's guaranteed floor price for "
             f"{n_msp} major crops, which holds all marketing year."
         )
-    if config.GOV_API_KEY:
+    # Announcing a capability that is currently failing misleads a farmer just
+    # as surely as denying one that works. The government price service has been
+    # timing out for days, so it is not offered while that is true.
+    if Mandi_Price_Tool.is_available():
         items.append(
             "Market prices - daily mandi rates for a crop in the farmer's state."
         )
@@ -152,7 +156,7 @@ def data_sources() -> list[str]:
             "Government of India for the marketing year, as published by "
             "Agmarknet."
         )
-    if config.GOV_API_KEY:
+    if Mandi_Price_Tool.is_available():
         sources.append(
             "Market prices: daily mandi prices published by the Government of "
             "India on data.gov.in."
