@@ -24,6 +24,14 @@ from config import (
 RESOURCE_URL = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
 PAGE_SIZE = 100
 
+# data.gov.in's edge drops connections whose User-Agent is the requests default,
+# without a status line - the client sees a read timeout or RemoteDisconnected,
+# which is indistinguishable from the upstream being down. It is not down: the
+# same URL, key and IP answer in under a second under any other User-Agent,
+# including an invented one. This was misread as a multi-day outage and cost the
+# service its market prices for a week. Identify ourselves explicitly.
+HEADERS = {"User-Agent": "AnnaData/1.0 (farmer advisory service)"}
+
 # Circuit breaker. After repeated failures the upstream is presumed down and
 # calls are skipped until the cooldown expires, so a farmer gets an immediate
 # answer minus prices rather than waiting out two timeouts to be told the same.
@@ -182,6 +190,7 @@ def _fetch(state: str, commodity: str | None) -> list:
         for attempt in range(1, GOV_API_ATTEMPTS + 1):
             try:
                 response = requests.get(RESOURCE_URL, params=params,
+                                        headers=HEADERS,
                                         timeout=GOV_API_TIMEOUT)
                 response.raise_for_status()
                 page = response.json().get("records", [])
