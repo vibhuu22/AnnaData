@@ -2,12 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
+/*
+ * The type stack.
+ *
+ * The families themselves are requested from index.html; see the comment there
+ * for why. What matters here is the ORDER.
+ *
+ * A browser walks this list per character and takes the first family whose
+ * unicode-range covers it. Outfit is first, so every Latin letter and digit
+ * stays in the brand face. Outfit covers nothing above U+02FF, so a Devanagari
+ * character falls straight through to Noto Sans Devanagari, a Gurmukhi one to
+ * Noto Sans Gurmukhi, and a Bengali one to Noto Sans Bengali - which is the
+ * whole point. Before this, they fell through to the operating system, so a
+ * Hindi answer rendered in Nirmala UI next to a Latin heading in Outfit: two
+ * unrelated faces, different weights, different baselines, in one sentence.
+ *
+ * Known cost of the ordering: the danda (U+0964) is declared by all three Noto
+ * subsets, and Devanagari is listed first, so a Punjabi or Bengali answer that
+ * ends a sentence with one also pulls the Devanagari file. Devanagari is by far
+ * the most-used of the three, so it is the one worth putting first.
+ */
+:root {
+  --font-app: "Outfit", "Noto Sans Devanagari", "Noto Sans Gurmukhi",
+    "Noto Sans Bengali", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
 
+html,
+body {
+  font-family: var(--font-app);
+}
 
-
+/* App.js still puts this class on the root div; kept so that stays true. */
 .body {
-    font-family: "Outfit", sans-serif;
+  font-family: var(--font-app);
 }
 
 

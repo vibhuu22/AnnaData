@@ -11,6 +11,29 @@
     />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+
+    <!--
+      Fonts, loaded here rather than through an @import in index.css.
+
+      An @import inside the stylesheet is discovered only after that stylesheet
+      has been fetched and parsed, so the font request is serialised behind it -
+      a round trip a farmer on 3G pays for. These links start the fetch while
+      the HTML is still being read.
+
+      Outfit covers Latin only. Every Devanagari, Gurmukhi and Bengali string in
+      this app - which is most of them - was falling back to whatever the phone
+      happened to have, at the wrong weight and the wrong metrics. The three
+      Noto faces cover those scripts. Google serves each family split by
+      unicode-range, and the browser fetches only the subsets it actually has to
+      render, so an English reader downloads no Devanagari.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400..700&family=Noto+Sans+Devanagari:wght@400..700&family=Noto+Sans+Gurmukhi:wght@400..700&family=Noto+Sans+Bengali:wght@400..700&display=swap"
+    />
+
     <title>Annadata</title>
   </head>
   <body>
