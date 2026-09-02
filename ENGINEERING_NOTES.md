@@ -962,6 +962,61 @@ does not depend on what happens to be trading today.
 
 ---
 
+### A word the model knew and got wrong anyway
+
+`Rs 3100 prataye quintal`. The correct romanisation is *prati*, and "prataye"
+is not a variant spelling of it - it is a wrong word.
+
+Worth recording is how little of the obvious diagnosis survived contact with
+the evidence. It was not a comprehension failure: asked directly, the model
+writes *prati*. It was not a weaker fallback model: the logs show the same
+chain, `gemini-3.1-flash-lite`, with no 429 and no fallback. And it was not the
+context making it translate an English unit - removing "per quintal" from what
+we hand over changed nothing.
+
+| Arm | Garbled |
+|---|---|
+| MSP path, context says "per quintal" | 0 / 3 |
+| MSP path, context says "/quintal" | 0 / 3 |
+| Mandi path, rows carry no unit (current) | 0 / 4 |
+| Mandi path, unit stated in the rows | 0 / 4 |
+| **Production** | **2 of 5 price answers** |
+
+Fourteen local runs, none garbled. So the fault is real, rare, and not
+reproducible on demand - which rules out both fixes one would normally reach
+for. A prompt rule cannot teach what the model already knows, and a cases.yaml
+entry would pass or fail on the roll of the model rather than on the code.
+
+What makes it fixable is that the slot is formulaic. Immediately before
+"quintal" there is essentially one correct Hindi qualifier, so rather than
+enumerate garblings - unbounded, and they would have to be invented - anything
+in that position that is nearly "prati" and is not a word that legitimately
+belongs there is corrected. That catches garblings nobody has seen: `pratay`,
+`pratye`, `pratii`, `prtai` are all handled by a rule written for none of them.
+
+The restraint matters more than the rule. The same corpus shows `apne`/`aapne`
+17:8, `paani`/`pani` 10:8, `baarish`/`barish` 10:4 and three spellings of
+*acchi*. None are touched. Hindi romanisation has no single standard, farmers
+write it inconsistently themselves, and both spellings read fine; a normaliser
+that started tidying those would be doing damage in the name of consistency.
+Across all 112 answers the system has sent, the guard changes three tokens in
+two messages and nothing else.
+
+This was found by eye, in one screenshot, by luck. `tools/check_romanisation.py`
+is the part that matters for next time: it reports what sits in the unit slot
+and which words are written more than one way, over the whole corpus, for no
+model calls and no network. The list of variants is explicitly a list to read,
+not to act on - the entries worth acting on are the formulaic ones, a unit or a
+scheme name, not the phonetic ones.
+
+Severity, honestly: a farmer reading "3100 prataye quintal" still understands
+the price and the unit. This is polish. It is recorded because the *shape* of
+the problem - a token that must be exact, produced by a process that is right
+most of the time - is the third instance of the pattern that produced
+`output_guards.py`, and the answer was the same on all three.
+
+---
+
 ## 4. Two kinds of memory
 
 Deliberately separate, because they have different lifetimes:
@@ -1148,7 +1203,26 @@ segment budget respected, no sowing window in the past, the profile's crop used
 rather than asked for. Tags allow a subset to run, because each case costs two
 model calls and the free tier's daily quota does not fit the suite.
 
----
+Not everything belongs there. Three kinds of fault cannot be written as a case:
+
+- **Scheduling logic**, which has no language in it — `eval/test_feedback.py`
+  checks the rating cooldown against the database instead.
+- **Selection logic**, where the model never sees the rows that were wrongly
+  included — `eval/test_mandi.py` checks state and crop matching against
+  fixtures from a real day's publication, so it costs no model calls and does
+  not depend on what happens to be trading today.
+- **Rare nondeterministic output**, which would make a case pass or fail on the
+  roll of the model rather than on the code — `eval/test_romanisation.py`
+  checks the correction, not the model, on inputs written by hand.
+
+The last two are worth the distinction: a suite that can only express "ask the
+model and look at the answer" quietly leaves the deterministic half of the
+system untested, and that half is where these bugs were.
+
+Alongside them, `tools/check_romanisation.py` reads the whole corpus of sent
+answers and reports formulaic phrases written more than one way. It is a
+detector rather than a test — it has no pass or fail, and exists so the next
+one is found by measurement rather than by someone noticing it in a screenshot.
 
 ---
 

@@ -66,6 +66,81 @@ SCHEME_FALLBACK = (
 )
 
 
+# --- the unit a price is quoted in ------------------------------------------
+#
+# "Rs 3100 prataye quintal". The model writes "prati" most of the time and
+# garbles it occasionally: two of five price answers observed in production,
+# against none in fourteen local runs of the same model with no fallback and no
+# rate limiting in between. It is not a comprehension failure - the model knows
+# the word - so there is nothing to explain to it in the prompt, and nothing
+# reproducible enough to A/B a fix against.
+#
+# What makes this fixable in code is that the slot is formulaic. Immediately
+# before "quintal" there is essentially one correct Hindi qualifier, so instead
+# of enumerating garblings - unbounded, and I would be inventing them - anything
+# in that slot that is nearly "prati" and is not a word that legitimately
+# belongs there is corrected. That catches garblings nobody has seen yet.
+#
+# Deliberately narrow. The same corpus shows baarish/barish 10:4, jankari/
+# jaankari 12:3 and six spellings of achha; none of those are touched. Hindi
+# romanisation has no single standard, farmers write it inconsistently
+# themselves, and both spellings read fine. "prataye" is not a variant spelling
+# of "prati" - it is a wrong word.
+UNIT_NOUNS = (r"quintal|quintals|hectare|hectares|acre|acres|"
+              r"kilo|kilos|kilogram|kilograms|litre|litres|liter|liters|bigha")
+
+PER_UNIT = re.compile(rf"\b([A-Za-z]{{3,10}})(\s+(?:{UNIT_NOUNS})\b)", re.I)
+
+# Words that genuinely appear before a unit and must be left alone: the correct
+# form itself, its legitimate synonym, the English preposition, and quantities.
+PER_ALLOWED = {
+    "prati", "pratyek", "per", "each", "har", "one", "two", "three", "half",
+    "ek", "dho", "teen", "char", "paanch", "panch", "aadha", "adha", "aadhe",
+    "poora", "pura", "sau", "hazaar", "hajar", "kitne", "kitna", "kai", "kuch",
+    "aur", "the", "and", "about", "than", "around", "nearly", "approximately",
+}
+PER_CANONICAL = "prati"
+PER_MAX_EDITS = 3
+
+
+def _edits(a: str, b: str) -> int:
+    """Levenshtein distance. Small inputs, so the simple version is fine."""
+    if a == b:
+        return 0
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        current = [i]
+        for j, cb in enumerate(b, 1):
+            current.append(min(previous[j] + 1,
+                               current[j - 1] + 1,
+                               previous[j - 1] + (ca != cb)))
+        previous = current
+    return previous[-1]
+
+
+def fix_units(answer: str) -> tuple[str, bool]:
+    """Correct a garbled qualifier in front of a unit of measure."""
+    changed = False
+
+    def repl(match):
+        nonlocal changed
+        word, tail = match.group(1), match.group(2)
+        lowered = word.lower()
+        if lowered in PER_ALLOWED:
+            return match.group(0)
+        # Only touch tokens that were reaching for this word: the leading "p"
+        # keeps quantities and unrelated nouns out of range of the distance
+        # test, which is otherwise loose enough to catch a three-edit garble.
+        if not lowered.startswith("p"):
+            return match.group(0)
+        if _edits(lowered, PER_CANONICAL) > PER_MAX_EDITS:
+            return match.group(0)
+        changed = True
+        return PER_CANONICAL + tail
+
+    return PER_UNIT.sub(repl, answer), changed
+
+
 def _sentences(text: str) -> list[str]:
     return re.split(r"(?<=[.!?।])\s+", text)
 
@@ -99,6 +174,10 @@ def scrub(answer: str, gathered: dict) -> tuple[str, bool]:
     """
     if not answer:
         return answer, False
+
+    # Spelling, not substance: corrected quietly and not reported as a removal,
+    # which is reserved for a figure that had to be taken out.
+    answer, _ = fix_units(answer)
 
     changed = False
 
