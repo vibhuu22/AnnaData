@@ -469,7 +469,8 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     return llm.invoke([HumanMessage(content=prompt)]).content
 
 
-def gather(tools, *, lat, lon, state, crop, query, pest=None) -> dict:
+def gather(tools, *, lat, lon, state, crop, query, pest=None,
+           district=None) -> dict:
     """Run the selected tools concurrently.
 
     They are independent network calls, so running them in sequence meant the
@@ -488,7 +489,7 @@ def gather(tools, *, lat, lon, state, crop, query, pest=None) -> dict:
         ),
         "soil":    lambda: soil_tool(lat, lon),
         "weather": lambda: weather_openmeteo(lat, lon),
-        "mandi":   lambda: get_state_data(state, crop),
+        "mandi":   lambda: get_state_data(state, crop, district),
         "msp":     lambda: msp.for_crop(crop),
         # Retrieval runs against the local pgvector store. The Bedrock path is
         # kept as a fallback for anyone who has that configured, but it is no
@@ -689,8 +690,11 @@ def run_agent(
             tools_used=["general"], missing_slots=missing, intent=intent, **facts
         )
 
+    # The farmer's district, from this message or from their profile, is what
+    # turns a state-wide spread of prices into their own market's rate.
     gathered = gather(tools, lat=lat, lon=lon, state=facts["state"], crop=facts["crop"],
-                      query=query_final, pest=_known(structured_input.get("pest")))
+                      query=query_final, pest=_known(structured_input.get("pest")),
+                      district=facts.get("district") or (profile or {}).get("district"))
 
     final_response = extract_markdown_content(
         get_farming_advice(facts["location"], facts["state"], facts["crop"],

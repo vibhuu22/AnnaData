@@ -6,6 +6,7 @@ commodity filter, then fed the whole dump into the LLM prompt - thousands of
 rows for a large state. It now filters by commodity where known and stops at
 MANDI_MAX_RECORDS.
 """
+import re
 import threading
 import time
 
@@ -335,6 +336,39 @@ def _norm_state(state: str | None) -> str:
     return STATE_ALIASES.get(name, name)
 
 
+# Districts are written one way by the geocoder and another by the register:
+# "Paschim Medinipur" against "Medinipur(W)", "Purba Bardhaman" against
+# "Bardhaman(E)". Both name the same place with the direction in a different
+# language and a different position, so both are reduced to a set of words with
+# the direction in English, and compared that way.
+DIRECTIONS = {
+    "paschim": "west", "pashchim": "west", "w": "west",
+    "purba": "east", "purva": "east", "poorba": "east", "e": "east",
+    "uttar": "north", "uttara": "north", "n": "north",
+    "dakshin": "south", "dakshina": "south", "sounth": "south", "s": "south",
+}
+DISTRICT_NOISE = {"district", "dist", "zila", "zilla", "jila"}
+
+
+def _district_words(name: str | None) -> frozenset:
+    """A district name reduced to comparable words."""
+    if not name:
+        return frozenset()
+    words = re.split(r"[^a-z0-9]+", name.strip().lower())
+    out = set()
+    for word in words:
+        if not word or word in DISTRICT_NOISE:
+            continue
+        out.add(DIRECTIONS.get(word, word))
+    return frozenset(out)
+
+
+def _in_district(record: dict, district: str | None) -> bool:
+    if not district:
+        return True
+    return _district_words(record.get("district")) == _district_words(district)
+
+
 def _in_state(record: dict, state: str) -> bool:
     """Whether a row is really from the state we asked for.
 
@@ -454,7 +488,8 @@ def _cache_store(state: str, commodity: str | None, summary: str,
         print(f"Could not cache mandi prices: {e}")
 
 
-def _cache_lookup(state: str, commodity: str | None) -> str | None:
+def _cache_lookup(state: str, commodity: str | None,
+                  district: str | None = None) -> str | None:
     import db
     from datetime import datetime, timezone
 
@@ -491,7 +526,8 @@ def _cache_lookup(state: str, commodity: str | None) -> str | None:
         selected = _select(records, commodity)
         if not selected:
             return no_arrivals(state, commodity)
-        summary = format_state_data(selected)
+        selected, note = narrow_to_district(selected, district, commodity, state)
+        summary = note + format_state_data(selected)
     elif commodity:
         # Pre-existing entry with no structured rows: it may be the whole state,
         # and cannot be narrowed. Refusing is the only safe reading.
@@ -515,8 +551,37 @@ def _cache_lookup(state: str, commodity: str | None) -> str | None:
     return f"{preamble}\n{summary}"
 
 
-def get_state_data(state: str, commodity: str | None = None) -> str:
-    """Mandi prices for a state, narrowed to a commodity when one is known."""
+def narrow_to_district(records: list, district: str | None, commodity: str | None,
+                       state: str) -> tuple[list, str]:
+    """Prefer the farmer's own district, and say plainly when it has no arrivals.
+
+    A farmer in Kharagpur asking a potato price was handed every rate in West
+    Bengal - Rs 580 in Coochbehar, Rs 1500 in Darjeeling, 600 km apart - and
+    then asked which mandi they meant. Their district was known and unused. It
+    is the difference between a price they can act on and a spread they cannot.
+
+    When their own district reported nothing, the state picture is still worth
+    giving, but it is labelled as such rather than passed off as their rate.
+    """
+    if not district or not records:
+        return records, ""
+    local = [r for r in records if _in_district(r, district)]
+    if local:
+        return local, (f"These are the rates in the farmer's own district "
+                       f"({district}). Lead with them.\n")
+    crop = commodity or "this crop"
+    return records, (
+        f"No {crop} arrivals were reported from the farmer's own district "
+        f"({district}) in this data. Say that plainly first. The rates below "
+        f"are from other districts of {state} and are NOT their local rate - "
+        f"give them only as a general picture, and do not ask the farmer which "
+        f"mandi they mean, because their district is already known.\n"
+    )
+
+
+def get_state_data(state: str, commodity: str | None = None,
+                   district: str | None = None) -> str:
+    """Mandi prices for a state, narrowed to a commodity and district when known."""
     if not state or state.lower() == "unknown":
         return "Mandi price data unavailable (no state identified)."
 
@@ -527,7 +592,7 @@ def get_state_data(state: str, commodity: str | None = None) -> str:
         commodity = None
 
     if _circuit_open():
-        return _cache_lookup(state, commodity) or             "Mandi price data unavailable (the government price service is down)."
+        return _cache_lookup(state, commodity, district) or             "Mandi price data unavailable (the government price service is down)."
 
     try:
         records = _fetch(state, commodity)
@@ -555,13 +620,16 @@ def get_state_data(state: str, commodity: str | None = None) -> str:
         if commodity and not records:
             return no_arrivals(state, commodity)
 
-        summary = format_state_data(records)
+        # Cache the state's rows, not the district's slice: the entry is shared
+        # by every farmer in the state, and narrowing belongs to the reader.
         if records:
-            _cache_store(state, commodity, summary, records=records)
-        return summary
+            _cache_store(state, commodity, format_state_data(records), records=records)
+
+        records, note = narrow_to_district(records, district, commodity, state)
+        return note + format_state_data(records)
 
     except Exception as e:
         _record_failure()
         _record_outcome(False)
         print(f"Mandi price lookup failed for state={state!r}: {e}")
-        return _cache_lookup(state, commodity) or             "Mandi price data unavailable (lookup failed)."
+        return _cache_lookup(state, commodity, district) or             "Mandi price data unavailable (lookup failed)."

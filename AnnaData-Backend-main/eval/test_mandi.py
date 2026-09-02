@@ -102,6 +102,47 @@ def main():
         check(f"carries no {other}", other in text, False)
     check("does not guess the reason", "do not assert which" in text, True)
 
+    print("\nThe farmer's own district is preferred over the whole state")
+    # Written by the geocoder on the left, by the register on the right. Same
+    # place, different language and position for the direction.
+    for mine, published, want in [
+        ("Paschim Medinipur", "Medinipur(W)", True),
+        ("Paschim Medinipur", "Medinipur(E)", False),
+        ("Purba Bardhaman", "Bardhaman(E)", True),
+        ("Paschim Bardhaman", "Bardhaman(E)", False),
+        ("South 24 Parganas", "Sounth 24 Parganas", True),   # the source's typo
+        ("Lucknow", "Lucknow", True),
+        ("Paschim Medinipur", "Jhargram", False),
+    ]:
+        check(f"{mine} vs {published}",
+              mandi._in_district({"district": published}, mine), want)
+    check("no district means no filtering",
+          mandi._in_district({"district": "Anywhere"}, None), True)
+
+    ROWS_WB = [
+        {"district": "Medinipur(W)", "market": "Ghatal APMC", "commodity": "Potato"},
+        {"district": "Darjeeling", "market": "Darjeeling APMC", "commodity": "Potato"},
+        {"district": "Coochbehar", "market": "Haldibari APMC", "commodity": "Potato"},
+    ]
+    local, note = mandi.narrow_to_district(ROWS_WB, "Paschim Medinipur",
+                                           "potato", "West Bengal")
+    check("only the home district survives", [r["market"] for r in local],
+          ["Ghatal APMC"])
+    check("and it is labelled as theirs", "own district" in note, True)
+
+    # A farmer whose district reported nothing must be told so, not handed
+    # another district's rate and asked which mandi they meant.
+    away, note = mandi.narrow_to_district(ROWS_WB, "Jhargram", "potato", "West Bengal")
+    check("state rows kept as a fallback", len(away), 3)
+    check("absence stated first", "No potato arrivals were reported" in note, True)
+    check("not passed off as their rate", "NOT their local rate" in note, True)
+    check("does not ask what it already knows",
+          "do not ask the farmer which mandi" in note, True)
+
+    nowhere, note = mandi.narrow_to_district(ROWS_WB, None, "potato", "West Bengal")
+    check("unknown district changes nothing", len(nowhere), 3)
+    check("and says nothing", note, "")
+
     print(f"\n{len(failures)} failure(s)" if failures else "\nAll checks passed")
     return 1 if failures else 0
 
