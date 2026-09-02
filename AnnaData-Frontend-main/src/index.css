@@ -37,124 +37,286 @@ body {
   font-family: var(--font-app);
 }
 
-
-.result-data::-webkit-scrollbar {
-    display: none;
-}
-
-
+/*
+ * Scrollbar hiding. Declared once.
+ *
+ * index.css previously said this three times: two byte-identical blocks and a
+ * third that differed only in its comments.
+ */
+.scrollbar-hide,
 .result-data {
-    -ms-overflow-style: none;  
-    scrollbar-width: none;  
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar,
+.result-data::-webkit-scrollbar {
+  display: none; /* Safari and Chrome */
 }
 
-/* styles.css */
+/* The pending-state bars, still used by Main.jsx. Due for replacement. */
 @keyframes gradientAnimation {
-    0% {
-      background-position: 100% 0;
-    }
-    100% {
-      background-position: 0 0;
-    }
+  0% {
+    background-position: 100% 0;
   }
-  
-  .hr-animated {
-    background-size: 200% 200%;
-    animation: gradientAnimation 1s linear infinite;
+  100% {
+    background-position: 0 0;
   }
-  
-
-  /* styles.css */
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
+}
+.hr-animated {
+  background-size: 200% 200%;
+  animation: gradientAnimation 1s linear infinite;
 }
 
-.scrollbar-hide {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
-}
-
-/* Hide scrollbar for better UI */
-.scrollbar-hide {
-  -ms-overflow-style: none;  /* Internet Explorer 10+ */
-  scrollbar-width: none;  /* Firefox */
-}
-
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;  /* Safari and Chrome */
-}
-
-
-
-  
-
-
+/* ------------------------------------------------------------------------ */
+/*  THE ANSWER SURFACE                                                        */
+/* ------------------------------------------------------------------------ */
 
 /*
  * Typography for an answer.
  *
  * Answers arrive as markdown and were rendered with browser defaults, which
- * Tailwind's preflight strips: headings came out the same size as body text and
+ * Tailwind preflight strips: headings came out the same size as body text and
  * a price table had no borders or cell padding, so five APMC rates ran together
  * as one block of words. Price and dose tables are the two things a farmer
  * reads most carefully, so they are the two that most need to be legible.
+ *
+ * That original fix is kept below in full. What is added on top of it is what
+ * only became visible after reading real answers side by side in four scripts:
+ * the backend almost never emits a markdown table, and writes both prices and
+ * doses as bolded-label bullet lists instead. So the list item, not the table,
+ * is where the work is - see .fact-row.
+ *
+ * Line height is 1.8, looser than looks necessary in English. Devanagari and
+ * Gurmukhi hang matras above the headline and below the baseline; at the 1.5
+ * that suits Latin, a two-line Hindi paragraph runs into itself.
  */
+.prose-answer {
+  color: theme("colors.soil.800");
+  font-size: 1.0625rem;
+  line-height: 1.8;
+  overflow-wrap: break-word;
+}
+
 .prose-answer h1,
 .prose-answer h2,
-.prose-answer h3 {
+.prose-answer h3,
+.prose-answer h4 {
+  color: theme("colors.soil.900");
   font-weight: 600;
-  line-height: 1.35;
-  margin: 1.1em 0 0.45em;
+  line-height: 1.4;
+  margin: 1.5em 0 0.5em;
 }
-.prose-answer h1 { font-size: 1.2rem; }
-.prose-answer h2 { font-size: 1.1rem; }
-.prose-answer h3 { font-size: 1rem; }
-.prose-answer > *:first-child { margin-top: 0; }
+.prose-answer h1 {
+  font-size: 1.3rem;
+}
+.prose-answer h2 {
+  font-size: 1.2rem;
+}
+.prose-answer h3 {
+  font-size: 1.1rem;
+}
+.prose-answer h4 {
+  font-size: 1.0625rem;
+}
+.prose-answer > *:first-child {
+  margin-top: 0;
+}
 
-.prose-answer p { margin: 0.55em 0; }
+/*
+ * A section heading gets a short rule, not a full-width one. A rule across the
+ * whole column reads as a divider between answers; this reads as a mark on the
+ * heading, which is what it is.
+ */
+.prose-answer h2::after,
+.prose-answer h3::after {
+  content: "";
+  display: block;
+  width: 2rem;
+  height: 3px;
+  margin-top: 0.4rem;
+  border-radius: 2px;
+  background: theme("colors.leaf.400");
+}
+
+.prose-answer p {
+  margin: 0.7em 0;
+}
 
 .prose-answer ul,
 .prose-answer ol {
-  margin: 0.55em 0;
+  margin: 0.7em 0;
   padding-left: 1.35em;
 }
-.prose-answer ul { list-style: disc; }
-.prose-answer ol { list-style: decimal; }
-.prose-answer li { margin: 0.2em 0; }
+.prose-answer ul {
+  list-style: disc;
+}
+.prose-answer ol {
+  list-style: decimal;
+}
+.prose-answer li {
+  margin: 0.35em 0;
+}
+.prose-answer li::marker {
+  color: theme("colors.leaf.500");
+}
 
-.prose-answer strong { font-weight: 600; }
+.prose-answer strong {
+  font-weight: 600;
+  color: theme("colors.soil.900");
+}
 
-/* A wide table scrolls inside its own box rather than widening the page. */
-.prose-answer table {
-  display: block;
+.prose-answer a {
+  color: theme("colors.leaf.700");
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/*
+ * A fact row: a bolded label, then its value.
+ *
+ * This one rule carries both of the shapes that have to be unmistakable,
+ * because the backend writes them identically:
+ *
+ *   *   **Tebuconazole 25% WG:** 0.750 kg in 750 litres of water per hectare
+ *   *   **Chhindwara:** Rs 5,952/quintal
+ *
+ * As plain bullets those were eight near-identical grey lines, and the reader
+ * had to read each one through to find the number. As rows they are separated,
+ * the name is a heading for its own value, and the eye can run down the left
+ * edge. The negative margin pulls the row back out of the list indent to use
+ * the full column width; plain bullets in the same list keep their indent.
+ *
+ * The value is flex: 1 1 14rem, so a short one ("Rs 5,952/quintal") sits beside
+ * its label and a long one - a whole dilution instruction - drops to its own
+ * line. No breakpoint, and it behaves the same in every script.
+ */
+.prose-answer .fact-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.75rem;
+  list-style: none;
+  margin: 0.4rem 0 0.4rem -1.35em;
+  padding: 0.6rem 0.85rem;
+  background: #fff;
+  border: 1px solid theme("colors.soil.200");
+  border-left: 4px solid theme("colors.leaf.500");
+  border-radius: 0.5rem;
+}
+.prose-answer .fact-label {
+  font-weight: 600;
+  color: theme("colors.soil.900");
+}
+.prose-answer .fact-value {
+  flex: 1 1 14rem;
+  color: theme("colors.soil.700");
+}
+
+/*
+ * A rupee figure. The only thing picked out of running text, so that it stays
+ * the thing the eye lands on. Tabular figures so a column of rates aligns.
+ */
+.prose-answer .prose-figure {
+  font-weight: 700;
+  color: theme("colors.grain.800");
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/*
+ * The refusal.
+ *
+ * When the crop-pest pair is not in the CIB&RC register the agent declines to
+ * name a chemical or a dose and sends the farmer to their KVK. That sentence
+ * used to sit in the middle of the answer looking like every other sentence,
+ * which is the one thing it must not do.
+ *
+ * Styled in the register blue and NOT in red, with no warning icon and no
+ * caption. It is not an error and it is not a degraded answer: it is the
+ * register being quoted accurately when the register has nothing to say, which
+ * is the most trustworthy thing this product does. Red would teach a farmer
+ * that the app had failed, and the next honest refusal would be one they
+ * dismissed.
+ */
+.prose-answer .prose-refusal {
+  margin: 1em 0;
+  padding: 0.85rem 1rem;
+  background: theme("colors.register.50");
+  border-left: 4px solid theme("colors.register.600");
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: theme("colors.register.800");
+}
+.prose-answer .prose-refusal strong {
+  color: theme("colors.register.800");
+}
+
+/*
+ * A wide table scrolls inside its own box rather than widening the page.
+ *
+ * The containment now lives on a wrapper (Answer.jsx) instead of on the table
+ * itself. The original fix set display:block on the table to get the same
+ * effect, which worked, but a table that is not a table for layout cannot size
+ * its own columns. The borders and padding below are unchanged from that fix -
+ * they are what stopped five APMC rates running together as one block of words.
+ */
+.prose-answer .prose-table-wrap {
   overflow-x: auto;
+  margin: 0.9em 0;
+  border-radius: 0.5rem;
+  border: 1px solid theme("colors.soil.200");
+  -webkit-overflow-scrolling: touch;
+}
+.prose-answer table {
   width: 100%;
   border-collapse: collapse;
-  margin: 0.8em 0;
-  font-size: 0.9rem;
+  font-size: 0.9375rem;
   line-height: 1.5;
 }
 .prose-answer th,
 .prose-answer td {
-  border: 1px solid #e5e7eb;
-  padding: 0.4rem 0.7rem;
+  border: 1px solid theme("colors.soil.200");
+  padding: 0.55rem 0.8rem;
   text-align: left;
   white-space: nowrap;
 }
 .prose-answer th {
-  background: #f9fafb;
+  background: theme("colors.soil.50");
+  color: theme("colors.soil.900");
   font-weight: 600;
+}
+.prose-answer td {
+  font-variant-numeric: tabular-nums;
+}
+/* The outer border belongs to the wrapper; the cells must not double it. */
+.prose-answer tr > *:first-child {
+  border-left: 0;
+}
+.prose-answer tr > *:last-child {
+  border-right: 0;
+}
+.prose-answer tr:first-child > * {
+  border-top: 0;
+}
+.prose-answer tr:last-child > * {
+  border-bottom: 0;
 }
 
 .prose-answer hr {
   border: 0;
-  border-top: 1px solid #e5e7eb;
-  margin: 1em 0;
+  border-top: 1px solid theme("colors.soil.200");
+  margin: 1.25em 0;
 }
 
 .prose-answer code {
-  background: #f3f4f6;
+  background: theme("colors.soil.100");
   border-radius: 4px;
   padding: 0.1em 0.35em;
   font-size: 0.9em;
+}
+
+.prose-answer blockquote {
+  margin: 0.9em 0;
+  padding-left: 0.9rem;
+  border-left: 3px solid theme("colors.soil.200");
+  color: theme("colors.soil.600");
 }
