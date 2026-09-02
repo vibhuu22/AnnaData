@@ -26,6 +26,12 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Must precede any import that prints. Without it the Hindi and Punjabi cases -
+# the two this suite most exists to protect - died with UnicodeEncodeError on a
+# Windows console before they could be judged, and were reported as errors
+# rather than as the passes they were.
+import encoding_setup  # noqa: F401,E402
+
 import db  # noqa: E402
 import startup  # noqa: E402
 from Agent import run_agent, script_of  # noqa: E402

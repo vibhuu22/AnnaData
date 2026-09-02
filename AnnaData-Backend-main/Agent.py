@@ -11,8 +11,10 @@ from Query_Parser import extract_farm_info
 from weather_tool import weather_openmeteo
 from Soil_Tool import soil_tool
 from Refined_Farmer_Query import get_farming_query
+from process_media import describe_vision
 from Web_Crawler import query_kb, is_available as kb_available
 import knowledge
+import lesion_bank
 import msp
 import planner
 import output_guards
@@ -109,6 +111,38 @@ def script_of(text: str) -> str:
         if any(lo <= ord(c) <= hi for c in text or ""):
             return name
     return "Latin"
+
+
+# The voice a browser should read an answer aloud in. A farmer who sends a
+# voice note usually cannot comfortably read the reply either, so the answer is
+# spoken back - and speaking Devanagari with an English voice produces sounds no
+# one can follow.
+#
+# Devanagari maps to Hindi, which is right for Hindi and wrong for Marathi.
+# Nothing in the script distinguishes them, and a Marathi answer read by a Hindi
+# voice is understandable, where the same answer read by an English one is not.
+SPEECH_LANGUAGES = {
+    "Devanagari": "hi-IN",
+    "Gurmukhi": "pa-IN",
+    "Bengali": "bn-IN",
+    "Gujarati": "gu-IN",
+    "Tamil": "ta-IN",
+    "Telugu": "te-IN",
+    "Kannada": "kn-IN",
+    "Malayalam": "ml-IN",
+    "Odia": "or-IN",
+    "Latin": "en-IN",
+}
+
+
+def speech_language(text: str) -> str:
+    """BCP-47 tag for reading this text aloud, from the script it is written in.
+
+    Read off the answer rather than the question because that is what gets
+    spoken, and romanised Hinglish is the case that matters: it is Latin script,
+    so an English voice pronounces it about as a Hindi speaker would expect.
+    """
+    return SPEECH_LANGUAGES.get(script_of(text), "en-IN")
 
 
 def script_instruction(query: str) -> str:
@@ -426,6 +460,12 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
         f"- Crop: {crop or 'unknown'}",
     ]
     for label, key in (("APPROVED PESTICIDE USES", "doses"),
+                       # What the photograph showed, as observation. It sits
+                       # above the dose table on purpose: the picture says what
+                       # the symptom looks like, the table says what may
+                       # legally be sprayed on it, and only the second is
+                       # allowed to decide the chemical.
+                       ("WHAT THE PHOTOGRAPH SHOWS", "image"),
                        ("Soil", "soil"), ("Weather", "weather"),
                        ("Mandi Price", "mandi"),
                        ("MINIMUM SUPPORT PRICE", "msp"),
@@ -455,7 +495,8 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     - NEVER name a price scheme you have no figure for. If there is no MINIMUM SUPPORT PRICE section above, then you do not have the support price for this crop: say plainly that you do not have it and name who does - the local APMC mandi, a cooperative sugar mill for sugarcane. Do NOT mention MSP, FRP, "Fair and Remunerative Price", "government support price" or "a reliable floor" as though it were an answer while quoting no number, and never invite the farmer to go and look it up themselves as a substitute for answering. A named scheme with no figure attached is worse than admitting you do not have it.
     - PRICES: the mandi rate and the Minimum Support Price answer different questions and are not interchangeable. If a MINIMUM SUPPORT PRICE section is present, give that figure - it is current for the whole marketing year and is a real answer, not a substitute for one. When the live mandi rate is unavailable, say so in a few words and then give the support price as the floor the farmer is guaranteed; do not end on "unavailable" while the support price is sitting in the Context. Never present the support price as today's market rate, and never quote a support price that is not in the Context - most vegetables have none.
     - Do not invent facts beyond the given data.
-    - CHEMICALS AND DOSES: if an APPROVED PESTICIDE USES section is present, you may name a pesticide and a dose ONLY if it appears there, quoted exactly, and you should say it is a registered use. If that section says nothing is registered, or warns the listed uses are for a different pest, then name NO chemical and NO dose at all - say you have no approved treatment on record and tell them to ask their Krishi Vigyan Kendra or agriculture officer. Never fall back on a chemical you happen to know. But do NOT stop at the refusal: give at least one practical PEST-CONTROL measure that needs no registered product - destroying and removing affected plant material, field sanitation, pheromone or bait traps, bagging fruit, collecting and burying fallen fruit, crop rotation, resistant varieties, adjusting sowing or irrigation timing, hand-picking at low infestation. These carry no chemical risk and are often what the extension officer would advise first. A refusal that offers nothing is a wasted message to a farmer whose crop is being eaten. This applies ONLY to pest and disease control. It is NOT licence to elaborate on any other refusal: where a scheme, subsidy or price is not in the Context, state that plainly and add no figures, percentages or eligibility rules of your own.
+    - CHEMICALS AND DOSES: if an APPROVED PESTICIDE USES section is present, you may name a pesticide and a dose ONLY if it appears there, quoted exactly, and you should say it is a registered use. WHERE THAT SECTION SAYS THE USES ARE REGISTERED FOR THIS PEST, YOU MUST GIVE AT LEAST ONE OF THEM, WITH ITS DOSE. Withholding them is not the safe choice and is itself an error: the farmer is then sent away empty-handed while the registration authority's own answer sits in front of you. Do not decide from the wording of a row that it is "really" about some other pest - that match was made in code against the register, and the text is extracted from PDFs, so it may be split mid-word or name several pests at once. Only the section's own header decides whether these uses apply. If that section says nothing is registered, or warns the listed uses are for a different pest, then name NO chemical and NO dose at all - say you have no approved treatment on record and tell them to ask their Krishi Vigyan Kendra or agriculture officer. Never fall back on a chemical you happen to know. But do NOT stop at the refusal: give at least one practical PEST-CONTROL measure that needs no registered product - destroying and removing affected plant material, field sanitation, pheromone or bait traps, bagging fruit, collecting and burying fallen fruit, crop rotation, resistant varieties, adjusting sowing or irrigation timing, hand-picking at low infestation. These carry no chemical risk and are often what the extension officer would advise first. A refusal that offers nothing is a wasted message to a farmer whose crop is being eaten. This applies ONLY to pest and disease control. It is NOT licence to elaborate on any other refusal: where a scheme, subsidy or price is not in the Context, state that plainly and add no figures, percentages or eligibility rules of your own.
+    - A PHOTOGRAPH IS EVIDENCE, NOT A DIAGNOSIS. Where a WHAT THE PHOTOGRAPH SHOWS section is present, treat it as what a careful person could see in one picture and nothing more. Say what you are going off - "from the photo, this looks like leaf blast" - so the farmer can tell you if it is wrong. Where its confidence is low, or it names no pest at all, say plainly that the picture is not enough to be sure, name the one or two things it could be, and ask for the single detail that would separate them - where on the plant the damage started, whether it is spreading, how the underside of the leaf looks. Where that section says NOT CONFIRMED, the picture was checked against labelled photographs of the same crop and they did not agree on one disease: name the two or three it could be, say plainly that a photograph cannot separate them, give the measures that are safe whichever it is - removing and destroying affected material, field sanitation, drainage, stopping excess nitrogen - and ask for the one detail that would settle it. Do NOT quote a dose in that case even if one appears above, because it is a dose for a disease not yet established. Where the section says CORROBORATED, say so in ordinary words - that plants with these exact symptoms are on record with this disease - and proceed normally. Hedge the IDENTIFICATION, never the dose. Once a pest has been matched in the register, where the name came from - the farmer's words or the photograph - changes nothing about which products are registered against it, and the rule above applies unchanged: give at least one, with its dose, and say what it treats. "It looks like blast, and for blast on rice the registered options are..." is the shape of a good answer. Refusing a registered dose because the pest was identified from a picture leaves the farmer with neither a diagnosis nor a treatment, which is the worst of both. Never describe a part of the plant the photograph did not contain.
     - WHEN THE FARMER SAYS THEY CANNOT DO WHAT YOU SUGGESTED - no animals for dung, no irrigation, no money for a product, no tractor - that is not the end of the conversation and it is not a reason to start over. Do not repeat the suggestion they just ruled out, and do not ask a fresh unrelated question. Give them the next best option that fits what they DO have: compost can be bought or made from crop residue alone, green manure can be grown, a neighbour's dairy sells dung. Name the alternative in the same breath as acknowledging the constraint.
     - End with ONE short, specific question only where the answer would genuinely change with it - the crop stage, how widespread the damage is, whether they have irrigation. Never ask for something already given above. If nothing useful is missing, end with the advice.
     - Format response clearly into sections.
@@ -478,15 +519,23 @@ def gather(tools, *, lat, lon, state, crop, query, pest=None,
     delays or breaks the others.
     """
     if not tools:
-        return {}
+        return {}, {}
+
+    # The structured dose result, kept alongside the text written for the
+    # prompt. `output_guards.ensure_registered_doses` needs the rows themselves
+    # to tell whether the answer dropped them.
+    raw = {}
+
+    def _doses():
+        result = knowledge.approved_uses(crop, pest)
+        raw["doses"] = result
+        return knowledge.format_uses(result, pest)
 
     calls = {
         # Registered uses come from a table, not a model. The result carries
         # whether the pest actually matched, because a use for a different pest
         # must never be offered as an answer for this one.
-        "doses":   lambda: knowledge.format_uses(
-            knowledge.approved_uses(crop, pest), pest
-        ),
+        "doses":   _doses,
         "soil":    lambda: soil_tool(lat, lon),
         "weather": lambda: weather_openmeteo(lat, lon),
         "mandi":   lambda: get_state_data(state, crop, district),
@@ -507,7 +556,7 @@ def gather(tools, *, lat, lon, state, crop, query, pest=None,
                 results[name] = future.result()
             except Exception as e:
                 print(f"Tool {name} failed: {e}")
-    return results
+    return results, raw
 
 
 class AgentResult:
@@ -554,12 +603,81 @@ def run_agent(
     history: Optional[List[dict]] = None,
     channel: str = "web",
     profile: Optional[dict] = None,
+    vision: Optional[dict] = None,
 ) -> AgentResult:
-    """Answer a farmer's question and report what was learned and used."""
+    """Answer a farmer's question and report what was learned and used.
+
+    `vision` is what a photograph showed, when one was sent - crop, pest, stage,
+    symptoms, severity and how sure the reading was. It fills slots the farmer's
+    words left empty rather than overriding them: someone who photographs a leaf
+    and writes "my wheat" has told us the crop, and the picture does not get to
+    disagree.
+    """
     query_final = get_farming_query(query, history)
     print(f"Final query after refinement: {query_final}")
 
     structured_input = extract_farm_info(query_final, original=query)
+
+    # A photograph answers questions the farmer did not put into words. Filling
+    # the crop and the pest from it is what carries the picture through to the
+    # registered-use table - without this the image was read, described, and
+    # then had no effect on which tools ran or what was looked up.
+    if vision:
+        # The crop is the farmer's to state: they know what they planted, and a
+        # photograph of one leaf does not get to correct them. Filled only when
+        # they said nothing.
+        seen_crop = vision.get("crop", "unknown")
+        if seen_crop != "unknown" and not _known(structured_input.get("crop_type")):
+            structured_input["crop_type"] = seen_crop
+            print(f"Filled crop_type={seen_crop!r} from the photograph")
+
+        # The pest is different. A farmer photographing a leaf is usually
+        # describing a symptom, not naming a disease - "ye dhabbe kya hain",
+        # what are these spots - and the parser dutifully returns "spots" as the
+        # pest. That is not a name the register knows, so it matched nothing
+        # while the photograph's own "blast" sat unused, and the farmer was told
+        # no treatment was on record for a disease with eight registered ones.
+        #
+        # So a confident reading of the picture wins over a word extracted from
+        # a question that named no disease. An uncertain one does not: where the
+        # photo is only guessing, whatever the farmer actually wrote is better.
+        # Before the photograph's own opinion is trusted, it is checked against
+        # labelled photographs of the same crop. The bank can only ever weaken a
+        # claim, never manufacture one: where it covers the crop and disagrees,
+        # the pest is dropped so no dose is looked up and the answer has to name
+        # both possibilities and ask. Where it does not cover the crop - rice,
+        # cotton, wheat and most of what our farmers actually grow - it returns
+        # "uncovered" and nothing changes, which is what keeps adding the bank
+        # from regressing the crops that matter most.
+        corroboration = None
+        if vision.get("features") and vision.get("usable", True):
+            corroboration = lesion_bank.consult(
+                vision["features"],
+                vision.get("crop"),
+                vision.get("pest"),
+            )
+            vision["corroboration"] = corroboration
+            print(f"Lesion bank: {corroboration['verdict']} "
+                  f"(nearest {corroboration['similarity']:.3f})")
+
+            if corroboration["verdict"] == "disputed":
+                # Two readings of the same picture disagree. Neither is worth a
+                # dose on its own, and saying so is more use to the farmer than
+                # picking one.
+                vision["pest"] = "unknown"
+                vision["confidence"] = "low"
+            elif corroboration["verdict"] == "confirmed":
+                vision["confidence"] = "high"
+
+        seen_pest = vision.get("pest", "unknown")
+        if seen_pest != "unknown" and vision.get("confidence") in ("high", "medium"):
+            previous = structured_input.get("pest")
+            if previous != seen_pest:
+                print(f"Pest {seen_pest!r} from the photograph replaces {previous!r}")
+            structured_input["pest"] = seen_pest
+        elif seen_pest != "unknown" and not _known(structured_input.get("pest")):
+            structured_input["pest"] = seen_pest
+            print(f"Filled pest={seen_pest!r} from the photograph")
 
     crop = structured_input.get("crop_type", "unknown")
     state = structured_input.get("state", "unknown")
@@ -590,7 +708,16 @@ def run_agent(
     if message_type in ("smalltalk", "statement") and answers_our_question(query, history):
         message_type = "question"
 
+    # Someone who photographs a diseased leaf is asking about it, whatever the
+    # caption said - often there is no caption at all, and an empty message
+    # classifies as smalltalk. The picture is the question.
+    if vision:
+        message_type = "question"
+        if intent == "general" and vision.get("pest", "unknown") != "unknown":
+            intent = "disease_pest"
+
     print(f"Extracted Crop: {crop}, State: {state}, Location: {location}, "
+          f"pest: {structured_input.get('pest')}, "
           f"intent: {intent}, type: {message_type}, answer: {answer}")
 
     facts = {
@@ -626,8 +753,12 @@ def run_agent(
             tools_used=["greeting"], intent=intent, message_type=message_type, **facts
         )
 
-    # Non-agricultural query: the parser already answered it.
-    if answer != "unknown" and crop == "unknown" and state == "unknown" and location == "unknown":
+    # Non-agricultural query: the parser already answered it. A photograph is
+    # never that, even when nothing in it could be named - the farmer went to
+    # the field and took a picture of a plant, and deserves better than the
+    # parser's one-line reply to what it read as an off-topic question.
+    if (not vision and answer != "unknown"
+            and crop == "unknown" and state == "unknown" and location == "unknown"):
         return AgentResult(answer, tools_used=["direct"], message_type=message_type)
 
     # A location named in this message beats a remembered or browser one, but
@@ -684,7 +815,11 @@ def run_agent(
             intent=intent, message_type=message_type, **facts
         )
 
-    if not tools:
+    # No tools and no picture: an open question, answered as one. A picture
+    # always has something to say, so it goes down the advisory path even when
+    # every tool was skipped - that path carries the dose and refusal rules,
+    # and the open-ended one does not.
+    if not tools and not vision:
         return AgentResult(
             extract_markdown_content(get_open_ended_answer(query_final, history, channel)),
             tools_used=["general"], missing_slots=missing, intent=intent, **facts
@@ -692,9 +827,13 @@ def run_agent(
 
     # The farmer's district, from this message or from their profile, is what
     # turns a state-wide spread of prices into their own market's rate.
-    gathered = gather(tools, lat=lat, lon=lon, state=facts["state"], crop=facts["crop"],
-                      query=query_final, pest=_known(structured_input.get("pest")),
-                      district=facts.get("district") or (profile or {}).get("district"))
+    pest = _known(structured_input.get("pest"))
+    gathered, raw = gather(tools, lat=lat, lon=lon, state=facts["state"], crop=facts["crop"],
+                           query=query_final, pest=pest,
+                           district=facts.get("district") or (profile or {}).get("district"))
+
+    if vision:
+        gathered["image"] = describe_vision(vision)
 
     final_response = extract_markdown_content(
         get_farming_advice(facts["location"], facts["state"], facts["crop"],
@@ -705,6 +844,13 @@ def run_agent(
     final_response, scrubbed = output_guards.scrub(final_response, gathered)
     if scrubbed:
         print("Removed an unsupported figure from the answer")
+
+    # And the reverse: a registered dose the model was handed and left out.
+    final_response, restored = output_guards.ensure_registered_doses(
+        final_response, raw.get("doses"), pest
+    )
+    if restored:
+        print("Restored registered doses the answer had dropped")
     print(f"Final response: {final_response}")
     return AgentResult(
         final_response, tools_used=sorted(gathered.keys()),

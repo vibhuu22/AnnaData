@@ -195,3 +195,65 @@ def scrub(answer: str, gathered: dict) -> tuple[str, bool]:
         changed = changed or hit
 
     return answer, changed
+
+
+# --- the same failure, in the other direction -------------------------------
+
+# Everything above removes a figure the data does not support. This adds one the
+# data does support and the model dropped.
+#
+# Measured on the same photograph and question, four runs in a row: the register
+# returned eight products registered against blast on rice - Carbendazim,
+# Ediphenphos, Kasugamycin among them - and all four answers told the farmer
+# there was no approved treatment on record and to go to their KVK. The same
+# question in English, and the same question typed in Hindi without a photo,
+# named the products every time. Only the combination failed, and the prompt
+# already carried an explicit instruction to give at least one.
+#
+# So it is the docstring's pattern again with the sign reversed: a positive
+# obligation, competing with a long prompt on a small fast model, and losing
+# often enough to matter. Refusing a registered dose is not a safe failure - the
+# farmer is sent away from an answer the registration authority actually
+# provides, which is the one thing this system exists to prevent.
+DOSE_HEADING = "Registered for this pest (CIB&RC):"
+
+
+def ensure_registered_doses(answer: str, doses: dict | None, pest: str | None) -> tuple[str, bool]:
+    """Append the registered uses when they were matched but went unmentioned.
+
+    Only fires when the register actually matched the pest asked about; a
+    crop-level list for other pests must still never be offered as a treatment,
+    which is what `format_uses` warns the model about and what this respects by
+    checking `pest_matched`.
+
+    Returns the answer and whether anything was added.
+    """
+    if not answer or not doses or not doses.get("pest_matched"):
+        return answer, False
+
+    uses = doses.get("uses") or []
+    if not uses:
+        return answer, False
+
+    # A product is "mentioned" by its active ingredient, which is the first word
+    # of the register's name - the answer writes "Carbendazim", the register
+    # "Carbendazim 50%WP". Matching the whole string would never hit.
+    lowered = answer.lower()
+    for use in uses:
+        head = (use.get("product") or "").split()[0:1]
+        if head and head[0].lower() in lowered:
+            return answer, False
+
+    from knowledge import dose_lines  # local: knowledge imports nothing from here
+
+    lines = dose_lines(doses)
+    if not lines:
+        return answer, False
+
+    label = f" for {pest}" if pest else ""
+    block = "\n".join(f"- {line}" for line in lines)
+    return (
+        f"{answer.rstrip()}\n\n**{DOSE_HEADING}**{label}\n{block}\n\n"
+        "_Follow the waiting period before harvest. Confirm with your Krishi "
+        "Vigyan Kendra or agriculture officer before spraying._"
+    ), True

@@ -321,7 +321,22 @@ def format_uses(result: dict, pest: str | None = None) -> str:
             "Krishi Vigyan Kendra. The list is context only:",
         ]
     else:
-        lines = ["Registered pesticide uses (these are the ONLY doses you may quote):"]
+        # Naming the pest here, and saying the match was already made, is what
+        # stops the model re-adjudicating it from the register's own text. That
+        # text is extracted from PDFs and about 3% of pest fields carry a column
+        # break through a word - "Xanthomona s oryzae", "Blast, Brown leaf".
+        # Left to judge for itself whether such a row was really about blast,
+        # the model concluded it was not and refused eight registered uses it
+        # had been handed, telling the farmer nothing was on record.
+        target = f"'{pest}'" if pest else "the pest asked about"
+        lines = [
+            f"These uses ARE registered for {target} on this crop. The match was "
+            "made against the register in code, not by you - do not second-guess "
+            "it from the wording below. The register is extracted from PDFs, so a "
+            "pest name may be split mid-word or list several pests together; that "
+            "is a transcription artefact and does NOT mean the row is about a "
+            "different pest. These are the ONLY doses you may quote:",
+        ]
     for u in uses:
         bits = [f"{u['product']} for {u['pest']} on {u['crop']}"]
         if u.get("dose_formulation"):
@@ -332,6 +347,58 @@ def format_uses(result: dict, pest: str | None = None) -> str:
             bits.append(f"wait {u['waiting_period']} before harvest")
         lines.append(f"- {', '.join(bits)} [{u['source']}]")
     return "\n".join(lines)
+
+
+def _quantity(value: str | None, max_length: int = 40) -> str | None:
+    """A register field only if it actually states an amount.
+
+    The register's dose and dilution columns do not always hold quantities. Some
+    rows carry an instruction instead - dose "seed", dilution "Mix required
+    quantity of the seeds with the required quantity of ...". Rendered as
+    "dose seed in Mix required quantity ... litres water" that is worse than
+    saying nothing, so a field without a digit, or long enough to be a sentence,
+    is dropped.
+    """
+    text = (value or "").strip()
+    if not text or len(text) > max_length or not any(c.isdigit() for c in text):
+        return None
+    return text
+
+
+def dose_lines(result: dict, limit: int = 3) -> list[str]:
+    """The registered uses as short standalone lines, for appending in code.
+
+    Separate from `format_uses`, which writes for the model. These are written
+    for the farmer: the product, the dose, and the waiting period, with nothing
+    the answer around them has to introduce. A row that states no usable
+    quantity is skipped entirely - a product name a farmer cannot measure is not
+    an answer, and this text goes out unreviewed by the model.
+    """
+    lines = []
+    for u in result.get("uses") or []:
+        if len(lines) >= limit:
+            break
+        dose = _quantity(u.get("dose_formulation"))
+        # The dilution is rendered as "in X litres of water", so it must be a
+        # bare volume. Rows carrying a qualifier - "300-500 depending upon crop
+        # stage" - read as nonsense once that suffix is attached, so only a
+        # plain number or range is kept.
+        dilution = _quantity(u.get("dilution"))
+        if dilution and not re.fullmatch(r"[\d.,\-–/ ]+", dilution):
+            dilution = None
+        if not dose and not dilution:
+            continue
+
+        bits = [u["product"]]
+        if dose:
+            bits.append(f"dose {dose}")
+        if dilution:
+            bits.append(f"in {dilution} litres of water")
+        waiting = _quantity(u.get("waiting_period"), max_length=20)
+        if waiting:
+            bits.append(f"wait {waiting} days before harvest")
+        lines.append(" - ".join(bits))
+    return lines
 
 
 # --- reference text ---------------------------------------------------------
