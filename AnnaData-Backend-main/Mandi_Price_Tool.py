@@ -541,11 +541,12 @@ def get_state_data(state: str, commodity: str | None = None) -> str:
             if not selected:
                 everything = _fetch(state, None)
                 selected = _select(everything, commodity)
-                # Keep the day's full snapshot for the cache even when the
-                # requested crop is absent, so a later question about a crop
-                # that IS trading can still be answered from it.
-                _cache_store(state, None, format_state_data(everything),
-                             records=everything)
+                # Deliberately not cached under the whole-state key. _fetch
+                # stops at MANDI_MAX_RECORDS (80) because that list is headed
+                # for a prompt, and writing it here overwrote the warm job's
+                # complete snapshot with a truncated one - Uttar Pradesh held 80
+                # rows against 261 published. The state-wide entry belongs to
+                # the job that fetches the state in full.
             records = selected
 
         _record_success()

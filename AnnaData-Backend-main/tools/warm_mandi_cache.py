@@ -40,17 +40,33 @@ import db  # noqa: E402
 import Mandi_Price_Tool as mandi  # noqa: E402
 from config import GOV_API_KEY  # noqa: E402
 
-# One page big enough for the entire daily publication.
-FETCH_LIMIT = 10000
+# The publication grows through the day as markets report: 281 rows at 03:00
+# UTC and 11,803 by 08:00 on the same day. A single request with a large limit
+# looked sufficient at dawn and silently truncated by mid-morning, so this pages
+# until it has what the API says exists.
+PAGE = 2000
+MAX_PAGES = 40            # 80,000 rows; a stop, not an expectation
 TIMEOUT = 60
 
 
 def fetch_all() -> list:
-    params = {"api-key": GOV_API_KEY, "format": "json", "limit": FETCH_LIMIT}
-    response = requests.get(mandi.RESOURCE_URL, params=params,
-                            headers=mandi.HEADERS, timeout=TIMEOUT)
-    response.raise_for_status()
-    return response.json().get("records", [])
+    records, offset = [], 0
+    for _ in range(MAX_PAGES):
+        params = {"api-key": GOV_API_KEY, "format": "json",
+                  "limit": PAGE, "offset": offset}
+        response = requests.get(mandi.RESOURCE_URL, params=params,
+                                headers=mandi.HEADERS, timeout=TIMEOUT)
+        response.raise_for_status()
+        body = response.json()
+        page = body.get("records", [])
+        if not page:
+            break
+        records.extend(page)
+        offset += PAGE
+        total = body.get("total")
+        if isinstance(total, int) and len(records) >= total:
+            break
+    return records
 
 
 def run() -> int:
@@ -91,8 +107,10 @@ def run() -> int:
     # Read back rather than trust the writes: _cache_store swallows its errors so
     # that a caching problem never breaks a farmer's answer, which means the only
     # way to know the cache is warm is to look.
+    # Compare on the key _cache_store actually writes: it folds the register's
+    # spellings onto ours, so "Keralam" is stored as "kerala".
     stored = _stored_states()
-    missing = sorted({s.strip().lower() for s in by_state} - stored)
+    missing = sorted({mandi._norm_state(s) for s in by_state} - stored)
     if missing:
         mandi._record_outcome(False)
         print(f"Cache write incomplete; {len(missing)} state(s) missing: "
