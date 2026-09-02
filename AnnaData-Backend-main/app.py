@@ -149,6 +149,8 @@ def run_agent_endpoint(request: QueryRequest):
             latitude=result.latitude,
             longitude=result.longitude,
             state=result.state,
+            district=result.district,
+            location_kind=result.location_kind,
             crop=result.crop,
         )
         profile_store.log_message(

@@ -121,6 +121,23 @@ def get_profile(user_id: str) -> dict | None:
         return None
 
 
+PRECISION_COLUMNS = """
+ALTER TABLE farmers ADD COLUMN IF NOT EXISTS location_kind TEXT;
+ALTER TABLE farmers ADD COLUMN IF NOT EXISTS location_rank INTEGER;
+"""
+
+# When an incoming place may replace the stored one. Both a name and coordinates
+# must be present, and the new place must not be known to be coarser.
+_REPLACE_LOCATION = """(
+    EXCLUDED.location_text IS NOT NULL
+    AND EXCLUDED.latitude IS NOT NULL
+    AND EXCLUDED.longitude IS NOT NULL
+    AND (farmers.location_rank IS NULL
+         OR EXCLUDED.location_rank IS NULL
+         OR EXCLUDED.location_rank >= farmers.location_rank)
+)"""
+
+
 def remember(
     user_id: str,
     channel: str = "sms",
@@ -128,6 +145,8 @@ def remember(
     latitude: float | None = None,
     longitude: float | None = None,
     state: str | None = None,
+    district: str | None = None,
+    location_kind: str | None = None,
     crop: str | None = None,
     language: str | None = None,
 ) -> None:
@@ -136,33 +155,65 @@ def remember(
     Only non-empty values overwrite; a message that mentions no location must
     not erase the location we learned last week. Crops accumulate rather than
     replace, since a farmer grows more than one thing.
+
+    A location must also not be *coarsened*. That guard used to protect only
+    against absence, and absence was not what arrived: a farmer in Kharagpur
+    asked about "rice varieties in west bengal", their own state geocoded
+    perfectly well, and COALESCE - which skips NULL and knows nothing of
+    specificity - wrote the state's centroid over their farm. It moved them
+    83 km, and because weather and soil are sampled at those coordinates the
+    damage was silent. Three hours earlier the same farmer had been quoted a
+    price from Medinipur(West) APMC; afterwards they were asked which mandi
+    they meant.
+
+    So a place replaces the stored one only when it is at least as specific,
+    and text and coordinates move together or not at all - a name written
+    without the coordinates that belong to it is how the two came to disagree.
     """
     if not user_id or not db.is_available():
         return
 
+    from Address_Convertor import precision
+
     location_text = _clean(location_text)
     state = _clean(state)
+    district = _clean(district)
+    location_kind = _clean(location_kind)
     crop = _clean_crop(crop)
     language = _clean(language)
+    location_rank = precision(location_kind)
 
     try:
         with db.connection() as conn:
-            # Scalar facts: COALESCE keeps the stored value whenever this
-            # message carried nothing new for that field.
+            conn.execute(PRECISION_COLUMNS)
+            # The location group moves as one, and only upward in precision.
+            # An unknown rank on either side does not block the update: the
+            # rule refuses a *proven* downgrade, it does not demand proof of an
+            # upgrade, so an unfamiliar place type still gets stored.
             conn.execute(
                 """
                 INSERT INTO farmers (user_id, channel, location_text, latitude,
-                                     longitude, state, language)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                     longitude, state, district, language,
+                                     location_kind, location_rank)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (user_id) DO UPDATE SET
-                    location_text = COALESCE(EXCLUDED.location_text, farmers.location_text),
-                    latitude      = COALESCE(EXCLUDED.latitude,      farmers.latitude),
-                    longitude     = COALESCE(EXCLUDED.longitude,     farmers.longitude),
-                    state         = COALESCE(EXCLUDED.state,         farmers.state),
-                    language      = COALESCE(EXCLUDED.language,      farmers.language),
+                    location_text = CASE WHEN {repl} THEN EXCLUDED.location_text
+                                         ELSE farmers.location_text END,
+                    latitude      = CASE WHEN {repl} THEN EXCLUDED.latitude
+                                         ELSE farmers.latitude END,
+                    longitude     = CASE WHEN {repl} THEN EXCLUDED.longitude
+                                         ELSE farmers.longitude END,
+                    location_kind = CASE WHEN {repl} THEN EXCLUDED.location_kind
+                                         ELSE farmers.location_kind END,
+                    location_rank = CASE WHEN {repl} THEN EXCLUDED.location_rank
+                                         ELSE farmers.location_rank END,
+                    state         = COALESCE(EXCLUDED.state,    farmers.state),
+                    district      = COALESCE(EXCLUDED.district, farmers.district),
+                    language      = COALESCE(EXCLUDED.language, farmers.language),
                     updated_at    = now()
-                """,
-                (user_id, channel, location_text, latitude, longitude, state, language),
+                """.format(repl=_REPLACE_LOCATION),
+                (user_id, channel, location_text, latitude, longitude, state,
+                 district, language, location_kind, location_rank),
             )
 
             # Crops accumulate. Kept as its own statement because inferring the

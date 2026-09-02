@@ -18,6 +18,7 @@ degrades the answer instead of failing the request.
 """
 import threading
 import time
+from typing import NamedTuple
 
 import requests
 
@@ -36,8 +37,44 @@ _throttle = threading.Lock()
 
 # Districts repeat heavily across farmers, so an in-process cache saves most
 # calls even before the per-farmer coordinates are stored.
-_cache: dict[str, tuple] = {}
+_cache: dict[str, "Place"] = {}
 _CACHE_MAX = 512
+
+
+class Place(NamedTuple):
+    """A geocoded place, and how specific it turned out to be.
+
+    Coordinates alone were not enough. A farmer in Kharagpur asked about "rice
+    varieties in west bengal", the state geocoded fine, and the state's centroid
+    - 83 km away, near Bankura - was written over their farm. Nothing in
+    (lat, lon) said one was a city and the other a whole state, so nothing could
+    refuse the overwrite. The provider knew; we were discarding it.
+    """
+    latitude: float | None
+    longitude: float | None
+    kind: str | None = None          # 'state', 'city', 'village', ...
+    district: str | None = None
+    state: str | None = None
+
+
+# How specific a place is, higher being finer. Used only to refuse a downgrade,
+# never to reject an update outright, so an unfamiliar type still gets stored.
+PRECISION = {
+    "country": 1,
+    "state": 2, "region": 2, "administrative_area_level_1": 2,
+    "state_district": 3, "district": 3, "county": 3,
+    "administrative_area_level_2": 3,
+    "city": 4, "town": 4, "municipality": 4, "locality": 4,
+    "village": 5, "suburb": 5, "hamlet": 5, "neighbourhood": 5,
+    "sublocality": 5, "postcode": 5, "postal_code": 5,
+}
+
+
+def precision(kind: str | None) -> int | None:
+    """Rank for a place type, or None when the type is not one we know."""
+    if not kind:
+        return None
+    return PRECISION.get(kind.strip().lower())
 
 
 def _throttled_get(url: str, params: dict, headers: dict):
@@ -61,11 +98,22 @@ def _google(address: str):
     data = response.json()
 
     if data.get("status") == "OK" and data.get("results"):
-        loc = data["results"][0]["geometry"]["location"]
-        return loc["lat"], loc["lng"]
+        top = data["results"][0]
+        loc = top["geometry"]["location"]
+        # Google reports the match as a list of types, most specific first, and
+        # names the district as administrative_area_level_2.
+        kind = next((t for t in top.get("types", []) if t in PRECISION), None)
+        district = state = None
+        for part in top.get("address_components", []):
+            types = part.get("types", [])
+            if "administrative_area_level_2" in types:
+                district = part.get("long_name")
+            elif "administrative_area_level_1" in types:
+                state = part.get("long_name")
+        return Place(loc["lat"], loc["lng"], kind=kind, district=district, state=state)
 
     print(f"Google geocoding returned {data.get('status')} for {address!r}")
-    return None, None
+    return Place(None, None)
 
 
 def _nominatim(address: str):
@@ -75,6 +123,9 @@ def _nominatim(address: str):
             "q": address,
             "format": "jsonv2",
             "limit": 1,
+            # The breakdown costs nothing extra on a call we already make, and
+            # carries both the district and how specific the match was.
+            "addressdetails": 1,
             # Farmer queries are Indian; the bias stops "Nagpur" resolving abroad.
             "countrycodes": GEOCODE_COUNTRY,
         },
@@ -85,20 +136,28 @@ def _nominatim(address: str):
     results = response.json()
 
     if results:
-        return float(results[0]["lat"]), float(results[0]["lon"])
+        top = results[0]
+        parts = top.get("address") or {}
+        return Place(
+            float(top["lat"]), float(top["lon"]),
+            kind=top.get("addresstype") or top.get("type"),
+            district=(parts.get("state_district") or parts.get("county")
+                      or parts.get("district")),
+            state=parts.get("state"),
+        )
 
     print(f"Nominatim found nothing for {address!r}")
-    return None, None
+    return Place(None, None)
 
 
-def get_location(address: str):
-    """Get (latitude, longitude) for a place, or (None, None)."""
+def locate(address: str) -> Place:
+    """Geocode a place, keeping what kind of place it turned out to be."""
     if not address:
-        return None, None
+        return Place(None, None)
 
     address = address.strip()
     if not address or address.lower() == "unknown":
-        return None, None
+        return Place(None, None)
 
     key = address.lower()
     if key in _cache:
@@ -106,15 +165,23 @@ def get_location(address: str):
 
     provider = "google" if LOCATION_API_KEY else "nominatim"
     try:
-        lat, lon = _google(address) if LOCATION_API_KEY else _nominatim(address)
+        place = _google(address) if LOCATION_API_KEY else _nominatim(address)
     except Exception as e:
         print(f"Geocoding failed ({provider}) for {address!r}: {e}")
-        return None, None
+        return Place(None, None)
 
-    if lat is not None and lon is not None:
+    if place.latitude is not None and place.longitude is not None:
         if len(_cache) >= _CACHE_MAX:
             _cache.clear()
-        _cache[key] = (lat, lon)
-        print(f"Geocoded {address!r} -> ({lat}, {lon}) via {provider}")
+        _cache[key] = place
+        print(f"Geocoded {address!r} -> ({place.latitude}, {place.longitude}) "
+              f"via {provider} [{place.kind or 'unknown kind'}"
+              + (f", {place.district}" if place.district else "") + "]")
 
-    return lat, lon
+    return place
+
+
+def get_location(address: str):
+    """Get (latitude, longitude) for a place, or (None, None)."""
+    place = locate(address)
+    return place.latitude, place.longitude

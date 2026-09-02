@@ -5,7 +5,7 @@ from typing import List, Optional
 from langchain.schema import HumanMessage
 
 from utils import llm
-from Address_Convertor import get_location
+from Address_Convertor import get_location, locate
 from Mandi_Price_Tool import get_state_data
 from Query_Parser import extract_farm_info
 from weather_tool import weather_openmeteo
@@ -517,17 +517,21 @@ class AgentResult:
     """
 
     __slots__ = ("answer", "crop", "state", "location", "latitude", "longitude",
+                 "location_kind", "district",
                  "tools_used", "missing_slots", "intent", "message_type")
 
     def __init__(self, answer, crop=None, state=None, location=None,
                  latitude=None, longitude=None, tools_used=None,
-                 missing_slots=None, intent="general", message_type="question"):
+                 missing_slots=None, intent="general", message_type="question",
+                 location_kind=None, district=None):
         self.answer = answer
         self.crop = crop
         self.state = state
         self.location = location
         self.latitude = latitude
         self.longitude = longitude
+        self.location_kind = location_kind
+        self.district = district
         self.tools_used = tools_used or []
         # What the farmer still has not told us - lets the caller ask for one
         # precise thing instead of a generic "where are you?".
@@ -628,12 +632,19 @@ def run_agent(
     # A location named in this message beats a remembered or browser one, but
     # only if geocoding actually resolves it.
     lat, lon = latitude, longitude
+    place_kind = district = None
     if _known(location):
-        geo_lat, geo_lon = get_location(facts["location"])
-        if geo_lat is not None and geo_lon is not None:
-            lat, lon = geo_lat, geo_lon
+        place = locate(facts["location"])
+        if place.latitude is not None and place.longitude is not None:
+            lat, lon = place.latitude, place.longitude
+            # Carried so the profile can tell a village from a whole state, and
+            # so the district is recorded instead of asked for every time.
+            place_kind, district = place.kind, place.district
+            if place.state and not facts["state"]:
+                facts["state"] = place.state
 
     facts["latitude"], facts["longitude"] = lat, lon
+    facts["location_kind"], facts["district"] = place_kind, district
     print(f"Coordinates: lat={lat}, lon={lon}")
 
     # Which tools this question can actually use, given what we know. A leaf
