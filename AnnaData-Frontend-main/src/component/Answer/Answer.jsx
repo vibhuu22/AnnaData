@@ -234,9 +234,20 @@ function Table({ children, ...rest }) {
   );
 }
 
-function Answer({ markdown }) {
+/**
+ * @param markdown    the answer, as the agent wrote it
+ * @param doseStatus  the backend's own verdict, when it sends one:
+ *                    "available" | "none_registered" | "not_applicable"
+ */
+function Answer({ markdown, doseStatus }) {
   const options = useMemo(() => {
-    const isRefusal = answerDeclinesRegisteredDose(markdown);
+    // The flag wins whenever it is there. It is decided where the register was
+    // actually consulted, so it needs no patterns and cannot be wrong about a
+    // script nobody has tested. The prose test in refusal.js stays as the
+    // fallback for a deployed backend that predates the flag.
+    const isRefusal = doseStatus
+      ? doseStatus === "none_registered"
+      : answerDeclinesRegisteredDose(markdown);
     return {
       // markdown-to-jsx will otherwise let an answer emit arbitrary HTML.
       disableParsingRawHTML: true,
@@ -246,7 +257,7 @@ function Answer({ markdown }) {
         table: { component: Table },
       },
     };
-  }, [markdown]);
+  }, [markdown, doseStatus]);
 
   return (
     <div className="prose-answer">

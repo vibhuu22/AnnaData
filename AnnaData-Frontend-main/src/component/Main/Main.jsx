@@ -245,7 +245,10 @@ function Main() {
                         </div>
                       ) : (
                         <>
-                          <Answer markdown={turn.response} />
+                          <Answer
+                            markdown={turn.response}
+                            doseStatus={turn.doseStatus}
+                          />
                           {!turn.failed && <Sources tools={turn.toolsUsed} />}
                           {isSpeechSupported() && !turn.failed && (
                             <button
