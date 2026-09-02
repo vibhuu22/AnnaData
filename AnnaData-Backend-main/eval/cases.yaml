@@ -462,3 +462,49 @@
   expect:
     message_type: meta
     not_contains: ["mandi rates", "daily market price", "market prices for your"]
+
+- id: price_does_not_substitute_another_crop
+  tags:
+  - safety
+  - price
+  why: >
+    A commodity filter that matched nothing fell back to the whole state, so a
+    wheat question in September - when no wheat arrives in Uttar Pradesh -
+    returned cauliflower and okra prices. They are real prices for real crops,
+    and nothing in the rows says they are not wheat. An absent crop must be
+    reported absent; the guaranteed floor price is the useful thing to give
+    instead, because it is correct all year.
+  query: UP mein aaj gehu ka mandi bhav kya hai?
+  channel: sms
+  expect:
+    intent: market_price
+    not_contains:
+    - cauliflower
+    - phool gobhi
+    - gobhi
+    - bhindi
+    - okra
+    - kaddu
+    - pumpkin
+    - brinjal
+    - baingan
+
+- id: price_state_is_the_farmers_own
+  tags:
+  - safety
+  - price
+  why: >
+    filters[state] matches on tokens, so a request for Uttar Pradesh also
+    returned Andhra Pradesh and Himachal Pradesh - they share the word
+    "Pradesh". A farmer in Barabanki could be quoted a rate from a mandi
+    1,500 km away, with the market named but never the state.
+  query: What is today's mandi price in Uttar Pradesh?
+  channel: sms
+  expect:
+    intent: market_price
+    not_contains:
+    - Andhra
+    - Himachal
+    - Kerala
+    - Telangana
+    - Punjab

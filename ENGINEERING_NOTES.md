@@ -876,6 +876,92 @@ message.
 
 ---
 
+### The price service was never down
+
+For a week the mandi price API was recorded as a multi-day upstream outage. The
+portal answered in under two seconds; the API host accepted the connection and
+sent nothing back until the client gave up. Prices were withdrawn as a
+capability on that basis, and the reasoning was wrong.
+
+Two independent filters sit in front of that API, and reading them as one is
+what caused the misdiagnosis.
+
+**The User-Agent.** `python-requests/2.32.3` is dropped silently — the request
+hangs and times out. Any other value is served in under a second, including an
+invented one. From one machine, one key, one URL, three runs each:
+
+| User-Agent | Result |
+|---|---|
+| `curl/8.0` | 200 in 0.67s |
+| `python-requests/2.32.3` | no response, timed out at 25s |
+| `AnnaData/1.0` (invented) | 200 in 0.74s |
+| `Mozilla/5.0` | 200 in 0.94s |
+
+**The egress address.** Cloud Run in `asia-south1`, where the backend runs, gets
+its connection closed in under a second whatever it sends. This is not a
+geography or an ASN rule — Google's own build network is fine:
+
+| Origin | Egress | Result |
+|---|---|---|
+| Cloud Run `asia-south1` | `34.96.40.124` | closed, 0.62s |
+| Cloud Run `asia-southeast1` | `34.96.48.8` | answered, 1.43s |
+| Cloud Run `europe-west1` | `34.96.41.0` | answered, 5.05s |
+| Cloud Run `us-central1` | `136.124.34.212` | answered, 1.47s |
+| Cloud Build | `35.252.149.156` | answered, 1.23s |
+
+The two failures look alike from inside a `try` block and are not alike at all:
+the User-Agent filter hangs for 25 seconds, the address filter closes in under
+one. Distinguishing them is what took a week.
+
+So prices are now fetched by a scheduled Cloud Run job in `asia-southeast1`
+(`tools/warm_mandi_cache.py`) which writes the day's rows into `mandi_cache`.
+The backend stays in `asia-south1`, near the farmers, and reads from the table
+rather than reaching the upstream itself. Prices carry an `arrival_date`, not a
+timestamp — the source publishes once a day — so a thrice-daily refresh loses
+nothing a live call would have caught. When the cache goes stale beyond two days
+the capability withdraws itself, exactly as it did during the supposed outage.
+
+The lesson worth keeping: *the server closed the connection* was evidence about
+the request as much as about the server, and the diagnosis stopped one variable
+short.
+
+---
+
+### Someone else's crop, from someone else's state
+
+Three faults, each of which put a real price in front of a farmer as though it
+were theirs.
+
+`filters[state]` matches on tokens rather than on the whole value, so a request
+for Uttar Pradesh also returned Andhra Pradesh and Himachal Pradesh — all three
+contain "Pradesh". **Of 106 rows returned for Uttar Pradesh, 19 were from it.**
+A farmer in Barabanki could be quoted paddy from Kothabommali, 1,500 km away,
+with the market named in the answer and the state never mentioned. Rows are now
+checked against the state locally; the upstream filter is still sent because it
+cuts the volume, but it is no longer the last word.
+
+A commodity filter that matched nothing fell back to the whole state, on the
+reasoning that a broad answer beats none. For a farmer who named no crop that is
+true. For one who asked about wheat in September — when no wheat arrives in UP
+at all — it returned cauliflower and okra, real prices for real crops with
+nothing in the rows saying they were not wheat. Absence is now stated as
+absence. The wording does not guess *why* the crop is missing, because out of
+season and simply unreported are indistinguishable from here.
+
+The same filter also missed crops that were present, because it matches the
+published label exactly: "okra" never matches `Bhindi(Ladies Finger)`. Selection
+runs against unpacked aliases now, as support prices already did, plus an
+explicit table for labels whose crop name is one word of several. Splitting
+those on spaces would have been worse than the disease — "gram" would match
+`Bengal Gram`, `Black Gram` and `Green Gram`, three different pulses.
+
+Measured against the published vocabulary: 31 vernacular names that returned
+nothing now resolve, and chana, moong and urad each match exactly one pulse.
+`eval/test_mandi.py` holds all of it as fixtures, so it costs no model calls and
+does not depend on what happens to be trading today.
+
+---
+
 ## 4. Two kinds of memory
 
 Deliberately separate, because they have different lifetimes:
