@@ -18,3 +18,12 @@ build/
 .DS_Store
 Thumbs.db
 *.log
+
+# Training data — 1.2 GB of PlantVillage, rebuilt from source not versioned here
+Plant Village Dataset/
+
+# Vendored skill library, not this project's code
+claude-skills-main/
+
+# Business documents
+*.pdf
