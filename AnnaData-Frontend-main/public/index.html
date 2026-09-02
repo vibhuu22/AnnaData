@@ -2,14 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#1F6B45" />
     <meta
       name="description"
-      content="Web site created using create-react-app"
+      content="Ask about your crop in your own language. Pesticide doses quoted from the CIB&amp;RC register, mandi rates from data.gov.in. Also answers over SMS."
     />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <!--
+      No icon is linked. favicon.ico and logo192.png were both referenced here
+      and neither exists in public/, so every page load made two requests that
+      404ed and the tab showed the browser default anyway. The icon should be
+      the mascot, and the mascot has not been chosen yet.
+    -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
 
     <!--
@@ -34,7 +38,7 @@
       href="https://fonts.googleapis.com/css2?family=Outfit:wght@400..700&family=Noto+Sans+Devanagari:wght@400..700&family=Noto+Sans+Gurmukhi:wght@400..700&family=Noto+Sans+Bengali:wght@400..700&display=swap"
     />
 
-    <title>Annadata</title>
+    <title>AnnaData - farming advice in your language</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
