@@ -29,8 +29,36 @@ Then authenticate and pick the project:
     gcloud config set project YOUR_PROJECT_ID
     gcloud services enable run.googleapis.com cloudbuild.googleapis.com
 
-`asia-south1` (Mumbai) is the right region - it is closest to the farmers and to
-the gateway handset.
+**Region: `asia-south1` for the SMS bridge, `asia-southeast1` for the backend.**
+
+Mumbai looks like the obvious home for both - it is closest to the farmers and
+to the gateway handset - and for the bridge, which does little but forward, it
+is. The backend was there too until measurement said otherwise, for two reasons
+that both point the same way.
+
+The Neon database lives in `ap-southeast-1`, Singapore. A backend in Mumbai
+crosses the Bay of Bengal on every query, and the agent makes many per request:
+
+| | `asia-south1` | `asia-southeast1` |
+|---|---|---|
+| DB connect | 437 ms | 92 ms |
+| DB round trip, median | 63.0 ms | **2.2 ms** |
+| data.gov.in mandi API | connection closed | **HTTP 200 in 555 ms** |
+
+And data.gov.in refuses Cloud Run's egress addresses in `asia-south1` - see
+ENGINEERING_NOTES - so market prices cannot be fetched live from Mumbai at all.
+
+End to end over five query types, same code and same database, warmed:
+
+    Mumbai     price 5.00s  pest 4.67s  weather 4.80s  scheme 3.92s  soil 6.21s   median 4.80s
+    Singapore  price 3.07s  pest 2.33s  weather 4.73s  scheme 3.42s  soil 4.49s   median 3.42s
+
+29% faster, and it is the only region of the two where prices work live. The
+extra hop from the bridge is one round trip per message against dozens of
+database round trips per reply.
+
+If the database is ever moved to an Indian region, measure again - this choice
+follows the data, not the map.
 
 ---
 
@@ -41,7 +69,7 @@ the image from the Dockerfile in this directory.
 
     gcloud run deploy annadata-backend \
       --source . \
-      --region asia-south1 \
+      --region asia-southeast1 \
       --allow-unauthenticated \
       --memory 1Gi \
       --cpu 1 \
@@ -56,7 +84,7 @@ idle. `--max-instances 3` is a spending guard rail, not a capacity plan.
 For the Earth Engine service-account key, which is a whole JSON document and
 awkward on a command line, set it in the console afterwards, or use a file:
 
-    gcloud run services update annadata-backend --region asia-south1 \
+    gcloud run services update annadata-backend --region asia-southeast1 \
       --set-env-vars "EE_SERVICE_KEY=$(cat path/to/key.json | tr -d '\n')"
 
 Note the URL it prints. It looks like

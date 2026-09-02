@@ -927,6 +927,56 @@ short.
 
 ---
 
+### The backend was in the wrong country
+
+Prices were being served from a cache refreshed three times a day, because the
+live call could not be made from `asia-south1`. That was tolerable only while
+the data was believed to be daily. It is not: the publication grows through the
+day as markets report.
+
+    03:00 UTC     281 rows nationally,   19 for Uttar Pradesh
+    08:00 UTC  11,803 rows nationally,  261 for Uttar Pradesh
+
+A thrice-daily snapshot of a dataset that grows 35x before lunch is stale for
+most of the day. The upstream also stops serving at offset 10,000 whatever the
+limit, so a national fetch cannot reach the last 1,800 rows at all - the cache
+route had a ceiling as well as a lag.
+
+Looking for a way to make the call live turned up something else. The Neon
+database is in `ap-southeast-1`, Singapore. The backend was in Mumbai. Every
+query crossed the Bay of Bengal, and the agent makes many per request.
+
+| | `asia-south1` | `asia-southeast1` |
+|---|---|---|
+| DB connect | 437 ms | 92 ms |
+| DB round trip, median | 63.0 ms | **2.2 ms** |
+| mandi API | connection closed | **HTTP 200 in 555 ms** |
+
+Twenty-nine times the round-trip latency, on the busiest dependency in the
+system, paid on every message for months. End to end over five query types,
+same code, same database, warmed instances:
+
+    Mumbai     price 5.00s  pest 4.67s  weather 4.80s  scheme 3.92s  soil 6.21s   median 4.80s
+    Singapore  price 3.07s  pest 2.33s  weather 4.73s  scheme 3.42s  soil 4.49s   median 3.42s
+
+So the region change was not a workaround for the price API - it was a fix for a
+mismatch that had been there all along, and live prices came free with it. The
+cost is one extra hop from the SMS bridge, about 50 ms once per message, against
+dozens of database round trips per reply.
+
+Two things worth keeping from this. The first is that "closest to the farmers"
+was a plausible reason, applied to the wrong component: the bridge forwards and
+belongs near the handset, the backend queries and belongs near its data. Nobody
+had measured which mattered. The second is that the price outage was the only
+reason anyone looked - the latency had never announced itself, because there was
+no comparison to make it visible. The system was as fast as it had ever been.
+
+The warm job stays, in `asia-southeast1`, as a fallback: a bad day upstream now
+degrades to yesterday's prices rather than to none. It is no longer the path a
+farmer's answer normally travels.
+
+---
+
 ### Someone else's crop, from someone else's state
 
 Three faults, each of which put a real price in front of a farmer as though it
