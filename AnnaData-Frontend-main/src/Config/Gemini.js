@@ -31,40 +31,95 @@ async function getCoordinates() {
   }
 }
 
-async function run(prompt, history) {
-  const requestBody = { query: prompt, history };
-
-  const coords = await getCoordinates();
-  if (coords) {
-    requestBody.latitude = coords.latitude;
-    requestBody.longitude = coords.longitude;
+/** The backend returns a real status code with a {detail} body. Surface it. */
+async function errorFrom(response) {
+  let detail = response.statusText;
+  try {
+    const body = await response.json();
+    detail = body.detail || body.error || detail;
+  } catch (e) {
+    /* non-JSON error body */
   }
+  return new Error(`API error ${response.status}: ${detail}`);
+}
+
+/**
+ * Ask the agent one question, with an optional photo and voice note.
+ *
+ * Media goes to /agent/media as multipart in a single round trip. The previous
+ * version described the media at one endpoint, spliced the description into the
+ * text box as a parenthetical, and posted that to /agent - two sequential waits,
+ * and a structured reading of the photograph flattened into prose.
+ *
+ * Always resolves. A failure comes back as { answer, error } so the caller can
+ * render it as a message rather than having to catch.
+ */
+export async function ask({ text = "", history = [], image = null, audio = null }) {
+  const coords = await getCoordinates();
+  const hasMedia = Boolean(image || audio);
 
   try {
-    const response = await fetch(`${getApiUrl()}/agent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
-    });
+    let response;
 
-    if (!response.ok) {
-      // The backend now returns a real status code with a {detail} body.
-      let detail = response.statusText;
-      try {
-        const body = await response.json();
-        detail = body.detail || body.error || detail;
-      } catch (e) {
-        /* non-JSON error body */
+    if (hasMedia) {
+      const form = new FormData();
+      if (image) form.append("image", image, image.name || "photo.jpg");
+      // A recording is a Blob with no name; without one some servers reject the
+      // part, and the extension is how the model is told what it is decoding.
+      if (audio) form.append("audio", audio, audio.name || "voice.webm");
+      form.append("query", text);
+      form.append("history", JSON.stringify(history));
+      if (coords) {
+        form.append("latitude", String(coords.latitude));
+        form.append("longitude", String(coords.longitude));
       }
-      throw new Error(`API error ${response.status}: ${detail}`);
+      // No Content-Type header: the browser sets it with the multipart boundary.
+      response = await fetch(`${getApiUrl()}/agent/media`, { method: "POST", body: form });
+    } else {
+      const body = { query: text, history };
+      if (coords) {
+        body.latitude = coords.latitude;
+        body.longitude = coords.longitude;
+      }
+      response = await fetch(`${getApiUrl()}/agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
     }
 
+    if (!response.ok) throw await errorFrom(response);
+
     const data = await response.json();
-    return data.answer || "No response from agent.";
+    return {
+      answer: data.answer || "No response from agent.",
+      transcript: data.transcript || "",
+      vision: data.vision || null,
+      queryUsed: data.query_used || text,
+      toolsUsed: data.tools_used || [],
+      // The backend decides this from the script the answer is actually in, so
+      // the browser never has to guess which voice to read it with.
+      replyLanguage: data.reply_language || "en-IN",
+      error: null,
+    };
   } catch (error) {
     console.error("Error calling agent API:", error);
-    return `Sorry, could not reach the AnnaData service. (${error.message})`;
+    return {
+      answer: `Sorry, could not reach the AnnaData service. (${error.message})`,
+      transcript: "",
+      vision: null,
+      queryUsed: text,
+      toolsUsed: [],
+      replyLanguage: "en-IN",
+      error,
+    };
   }
+}
+
+/** Text-only form, kept for callers that only want the answer string. */
+async function run(prompt, history) {
+  const { answer } = await ask({ text: prompt, history });
+  return answer;
 }
 
 export default run;

@@ -62,3 +62,72 @@
   
 
 
+
+/*
+ * Typography for an answer.
+ *
+ * Answers arrive as markdown and were rendered with browser defaults, which
+ * Tailwind's preflight strips: headings came out the same size as body text and
+ * a price table had no borders or cell padding, so five APMC rates ran together
+ * as one block of words. Price and dose tables are the two things a farmer
+ * reads most carefully, so they are the two that most need to be legible.
+ */
+.prose-answer h1,
+.prose-answer h2,
+.prose-answer h3 {
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.1em 0 0.45em;
+}
+.prose-answer h1 { font-size: 1.2rem; }
+.prose-answer h2 { font-size: 1.1rem; }
+.prose-answer h3 { font-size: 1rem; }
+.prose-answer > *:first-child { margin-top: 0; }
+
+.prose-answer p { margin: 0.55em 0; }
+
+.prose-answer ul,
+.prose-answer ol {
+  margin: 0.55em 0;
+  padding-left: 1.35em;
+}
+.prose-answer ul { list-style: disc; }
+.prose-answer ol { list-style: decimal; }
+.prose-answer li { margin: 0.2em 0; }
+
+.prose-answer strong { font-weight: 600; }
+
+/* A wide table scrolls inside its own box rather than widening the page. */
+.prose-answer table {
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.prose-answer th,
+.prose-answer td {
+  border: 1px solid #e5e7eb;
+  padding: 0.4rem 0.7rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.prose-answer th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+
+.prose-answer hr {
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+  margin: 1em 0;
+}
+
+.prose-answer code {
+  background: #f3f4f6;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+}
