@@ -1,4 +1,5 @@
 import { getApiUrl } from "./api";
+import { authHeaders, reportUnauthorized } from "./session";
 
 const GEOLOCATION_TIMEOUT_MS = 8000;
 
@@ -74,7 +75,11 @@ export async function ask({ text = "", history = [], image = null, audio = null 
         form.append("longitude", String(coords.longitude));
       }
       // No Content-Type header: the browser sets it with the multipart boundary.
-      response = await fetch(`${getApiUrl()}/agent/media`, { method: "POST", body: form });
+      response = await fetch(`${getApiUrl()}/agent/media`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+      });
     } else {
       const body = { query: text, history };
       if (coords) {
@@ -83,11 +88,15 @@ export async function ask({ text = "", history = [], image = null, audio = null 
       }
       response = await fetch(`${getApiUrl()}/agent`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(body),
       });
     }
 
+    // A token that stopped working mid-conversation. Reported so the app can
+    // return the farmer to the sign-in screen, rather than leaving them on a
+    // chat where every question comes back as an error.
+    if (response.status === 401) reportUnauthorized();
     if (!response.ok) throw await errorFrom(response);
 
     const data = await response.json();

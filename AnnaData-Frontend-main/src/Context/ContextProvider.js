@@ -1,7 +1,57 @@
-import { createContext, useCallback, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { ask } from "../Config/Gemini";
+import { fetchHistory } from "../Config/session";
+import { Auth } from "./AuthProvider";
 
 export const Context = createContext();
+
+/**
+ * The stored message log, folded back into turns.
+ *
+ * The backend keeps messages, not turns: a flat list of inbound and outbound
+ * rows in time order, because that is what the SMS channel produces and both
+ * channels write to the same table. The browser shows turns, so each inbound is
+ * paired with the outbound that followed it.
+ *
+ * An inbound with no reply after it - the farmer asked, the service failed, or
+ * an answer is still in flight from another device - is kept and shown with an
+ * empty answer rather than dropped. Silently losing a farmer's question from
+ * their own history would be worse than showing that it went unanswered.
+ */
+function foldIntoTurns(messages) {
+  const turns = [];
+  let current = null;
+
+  messages.forEach((message, index) => {
+    if (message.direction === "inbound") {
+      if (current) turns.push(current);
+      current = {
+        id: `history-${index}`,
+        prompt: message.body,
+        response: "",
+        mediaFile: null,
+        mediaKind: null,
+        transcript: "",
+        vision: null,
+        toolsUsed: [],
+        doseStatus: null,
+        replyLanguage: "en-IN",
+        spoken: false,
+        pending: false,
+        failed: false,
+        at: message.at,
+      };
+    } else if (current) {
+      current.response = message.body;
+      current.toolsUsed = message.meta?.tools || [];
+      turns.push(current);
+      current = null;
+    }
+  });
+
+  if (current) turns.push(current);
+  return turns;
+}
 
 /**
  * One turn of the conversation, as the UI stores it.
@@ -28,7 +78,9 @@ const newTurn = ({ text, image, audio }) => ({
 });
 
 const ContextProvider = (props) => {
+  const { user } = useContext(Auth);
   const [input, setInput] = useState("");
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [recentPrompt, setRecentPrompt] = useState("");
   const [previousPrompt, setPreviousPrompt] = useState([]);
   const [showResult, setShowResult] = useState(false);
@@ -44,6 +96,48 @@ const ContextProvider = (props) => {
     setResultData("");
     setRecentPrompt("");
   };
+
+  /**
+   * Load this farmer's past conversation, or throw it away when they sign out.
+   *
+   * Keyed on user_id rather than on truthiness, so signing in as a different
+   * farmer on the same phone replaces the conversation instead of appending to
+   * somebody else's.
+   */
+  const userId = user?.user_id || null;
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!userId) {
+      setResponses([]);
+      setDataSent(false);
+      setHistoryLoaded(false);
+      return undefined;
+    }
+
+    setHistoryLoaded(false);
+    (async () => {
+      try {
+        const data = await fetchHistory(50);
+        if (cancelled) return;
+        const turns = foldIntoTurns(data.messages || []);
+        setResponses(turns);
+        // Straight to the conversation when there is one; a returning farmer
+        // should see what they asked last time, not the empty landing screen.
+        setDataSent(turns.length > 0);
+      } catch (e) {
+        // History is a convenience. Failing to load it must not stop a farmer
+        // asking a new question, so this is a warning and not an error state.
+        console.warn("Could not load past conversation:", e.message);
+      } finally {
+        if (!cancelled) setHistoryLoaded(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   /**
    * Send one message: text, a photo, a voice note, or any combination.
@@ -122,6 +216,7 @@ const ContextProvider = (props) => {
     resetChat,
     dataSent,
     setDataSent,
+    historyLoaded,
   };
 
   return (

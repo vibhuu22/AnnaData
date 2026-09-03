@@ -1,7 +1,9 @@
 import React, { useState, useContext, useEffect } from "react";
 import { FaPlus } from "react-icons/fa";
 import { IoIosMenu } from "react-icons/io";
+import { FaRightFromBracket } from "react-icons/fa6";
 import { Context } from "../../Context/ContextProvider";
+import { Auth } from "../../Context/AuthProvider";
 
 /**
  * Where the farmer is, and what the sky is going to do about it.
@@ -46,6 +48,7 @@ function describeDay(date, index) {
 function Sidebar() {
   const [extended, setExtended] = useState(false);
   const { resetChat } = useContext(Context);
+  const { user, signOut } = useContext(Auth);
 
   const [weatherData, setWeatherData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -225,6 +228,46 @@ function Sidebar() {
                   </>
                 )}
               </section>
+            )}
+          </div>
+
+          {/* The account, at the bottom where a footer belongs. Collapsed, it is
+              the initial alone - enough to tell you that you are signed in and
+              as whom, in 44px of rail. */}
+          <div className="mb-3 border-t border-soil-200 pt-3">
+            {extended ? (
+              <>
+                <p className="truncate px-1 text-sm font-semibold text-soil-900">
+                  {user?.name || "Your account"}
+                </p>
+                <p className="truncate px-1 text-xs text-soil-500">
+                  {[user?.district, user?.phone].filter(Boolean).join(" · ")}
+                </p>
+                {user?.total_area_text && (
+                  <p className="truncate px-1 text-xs text-soil-500">
+                    {user.total_area_text}
+                    {user.crops?.length ? ` · ${user.crops.join(", ")}` : ""}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={signOut}
+                  className="mt-2 flex min-h-touch w-full items-center gap-3 rounded-pill px-3 text-left text-sm text-soil-700 transition-colors hover:bg-soil-100"
+                >
+                  <FaRightFromBracket className="h-4 w-4 shrink-0" />
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={signOut}
+                aria-label="Sign out"
+                title={user?.name || "Sign out"}
+                className="grid h-touch w-touch place-items-center rounded-full text-soil-700 hover:bg-soil-100"
+              >
+                <FaRightFromBracket className="h-4 w-4" />
+              </button>
             )}
           </div>
         </div>
