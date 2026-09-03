@@ -64,6 +64,24 @@ def _normalise_endpoint(value: str | None) -> str | None:
 
 AI_ENDPOINT = _normalise_endpoint(_AI_ENDPOINT_RAW)
 
+# Proves to the backend that a request is this bridge rather than a stranger.
+#
+# The backend now takes the farmer from a signed token, because on the web
+# anyone could otherwise claim to be any phone number. The bridge is the one
+# caller that legitimately names a user_id it was not given a token for: the
+# mobile network reported who sent the SMS, and a farmer cannot forge the
+# network's idea of their own number.
+#
+# Must match BRIDGE_TOKEN on the backend. If it is unset there, the backend
+# leaves those endpoints open and says so on /health rather than closing them
+# and silently dropping a real farmer's messages.
+BRIDGE_TOKEN = _get("BRIDGE_TOKEN")
+
+
+def bridge_headers() -> dict:
+    """Headers identifying this bridge, empty when no token is configured."""
+    return {"X-Bridge-Token": BRIDGE_TOKEN} if BRIDGE_TOKEN else {}
+
 
 # Asking for a rating costs a real SMS from the farmer's own SIM, so it is
 # deliberately one short message and sent at most once a month.

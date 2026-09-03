@@ -78,6 +78,7 @@ async def forget_farmer(phone: str) -> bool:
     http = http_session()
     try:
         async with http.post(url, json={"user_id": phone},
+                             headers=config.bridge_headers(),
                              timeout=aiohttp.ClientTimeout(total=30)) as resp:
             return resp.status == 200
     except Exception as e:
@@ -97,6 +98,7 @@ async def record_rating(phone: str, message: str) -> bool:
     http = http_session()
     try:
         async with http.post(f"{base}/feedback/rating",
+                                 headers=config.bridge_headers(),
                              json={"user_id": phone, "message": message},
                              timeout=aiohttp.ClientTimeout(total=30)) as resp:
             if resp.status != 200:
@@ -117,6 +119,7 @@ async def send_feedback_requests() -> dict:
     http = http_session()
     try:
         async with http.get(f"{base}/feedback/due",
+                            headers=config.bridge_headers(),
                             timeout=aiohttp.ClientTimeout(total=60)) as resp:
             due = (await resp.json(content_type=None)).get("due", [])
     except Exception as e:
@@ -128,6 +131,7 @@ async def send_feedback_requests() -> dict:
         if await send_sms(phone, config.FEEDBACK_PROMPT):
             try:
                 await http.post(f"{base}/feedback/asked", json={"user_id": phone},
+                                headers=config.bridge_headers(),
                                 timeout=aiohttp.ClientTimeout(total=30))
             except Exception as e:
                 print(f"Could not mark {phone} as asked: {e}")
@@ -166,7 +170,8 @@ async def generate_response(message: str, phone: str, message_id: str | None,
             async with http.post(
                 config.AI_ENDPOINT,
                 json=payload,
-                headers={"accept": "application/json", "Content-Type": "application/json"},
+                headers={"accept": "application/json", "Content-Type": "application/json",
+                         **config.bridge_headers()},
                 timeout=aiohttp.ClientTimeout(total=config.AI_TIMEOUT),
             ) as resp:
                 body = await resp.text()

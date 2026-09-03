@@ -105,6 +105,16 @@ def health():
         # guesses at, so this is coverage, not just a count.
         "lesion_bank": lesion_bank.size(),
         "last_weather_error": weather_tool.last_error(),
+        # Whether sign-in is actually protecting anything, stated rather than
+        # assumed. An ephemeral secret signs everyone out on restart, and an
+        # unset bridge token leaves the operational endpoints open - both are
+        # deployment mistakes that are otherwise invisible until they bite.
+        "auth": {
+            "required": config.AUTH_REQUIRED,
+            "secret": "ephemeral" if config.AUTH_SECRET_IS_EPHEMERAL else "configured",
+            "bridge_token": "configured" if config.BRIDGE_TOKEN else "not set",
+            "code_transport": sms_out.transport(),
+        },
     }
 
 
@@ -241,6 +251,31 @@ def _require_caller(authorization: str | None) -> str:
     if not user_id:
         raise HTTPException(status_code=401, detail="sign in first")
     return user_id
+
+
+def _is_bridge(bridge_token: str | None) -> bool:
+    return bool(
+        config.BRIDGE_TOKEN
+        and bridge_token
+        and secrets.compare_digest(bridge_token, config.BRIDGE_TOKEN)
+    )
+
+
+def _require_bridge(bridge_token: str | None, what: str) -> None:
+    """Operational endpoints the SMS bridge calls, and nobody else should.
+
+    When BRIDGE_TOKEN is not configured these stay open and say so, rather than
+    closing. The bridge and the backend are deployed separately: closing them on
+    an unset variable would mean a deploy that silently stops answering a real
+    farmer's SMS, which is a worse outcome than an endpoint that is briefly
+    reachable. /health reports which of the two states this is in.
+    """
+    if not config.BRIDGE_TOKEN:
+        print(f"BRIDGE_TOKEN not set: {what} is reachable without proof. "
+              "Set it on the backend and the SMS bridge to close it.")
+        return
+    if not _is_bridge(bridge_token):
+        raise HTTPException(status_code=401, detail="not authorised")
 
 
 # --- Sign-in --------------------------------------------------------------
@@ -521,12 +556,14 @@ class RatingRequest(BaseModel):
 
 
 @app.post("/feedback/rating")
-def record_rating(request: RatingRequest):
+def record_rating(request: RatingRequest,
+                  x_bridge_token: Optional[str] = Header(None)):
     """Record a farmer's rating, if their reply contains one.
 
     Returns whether it was a rating at all, so the caller can fall back to
     answering the message as an ordinary question when it was not.
     """
+    _require_bridge(x_bridge_token, "/feedback/rating")
     user_id = (request.user_id or "").strip()
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id must not be empty")
@@ -544,32 +581,63 @@ def record_rating(request: RatingRequest):
 
 
 @app.get("/feedback/due")
-def feedback_due():
+def feedback_due(x_bridge_token: Optional[str] = Header(None)):
     """Farmers whose conversation has ended and who are due to be asked.
 
     Called on a schedule by the SMS bridge; kept as a query rather than a push
     so the backend never needs to send anything itself.
     """
+    _require_bridge(x_bridge_token, "/feedback/due")
     return {"due": feedback.due_for_feedback()}
 
 
 @app.post("/feedback/asked")
-def feedback_asked(request: UserRequest):
+def feedback_asked(request: UserRequest,
+                   x_bridge_token: Optional[str] = Header(None)):
     """Record that a farmer has been asked, so they are not asked again."""
+    _require_bridge(x_bridge_token, "/feedback/asked")
     feedback.mark_asked((request.user_id or "").strip())
     return {"ok": True}
 
 
 @app.get("/feedback/summary")
-def feedback_summary():
+def feedback_summary(x_bridge_token: Optional[str] = Header(None)):
     """Ratings so far, and which kinds of question score worst."""
+    _require_bridge(x_bridge_token, "/feedback/summary")
     return feedback.summary()
 
 
 @app.post("/forget")
-def forget(request: UserRequest):
-    """Erase a farmer's profile and message history. Backs the STOP keyword."""
-    user_id = (request.user_id or "").strip()
+def forget(request: UserRequest,
+           authorization: Optional[str] = Header(None),
+           x_bridge_token: Optional[str] = Header(None)):
+    """Erase a farmer's profile and message history. Backs the STOP keyword.
+
+    This took a phone number and erased that farmer, with nothing to prove the
+    caller was them - so anyone who knew a number could delete a stranger's
+    profile and their whole conversation. Of everything that was open, this was
+    the one that destroyed data rather than exposing it.
+
+    Two callers are legitimate: the SMS bridge relaying STOP, because the network
+    told it who sent that message; and a farmer erasing themselves from the web
+    app, who may only ever name their own id.
+    """
+    claimed = (request.user_id or "").strip()
+
+    if _is_bridge(x_bridge_token):
+        user_id = claimed
+    else:
+        signed_in = auth.read_token(_bearer(authorization))
+        if signed_in and (not claimed or claimed == signed_in):
+            user_id = signed_in
+        elif not config.BRIDGE_TOKEN and not config.AUTH_REQUIRED:
+            # The pre-auth behaviour, kept only while neither is configured so a
+            # half-migrated deployment does not lose the STOP keyword.
+            print("/forget accepted an unproven caller: set BRIDGE_TOKEN.")
+            user_id = claimed
+        else:
+            raise HTTPException(status_code=401, detail="not authorised")
+
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id must not be empty")
     return {"erased": profile_store.forget(user_id)}
@@ -579,7 +647,12 @@ def forget(request: UserRequest):
 async def chat_describe(
     audio: Optional[UploadFile] = File(None, description="Optional audio file"),
     image: Optional[UploadFile] = File(None, description="Optional image file"),
+    authorization: Optional[str] = Header(None),
 ):
+    # Superseded by /agent/media, which the web app uses instead. Kept for any
+    # caller still on it, but no longer a way for a stranger to spend the media
+    # model's daily quota. Decided before the upload is read.
+    _require_caller(authorization)
     audio_bytes = await audio.read() if audio is not None else None
     image_bytes = await image.read() if image is not None else None
 
