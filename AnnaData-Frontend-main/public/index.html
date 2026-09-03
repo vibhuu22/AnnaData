@@ -2,16 +2,43 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#1F6B45" />
     <meta
       name="description"
-      content="Web site created using create-react-app"
+      content="Ask about your crop in your own language. Pesticide doses quoted from the CIB&amp;RC register, mandi rates from data.gov.in. Also answers over SMS."
     />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <!--
+      No icon is linked. favicon.ico and logo192.png were both referenced here
+      and neither exists in public/, so every page load made two requests that
+      404ed and the tab showed the browser default anyway. The icon should be
+      the mascot, and the mascot has not been chosen yet.
+    -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <title>Annadata</title>
+
+    <!--
+      Fonts, loaded here rather than through an @import in index.css.
+
+      An @import inside the stylesheet is discovered only after that stylesheet
+      has been fetched and parsed, so the font request is serialised behind it -
+      a round trip a farmer on 3G pays for. These links start the fetch while
+      the HTML is still being read.
+
+      Outfit covers Latin only. Every Devanagari, Gurmukhi and Bengali string in
+      this app - which is most of them - was falling back to whatever the phone
+      happened to have, at the wrong weight and the wrong metrics. The three
+      Noto faces cover those scripts. Google serves each family split by
+      unicode-range, and the browser fetches only the subsets it actually has to
+      render, so an English reader downloads no Devanagari.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400..700&family=Noto+Sans+Devanagari:wght@400..700&family=Noto+Sans+Gurmukhi:wght@400..700&family=Noto+Sans+Bengali:wght@400..700&display=swap"
+    />
+
+    <title>AnnaData - farming advice in your language</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

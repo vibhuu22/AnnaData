@@ -5,9 +5,9 @@ import icon4 from "../../assets/message_icon.png";
 import { IoMdSend } from "react-icons/io";
 import { FaImage, FaMicrophone, FaStop, FaVolumeUp, FaRegStopCircle } from "react-icons/fa";
 import { Context } from "../../Context/ContextProvider";
-import Markdown from "markdown-to-jsx";
 import MediaPreview from "../MediaPreview/MediaPreview";
 import Sources from "../Sources/Sources";
+import Answer from "../Answer/Answer";
 import { speak, stopSpeaking, isSpeechSupported } from "../../Config/speech";
 
 // Deliberately not all English. The system answers in the script it is asked
@@ -245,9 +245,10 @@ function Main() {
                         </div>
                       ) : (
                         <>
-                          <div className="prose-answer">
-                            <Markdown>{turn.response}</Markdown>
-                          </div>
+                          <Answer
+                            markdown={turn.response}
+                            doseStatus={turn.doseStatus}
+                          />
                           {!turn.failed && <Sources tools={turn.toolsUsed} />}
                           {isSpeechSupported() && !turn.failed && (
                             <button

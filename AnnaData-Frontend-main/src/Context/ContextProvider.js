@@ -18,6 +18,7 @@ const newTurn = ({ text, image, audio }) => ({
   mediaKind: image ? "image" : audio ? "audio" : null,
   transcript: "",
   vision: null,
+  doseStatus: null,
   replyLanguage: "en-IN",
   // A farmer who spoke their question is told the answer, not shown it. This
   // is what marks the turn as one to read aloud when it arrives.
@@ -89,6 +90,7 @@ const ContextProvider = (props) => {
               transcript: result.transcript,
               vision: result.vision,
               toolsUsed: result.toolsUsed,
+              doseStatus: result.doseStatus,
               replyLanguage: result.replyLanguage,
               pending: false,
               failed: Boolean(result.error),

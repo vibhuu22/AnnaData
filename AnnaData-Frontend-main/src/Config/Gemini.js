@@ -97,6 +97,12 @@ export async function ask({ text = "", history = [], image = null, audio = null 
       vision: data.vision || null,
       queryUsed: data.query_used || text,
       toolsUsed: data.tools_used || [],
+      // "available", "none_registered" or "not_applicable". The one reliable
+      // way to know an answer declined to name a dose: tools_used says "doses"
+      // either way, because the register was consulted in both cases and simply
+      // came back empty. null on a backend too old to send it, and the answer
+      // surface falls back to reading the prose.
+      doseStatus: data.dose_status || null,
       // The backend decides this from the script the answer is actually in, so
       // the browser never has to guess which voice to read it with.
       replyLanguage: data.reply_language || "en-IN",
@@ -110,6 +116,7 @@ export async function ask({ text = "", history = [], image = null, audio = null 
       vision: null,
       queryUsed: text,
       toolsUsed: [],
+      doseStatus: null,
       replyLanguage: "en-IN",
       error,
     };
