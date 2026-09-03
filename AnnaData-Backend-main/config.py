@@ -66,16 +66,6 @@ DB_POOL_MAX = int(_get("DB_POOL_MAX", "4"))
 # question before using it.
 RAG_MIN_SIMILARITY = float(_get("RAG_MIN_SIMILARITY", "0.70"))
 
-# Whether a photograph's reading is cross-checked against the labelled lesion
-# bank. On by default: the check can only ever lower confidence - on
-# disagreement it drops the pest so no dose is looked up - and on a crop the
-# bank does not hold it reports "uncovered" and changes nothing at all.
-#
-# Set LESION_BANK=0 to switch it off entirely. Worth having as a switch because
-# the component's accuracy has not yet been measured end to end, and the honest
-# default for an unmeasured thing is one someone can turn off without a deploy.
-LESION_BANK_ENABLED = _get("LESION_BANK", "1").strip().lower() not in ("0", "false", "no", "off")
-
 CONTEXT_MESSAGES = int(_get("CONTEXT_MESSAGES", "10"))
 CONTEXT_TTL_HOURS = int(_get("CONTEXT_TTL_HOURS", "48"))
 # How long before a farmer who ignored the location question is asked again.
