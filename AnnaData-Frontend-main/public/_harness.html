@@ -1,0 +1,56 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>360 harness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400..700&family=Noto+Sans+Devanagari:wght@400..700&family=Noto+Sans+Gurmukhi:wght@400..700&family=Noto+Sans+Bengali:wght@400..700&display=swap">
+<style>
+ body{margin:0;background:#333;font:13px system-ui;color:#fff;display:flex;gap:14px;padding:10px;align-items:flex-start}
+ figure{margin:0}figcaption{padding:3px 0}
+ iframe{border:0;background:#fff;display:block}
+ #probe{background:#111;padding:10px;width:420px;line-height:1.7}
+ .row{border-bottom:1px solid #444;padding:4px 0}
+ .ok{color:#7fdc9a}.bad{color:#ff8f8f}
+ .sample{font-size:22px;background:#fff;color:#000;padding:6px;margin:4px 0}
+</style></head>
+<body>
+<figure><figcaption>360 x 740</figcaption><iframe src="/" width="360" height="740"></iframe></figure>
+<figure><figcaption>412 x 740</figcaption><iframe src="/" width="412" height="740"></iframe></figure>
+<div id="probe">loading fonts…</div>
+<script>
+const HI="मेरे गेहूं में पीला रतुआ लग गया है";
+const PA="ਮੇਰੇ ਝੋਨੇ ਨੂੰ ਕਦੋਂ ਪਾਣੀ ਦੇਣਾ";
+const BN="আমার ধান ক্ষেতে পোকা লেগেছে";
+function widthIn(family,text){
+  const c=document.createElement('canvas').getContext('2d');
+  c.font='40px '+family; return c.measureText(text).width;
+}
+document.fonts.ready.then(()=>Promise.all([
+  document.fonts.load('400 40px "Noto Sans Devanagari"',HI),
+  document.fonts.load('400 40px "Noto Sans Gurmukhi"',PA),
+  document.fonts.load('400 40px "Noto Sans Bengali"',BN),
+  document.fonts.load('400 40px "Outfit"','Annadata')
+])).then(()=>{
+  const stack='Outfit,"Noto Sans Devanagari","Noto Sans Gurmukhi","Noto Sans Bengali",system-ui';
+  const rows=[
+    ['Outfit loaded', document.fonts.check('400 40px Outfit','Annadata')],
+    ['Noto Sans Devanagari loaded', document.fonts.check('400 40px "Noto Sans Devanagari"',HI)],
+    ['Noto Sans Gurmukhi loaded', document.fonts.check('400 40px "Noto Sans Gurmukhi"',PA)],
+    ['Noto Sans Bengali loaded', document.fonts.check('400 40px "Noto Sans Bengali"',BN)],
+  ];
+  // Does the app stack actually RESOLVE Devanagari to Noto, not to the OS font?
+  const cmp=[['Devanagari',HI,'"Noto Sans Devanagari"','"Nirmala UI"'],
+             ['Gurmukhi',PA,'"Noto Sans Gurmukhi"','"Nirmala UI"'],
+             ['Bengali',BN,'"Noto Sans Bengali"','"Nirmala UI"']];
+  let html='<b>document.fonts probe</b>';
+  rows.forEach(([n,v])=>html+=`<div class="row ${v?'ok':'bad'}">${v?'YES':'NO '} — ${n}</div>`);
+  html+='<br><b>stack resolves to Noto, not the OS font?</b>';
+  cmp.forEach(([n,t0,noto,os])=>{
+    const t=t0.replace(/ /g,'');
+    const wStack=widthIn(stack,t), wNoto=widthIn(noto+',serif',t), wOs=widthIn(os+',serif',t);
+    const matchNoto=Math.abs(wStack-wNoto)<0.5, matchOs=Math.abs(wStack-wOs)<0.5;
+    html+=`<div class="row ${matchNoto?'ok':'bad'}">${n}: stack=${wStack.toFixed(1)}px noto=${wNoto.toFixed(1)}px os(NirmalaUI)=${wOs.toFixed(1)}px → ${matchNoto?'NOTO':(matchOs?'OS FALLBACK':'neither')}</div>`;
+  });
+  html+=`<div class="sample" style="font-family:${stack}">${HI}<br>${PA}<br>${BN}<br>Annadata 5,952/quintal</div>`;
+  document.getElementById('probe').innerHTML=html;
+});
+</script>
+</body></html>
