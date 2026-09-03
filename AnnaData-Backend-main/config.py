@@ -86,6 +86,67 @@ FEEDBACK_WINDOW_HOURS = int(_get("FEEDBACK_WINDOW_HOURS", "48"))
 FRONTEND_URL = _get("FRONTEND_URL")
 CORS_ORIGINS = _get("CORS_ORIGINS")              # comma-separated, optional
 
+
+# --- Sign-in --------------------------------------------------------------
+#
+# Unlike every other integration here, this one does not degrade to "off". A
+# missing key elsewhere disables a tool and the agent routes around it; a
+# missing signing secret cannot be allowed to mean "let anyone be anyone".
+#
+# So an absent AUTH_SECRET produces a random one at boot. Sign-in keeps working,
+# but the secret dies with the process, which means every farmer is signed out
+# by a restart or a second instance. That is a visible, annoying failure rather
+# than a silent, invisible one - and on a free tier that sleeps, it is visible
+# within the hour. Set AUTH_SECRET in the deployment and it stops happening.
+AUTH_SECRET = _get("AUTH_SECRET")
+AUTH_SECRET_IS_EPHEMERAL = AUTH_SECRET is None
+if AUTH_SECRET_IS_EPHEMERAL:
+    import secrets as _secrets
+    AUTH_SECRET = _secrets.token_urlsafe(48)
+    print("AUTH_SECRET not set: generated one for this process only. "
+          "Every sign-in will be lost on restart. Set AUTH_SECRET to fix this.")
+
+# Long, because the farmer is on a phone and signing in costs a real SMS from
+# our own SIM. Making them repeat it weekly would be charging ourselves for the
+# privilege of annoying them.
+SESSION_TTL = int(_get("SESSION_TTL_DAYS", "90")) * 86400
+
+OTP_TTL = int(_get("OTP_TTL_SECONDS", "600"))            # 10 minutes
+OTP_MAX_ATTEMPTS = int(_get("OTP_MAX_ATTEMPTS", "5"))    # wrong guesses per code
+OTP_RESEND_COOLDOWN = int(_get("OTP_RESEND_COOLDOWN", "60"))
+# Sends, not guesses. Each one is a real SMS off the founder's own SIM, so this
+# is the limit that protects the balance and stops the gateway being used to
+# pester a stranger's handset.
+OTP_MAX_SENDS = int(_get("OTP_MAX_SENDS", "5"))
+OTP_SEND_WINDOW = int(_get("OTP_SEND_WINDOW", "3600"))
+
+# When false, /agent still accepts a user_id in the request body the way it
+# always has. That is only safe with no public URL; it exists so the SMS bridge
+# and local development keep working while the frontend is being moved over.
+AUTH_REQUIRED = (_get("AUTH_REQUIRED", "true") or "").lower() not in ("0", "false", "no", "off")
+
+# A shared secret the SMS bridge sends instead of a farmer's token. The gateway
+# reports the sender's number and a farmer cannot forge the network's idea of
+# their own, so the bridge is trusted to name the user_id - but only the bridge.
+BRIDGE_TOKEN = _get("BRIDGE_TOKEN")
+
+
+# --- Outbound SMS (sign-in codes) ----------------------------------------
+# The same Android handset gateway the bridge uses. See sms_out.py for why the
+# backend calls it directly rather than going through the bridge.
+SMS_GATEWAY_BASE = _get("SMS_GATEWAY_BASE", "https://api.sms-gate.app/3rdparty/v1")
+SMS_GATEWAY_USER = _get("SMS_GATEWAY_USER") or _get("APP_USERNAME")
+SMS_GATEWAY_PASSWORD = _get("SMS_GATEWAY_PASSWORD") or _get("PASSWORD")
+SMS_SEND_TIMEOUT = int(_get("SMS_SEND_TIMEOUT", "20"))
+
+
+def sms_gateway_ready() -> bool:
+    return bool(SMS_GATEWAY_USER and SMS_GATEWAY_PASSWORD)
+
+
+def sms_messages_url() -> str:
+    return SMS_GATEWAY_BASE.rstrip("/") + "/messages"
+
 # --- Models ---
 # gemini-2.0-flash and gemini-2.5-* are no longer callable by new API keys; the
 # API returns 404 pointing at the 3.x line. Note that models.list reports models
@@ -185,3 +246,9 @@ def feature_status() -> dict:
         ),
         "farmer_profiles": bool(DATABASE_URL),
     }
+
+
+# Largest upload accepted on /agent/media. The container has 1 GiB and reads the
+# whole body into memory before touching it, so this is the difference between a
+# rejected request and a restarted instance.
+MAX_UPLOAD_BYTES = int(_get("MAX_UPLOAD_MB", "12")) * 1024 * 1024

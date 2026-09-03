@@ -1,20 +1,24 @@
 import encoding_setup  # noqa: F401  (must be first)
 
 import json
+import secrets
 from typing import List, Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+import auth
 import config
 import db
+import farmer_account
 import feedback
 import lesion_bank
 import msp
 import profile_store
+import sms_out
 import startup
 import weather_tool
 from Agent import run_agent, speech_language
@@ -193,14 +197,190 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
     }
 
 
+# --- Who is calling -------------------------------------------------------
+
+def _bearer(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    parts = authorization.split(None, 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1].strip() or None
+    return None
+
+
+def _caller(authorization: str | None, bridge_token: str | None,
+            claimed_user_id: str | None) -> str | None:
+    """The farmer this request is for, from the strongest evidence available.
+
+    Three callers, in descending order of proof:
+
+    1. The SMS bridge, holding BRIDGE_TOKEN. It may name any user_id, because the
+       mobile network told it who sent the message and a farmer cannot forge the
+       network's idea of their own number.
+    2. A browser holding a signed token. The id comes out of the token; whatever
+       the body says about user_id is ignored, which is the entire point.
+    3. Nobody. Raises 401 when AUTH_REQUIRED, and otherwise falls back to the old
+       body-supplied user_id so local development and the un-migrated bridge keep
+       working.
+    """
+    if config.BRIDGE_TOKEN and bridge_token and \
+            secrets.compare_digest(bridge_token, config.BRIDGE_TOKEN):
+        return (claimed_user_id or "").strip() or None
+
+    user_id = auth.read_token(_bearer(authorization))
+    if user_id:
+        return user_id
+
+    if config.AUTH_REQUIRED:
+        raise HTTPException(status_code=401, detail="sign in to ask a question")
+    return (claimed_user_id or "").strip() or None
+
+
+def _require_caller(authorization: str | None) -> str:
+    user_id = auth.read_token(_bearer(authorization))
+    if not user_id:
+        raise HTTPException(status_code=401, detail="sign in first")
+    return user_id
+
+
+# --- Sign-in --------------------------------------------------------------
+
+class PhoneRequest(BaseModel):
+    phone: str
+
+
+class VerifyRequest(BaseModel):
+    phone: str
+    code: str
+
+
+@app.post("/auth/request-code")
+def request_code(request: PhoneRequest):
+    """Send a one-time code to a phone number.
+
+    Deliberately answers the same way whether or not the number is already
+    known. Telling an anonymous caller "no account here" turns this endpoint
+    into a way of asking which of a list of numbers uses AnnaData.
+    """
+    phone = auth.normalise_phone(request.phone)
+    if not phone:
+        raise HTTPException(status_code=400,
+                            detail="enter a 10-digit Indian mobile number")
+
+    issued = auth.issue_code(phone)
+    if not issued.ok:
+        # 429 for a cooldown, because that is what it is, and the browser can
+        # show a countdown rather than a generic failure.
+        raise HTTPException(status_code=429 if issued.retry_after else 503,
+                            detail=issued.reason or "could not send a code",
+                            headers={"Retry-After": str(issued.retry_after)}
+                                    if issued.retry_after else None)
+
+    if not sms_out.send_code(phone, issued.code):
+        raise HTTPException(status_code=502,
+                            detail="could not send the code just now; try again")
+
+    return {"sent": True, "phone": auth.mask_phone(phone),
+            "expires_in": config.OTP_TTL, "transport": sms_out.transport()}
+
+
+@app.post("/auth/verify")
+def verify_code(request: VerifyRequest):
+    """Exchange a correct code for a token."""
+    phone = auth.normalise_phone(request.phone)
+    if not phone:
+        raise HTTPException(status_code=400, detail="enter a valid mobile number")
+
+    ok, reason = auth.check_code(phone, request.code)
+    if not ok:
+        raise HTTPException(status_code=401, detail=reason or "that code is wrong")
+
+    version = farmer_account.ensure(phone, channel="web")
+    account = farmer_account.account(phone) or {}
+    return {
+        "token": auth.issue_token(phone, version),
+        "user": account,
+        # The browser uses this to decide between the onboarding screen and the
+        # chat. Onboarding is skippable, so this can stay true indefinitely.
+        "needs_onboarding": not account.get("onboarded_at"),
+    }
+
+
+@app.get("/auth/me")
+def whoami(authorization: Optional[str] = Header(None)):
+    user_id = _require_caller(authorization)
+    account = farmer_account.account(user_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="no account")
+    return {"user": account, "needs_onboarding": not account.get("onboarded_at")}
+
+
+@app.post("/auth/signout")
+def signout(authorization: Optional[str] = Header(None)):
+    """Invalidate every token this farmer holds, not only this browser's."""
+    user_id = _require_caller(authorization)
+    return {"signed_out": farmer_account.sign_out_everywhere(user_id)}
+
+
+# --- The farmer's own record ---------------------------------------------
+
+class OnboardingRequest(BaseModel):
+    name: Optional[str] = None
+    state: Optional[str] = None
+    district: Optional[str] = None
+    village: Optional[str] = None
+    language: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    crops: Optional[List[str]] = None
+    # What the farmer typed, in the unit they typed it in. Converted to hectares
+    # in units.py using their state, because a bigha is not a fixed area.
+    area: Optional[float] = None
+    area_unit: Optional[str] = None
+    sown_on: Optional[str] = None
+    # How long the form took, in milliseconds, measured in the browser. Recorded
+    # so "a one-minute onboarding" is a number somebody checked.
+    took_ms: Optional[int] = None
+
+
+@app.put("/profile")
+def save_profile(request: OnboardingRequest,
+                 authorization: Optional[str] = Header(None)):
+    user_id = _require_caller(authorization)
+    ok, note = farmer_account.save_onboarding(user_id, request.model_dump())
+    if not ok:
+        raise HTTPException(status_code=503, detail="could not save that just now")
+    if request.took_ms:
+        print(f"Onboarding completed in {request.took_ms / 1000:.1f}s by {auth.mask_phone(user_id)}")
+    return {"saved": True, "note": note, "user": farmer_account.account(user_id)}
+
+
+@app.get("/profile")
+def read_profile(authorization: Optional[str] = Header(None)):
+    user_id = _require_caller(authorization)
+    account = farmer_account.account(user_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="no account")
+    return account
+
+
+@app.get("/history")
+def read_history(limit: int = 50, authorization: Optional[str] = Header(None)):
+    """This farmer's past conversation. Their own, and only their own."""
+    user_id = _require_caller(authorization)
+    return {"messages": farmer_account.history(user_id, limit)}
+
+
 @app.post("/agent")
-def run_agent_endpoint(request: QueryRequest):
+def run_agent_endpoint(request: QueryRequest,
+                       authorization: Optional[str] = Header(None),
+                       x_bridge_token: Optional[str] = Header(None)):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="query must not be empty")
 
     return _answer(
         request.query,
-        user_id=(request.user_id or "").strip() or None,
+        user_id=_caller(authorization, x_bridge_token, request.user_id),
         channel=request.channel or "web",
         latitude=request.latitude,
         longitude=request.longitude,
@@ -239,6 +419,8 @@ async def run_agent_media(
     channel: str = Form("web"),
     user_id: Optional[str] = Form(None),
     message_id: Optional[str] = Form(None),
+    authorization: Optional[str] = Header(None),
+    x_bridge_token: Optional[str] = Header(None),
 ):
     """A voice note and/or a photo, answered in one round trip.
 
@@ -251,8 +433,22 @@ async def run_agent_media(
     The transcript becomes the farmer's question, verbatim and in their own
     script, so every language rule downstream sees what they actually said.
     """
+    # Before a single byte is read. This endpoint takes arbitrary audio and
+    # image uploads into memory on a 1 GiB container and then spends the media
+    # model's daily quota; deciding who is calling after accepting the upload
+    # would leave both of those open to anyone who found the URL.
+    caller = _caller(authorization, x_bridge_token, user_id)
+
     audio_bytes = await audio.read() if audio is not None else None
     image_bytes = await image.read() if image is not None else None
+
+    too_big = config.MAX_UPLOAD_BYTES
+    for label, blob in (("audio", audio_bytes), ("image", image_bytes)):
+        if blob is not None and len(blob) > too_big:
+            raise HTTPException(
+                status_code=413,
+                detail=f"that {label} is larger than {too_big // (1024 * 1024)} MB",
+            )
 
     typed = (query or "").strip()
     if not audio_bytes and not image_bytes and not typed:
@@ -296,7 +492,7 @@ async def run_agent_media(
     response = await run_in_threadpool(
         _answer,
         spoken,
-        user_id=(user_id or "").strip() or None,
+        user_id=caller,
         channel=channel or "web",
         latitude=_to_float(latitude),
         longitude=_to_float(longitude),

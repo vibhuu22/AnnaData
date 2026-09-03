@@ -25,6 +25,10 @@ google-genai==1.30.0
 earthengine-api==1.6.3
 requests==2.32.4
 
+# --- Sign-in ---
+# Signing and reading the token that proves which farmer is calling.
+PyJWT==2.10.1
+
 # --- Config and storage ---
 python-dotenv==1.1.1
 psycopg[binary,pool]==3.2.3
