@@ -11,23 +11,35 @@ import { FaCommentSms } from "react-icons/fa6";
  */
 function Header() {
   return (
-    <header className="w-full border-b border-gray-200 bg-white/90 backdrop-blur sticky top-0 z-30">
-      <div className="mx-auto max-w-[900px] flex items-center justify-between gap-4 px-4 py-3">
+    <header className="sticky top-0 z-30 w-full border-b border-soil-200 bg-white/90 backdrop-blur">
+      {/*
+        pl-16 below the large breakpoint, because the sidebar's menu button is
+        position:fixed at the top-left corner and floats above this bar. At
+        360px it was landing squarely on the "A" of the wordmark.
+      */}
+      <div className="mx-auto flex max-w-[900px] items-center justify-between gap-4 py-3 pl-16 pr-4 lg:pl-4">
         <div className="flex items-baseline gap-3">
-          <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-600 via-lime-500 to-yellow-500">
+          <h1 className="bg-gradient-to-r from-leaf-700 via-leaf-500 to-grain-500 bg-clip-text text-2xl font-bold text-transparent">
             Annadata
           </h1>
-          <p className="hidden sm:block text-sm text-gray-500">
+          <p className="hidden text-sm text-soil-500 sm:block">
             Agricultural advice, in the farmer's own language
           </p>
         </div>
         <div
-          className="flex items-center gap-2 text-xs sm:text-sm text-green-800 bg-green-50 border border-green-200 rounded-full px-3 py-1.5"
+          className="flex shrink-0 items-center gap-2 rounded-pill border border-leaf-200 bg-leaf-50 px-3 py-1.5 text-xs text-leaf-800 sm:text-sm"
           title="The same agent answers over SMS through an Android handset acting as a gateway"
         >
           <FaCommentSms className="shrink-0" />
+          {/*
+            The badge sheds words rather than the page growing a horizontal
+            scrollbar. At 360px, once the wordmark has been pushed clear of the
+            menu button, there is only room for the icon and the word itself -
+            and the icon plus "SMS" still says the thing that matters.
+          */}
           <span className="whitespace-nowrap">
-            Also works over <strong>SMS</strong>
+            <span className="hidden sm:inline">Also works over </span>
+            <strong>SMS</strong>
             <span className="hidden md:inline"> — no smartphone needed</span>
           </span>
         </div>
