@@ -183,6 +183,9 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         "tools_used": result.tools_used,
         "intent": result.intent,
         "message_type": result.message_type,
+        # "available", "none_registered" or "not_applicable". Lets the caller
+        # show a refusal as a refusal without having to find it in the prose.
+        "dose_status": result.dose_status,
         # Exactly what the farmer has not told us yet, so the caller can ask
         # for that one thing instead of a generic prompt.
         "missing_slots": result.missing_slots,

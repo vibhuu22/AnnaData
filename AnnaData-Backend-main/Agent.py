@@ -13,6 +13,7 @@ from Soil_Tool import soil_tool
 from Refined_Farmer_Query import get_farming_query
 from process_media import describe_vision
 from Web_Crawler import query_kb, is_available as kb_available
+import config
 import knowledge
 import lesion_bank
 import msp
@@ -568,12 +569,13 @@ class AgentResult:
 
     __slots__ = ("answer", "crop", "state", "location", "latitude", "longitude",
                  "location_kind", "district",
-                 "tools_used", "missing_slots", "intent", "message_type")
+                 "tools_used", "missing_slots", "intent", "message_type",
+                 "dose_status")
 
     def __init__(self, answer, crop=None, state=None, location=None,
                  latitude=None, longitude=None, tools_used=None,
                  missing_slots=None, intent="general", message_type="question",
-                 location_kind=None, district=None):
+                 location_kind=None, district=None, dose_status="not_applicable"):
         self.answer = answer
         self.crop = crop
         self.state = state
@@ -588,6 +590,20 @@ class AgentResult:
         self.missing_slots = missing_slots or []
         self.intent = intent
         self.message_type = message_type
+        # Whether a registered dose was available for this question, decided
+        # here rather than left to be read back out of the prose.
+        #
+        #   "available"       the register matched the pest and returned uses
+        #   "none_registered" it was asked and had nothing - this is the refusal
+        #   "not_applicable"  the question was not about a pest or disease
+        #
+        # The interface needs to tell a refusal apart from ordinary advice, and
+        # `tools_used` cannot: it reports "doses" either way, because the
+        # register was consulted in both cases and simply came back empty.
+        # Without this, the only way to find the refusal is to match on the word
+        # "registered" and a negation in whichever of four scripts the answer
+        # happens to be written in.
+        self.dose_status = dose_status
 
 
 def _known(value) -> str | None:
@@ -650,7 +666,8 @@ def run_agent(
         # "uncovered" and nothing changes, which is what keeps adding the bank
         # from regressing the crops that matter most.
         corroboration = None
-        if vision.get("features") and vision.get("usable", True):
+        if (config.LESION_BANK_ENABLED
+                and vision.get("features") and vision.get("usable", True)):
             corroboration = lesion_bank.consult(
                 vision["features"],
                 vision.get("crop"),
@@ -852,9 +869,18 @@ def run_agent(
     if restored:
         print("Restored registered doses the answer had dropped")
     print(f"Final response: {final_response}")
+    # Asked for and answered, asked for and refused, or never asked.
+    doses_result = raw.get("doses")
+    if doses_result is None:
+        dose_status = "not_applicable"
+    elif doses_result.get("pest_matched") and doses_result.get("uses"):
+        dose_status = "available"
+    else:
+        dose_status = "none_registered"
+
     return AgentResult(
         final_response, tools_used=sorted(gathered.keys()),
-        missing_slots=missing, intent=intent, **facts
+        missing_slots=missing, intent=intent, dose_status=dose_status, **facts
     )
 
 
