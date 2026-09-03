@@ -13,7 +13,6 @@ from Soil_Tool import soil_tool
 from Refined_Farmer_Query import get_farming_query
 from process_media import describe_vision
 from Web_Crawler import query_kb, is_available as kb_available
-import config
 import knowledge
 import lesion_bank
 import msp
@@ -666,8 +665,7 @@ def run_agent(
         # "uncovered" and nothing changes, which is what keeps adding the bank
         # from regressing the crops that matter most.
         corroboration = None
-        if (config.LESION_BANK_ENABLED
-                and vision.get("features") and vision.get("usable", True)):
+        if vision.get("features") and vision.get("usable", True):
             corroboration = lesion_bank.consult(
                 vision["features"],
                 vision.get("crop"),
