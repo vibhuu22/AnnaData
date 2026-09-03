@@ -53,18 +53,68 @@ body {
   display: none; /* Safari and Chrome */
 }
 
-/* The pending-state bars, still used by Main.jsx. Due for replacement. */
-@keyframes gradientAnimation {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: 0 0;
-  }
+/*
+ * The pending state.
+ *
+ * This was three full-width bars sweeping a pale blue gradient - the template's
+ * placeholder, in a colour this app uses nowhere else, and shaped like a
+ * skeleton screen promising three paragraphs of text whether or not three
+ * paragraphs were coming.
+ *
+ * Five blades, growing and settling out of phase, on a baseline. It is small,
+ * it is green, and it makes no promise about the length of the answer.
+ *
+ * `scaleY` and `opacity` are the only things animated, because they are the two
+ * properties a phone can composite without laying the page out again on every
+ * frame - which matters on the hardware this runs on.
+ */
+.thinking {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.3rem;
+  height: 1.75rem;
+  padding-bottom: 2px;
+  border-bottom: 2px solid theme("colors.soil.200");
+  width: fit-content;
 }
-.hr-animated {
-  background-size: 200% 200%;
-  animation: gradientAnimation 1s linear infinite;
+.thinking-blade {
+  width: 0.3rem;
+  height: 100%;
+  transform-origin: bottom center;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(
+    to top,
+    theme("colors.leaf.600"),
+    theme("colors.leaf.300")
+  );
+  animation: sprout 1.1s ease-in-out infinite;
+}
+.thinking-blade:nth-child(1) {
+  animation-delay: 0s;
+}
+.thinking-blade:nth-child(2) {
+  animation-delay: 0.13s;
+}
+.thinking-blade:nth-child(3) {
+  animation-delay: 0.26s;
+}
+.thinking-blade:nth-child(4) {
+  animation-delay: 0.39s;
+}
+.thinking-blade:nth-child(5) {
+  animation-delay: 0.52s;
+}
+
+/*
+ * A farmer who has asked the system not to animate things is not shown a
+ * growing plant. The blades hold at a readable height and the label alone says
+ * the answer is coming.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .thinking-blade {
+    animation: none;
+    transform: scaleY(0.7);
+  }
 }
 
 /* ------------------------------------------------------------------------ */

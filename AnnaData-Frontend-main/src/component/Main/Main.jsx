@@ -1,7 +1,5 @@
 import React, { useContext, useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { assets } from "../../assets/assets";
 import Card from "../Card/Card";
-import icon4 from "../../assets/message_icon.png";
 import { IoMdSend } from "react-icons/io";
 import { FaImage, FaMicrophone, FaStop, FaVolumeUp, FaRegStopCircle } from "react-icons/fa";
 import { Context } from "../../Context/ContextProvider";
@@ -159,24 +157,30 @@ function Main() {
   return (
     <div className="flex-grow min-h-0 w-full flex flex-col overflow-hidden">
       <div className="flex-grow flex flex-col relative overflow-hidden">
-        <div className="bg-white flex flex-col w-full flex-grow overflow-y-auto p-4 items-center">
+        <div className="flex w-full flex-grow flex-col items-center overflow-y-auto bg-white p-4">
           {!dataSent ? (
             <div className="w-full flex-grow flex flex-col justify-center">
-              <div className="mx-auto max-w-[900px] w-full">
-                <p className="text-center text-lg text-gray-600">
+              <div className="mx-auto w-full max-w-[900px]">
+                <p className="text-center text-xl text-soil-900">
                   Ask about your crop — type it, speak it, or send a photo.
                 </p>
-                <p className="text-center text-sm text-gray-400 mt-2">
+                {/* Was text-gray-400: 3.66:1 on white, which is legible at a
+                    desk and gone in a field. soil-500 is the lightest tone the
+                    design system allows to carry text. */}
+                <p className="mx-auto mt-3 max-w-[46ch] text-center text-sm text-soil-500">
                   Answers come back in the language you asked in, with doses taken
                   from the CIB&amp;RC register rather than invented.
                 </p>
-                <div className="mt-8 sm:mt-10 flex gap-4 overflow-x-auto scrollbar-hide md:grid md:grid-cols-4 md:gap-4 pb-2">
+
+                {/* Horizontally scrolled on a phone rather than stacked, so the
+                    fact that there are four different scripts is visible in the
+                    first screenful instead of below the fold. */}
+                <div className="scrollbar-hide -mx-4 mt-8 flex gap-3 overflow-x-auto px-4 pb-2 sm:mt-10 md:mx-0 md:grid md:grid-cols-4 md:gap-4 md:px-0">
                   {SUGGESTIONS.map(({ text, note }) => (
                     <Card
                       key={text}
                       text={text}
                       note={note}
-                      icon={icon4}
                       onClick={() => send({ text })}
                     />
                   ))}
@@ -188,7 +192,30 @@ function Main() {
               {responses.map((turn) => (
                 <div key={turn.id} className="response-item mb-6 w-full max-w-[800px]">
                   <div className="flex items-start gap-2 mb-2">
-                    <img src={assets.user_icon} alt="User" className="w-10 h-10 rounded-full" />
+                    {/* The farmer.
+                        This was a 556 KB PNG of a robot - the template's stock
+                        avatar, standing in for the person asking the question.
+                        In a product whose whole posture is that the farmer
+                        knows their field and the system merely looks things up,
+                        drawing the farmer as a machine was the wrong way round.
+                        An inline glyph costs no request at all. */}
+                    <div
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-soil-100 text-soil-600"
+                      aria-hidden="true"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-6 w-6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="8.5" r="3.5" />
+                        <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+                      </svg>
+                    </div>
                     <div className="flex flex-col gap-2">
                       {turn.mediaFile && (
                         <SentMedia file={turn.mediaFile} kind={turn.mediaKind} />
@@ -200,8 +227,8 @@ function Main() {
                           script - so a misheard word is visible rather than
                           buried in an answer that reads as slightly wrong. */}
                       {turn.transcript && (
-                        <p className="text-lg text-gray-700">
-                          <span className="text-xs uppercase tracking-wide text-gray-400 mr-2">
+                        <p className="text-lg text-soil-700">
+                          <span className="mr-2 text-xs uppercase tracking-wide text-soil-500">
                             heard
                           </span>
                           {turn.transcript}
@@ -211,7 +238,7 @@ function Main() {
                   </div>
 
                   {turn.vision && (
-                    <div className="ml-12 mb-2 text-sm text-gray-600 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+                    <div className="mb-2 ml-12 rounded-lg border border-leaf-200 bg-leaf-50 px-3 py-2 text-sm text-leaf-800">
                       <span className="font-semibold">From the photo: </span>
                       {[
                         turn.vision.crop !== "unknown" && turn.vision.crop,
@@ -226,22 +253,39 @@ function Main() {
                   )}
 
                   <div className="result-data flex items-start gap-2">
+                    {/* Placeholder for the mascot, once there is one. Until
+                        then the letter अ, which is where "Annadata" starts in
+                        the script most of these farmers write in. */}
                     <div
-                      className="w-9 h-9 shrink-0 rounded-full bg-gradient-to-br from-green-500 to-lime-500 text-white grid place-items-center text-sm font-bold select-none"
+                      className="grid h-9 w-9 shrink-0 select-none place-items-center rounded-full bg-leaf-600 text-sm font-bold text-white"
                       aria-hidden="true"
                     >
                       अ
                     </div>
                     <div
-                      className={`p-4 rounded-lg bg-gray-50 border border-gray-100 flex-grow min-w-0 text-[15px] leading-8 ${
-                        turn.failed ? "text-red-600" : ""
+                      className={`min-w-0 flex-grow rounded-card border border-soil-200 bg-soil-50 p-4 ${
+                        turn.failed ? "text-red-700" : ""
                       }`}
                     >
                       {turn.pending ? (
-                        <div className="flex flex-col gap-[10px] w-full">
-                          <hr className="border-none w-full h-[20px] bg-gradient-to-r from-[#9ed7ff] via-[#ffffff] to-[#9ed7ff] hr-animated" />
-                          <hr className="border-none w-full h-[20px] bg-gradient-to-r from-[#9ed7ff] via-[#ffffff] to-[#9ed7ff] hr-animated" />
-                          <hr className="border-none w-full h-[20px] bg-gradient-to-r from-[#9ed7ff] via-[#ffffff] to-[#9ed7ff] hr-animated" />
+                        // aria-live so a screen reader announces that the
+                        // answer is coming; the blades themselves are
+                        // decoration and are hidden from it.
+                        <div
+                          className="flex items-center gap-3"
+                          role="status"
+                          aria-live="polite"
+                        >
+                          <div className="thinking" aria-hidden="true">
+                            <span className="thinking-blade" />
+                            <span className="thinking-blade" />
+                            <span className="thinking-blade" />
+                            <span className="thinking-blade" />
+                            <span className="thinking-blade" />
+                          </div>
+                          <span className="text-sm text-soil-500">
+                            Finding the answer…
+                          </span>
                         </div>
                       ) : (
                         <>
@@ -256,7 +300,10 @@ function Main() {
                               onClick={() =>
                                 speakingId === turn.id ? hush() : readAloud(turn)
                               }
-                              className="mt-2 inline-flex items-center gap-2 text-sm text-green-700 hover:text-green-900"
+                              // For a farmer who does not read, this button is
+                              // how the answer gets delivered at all. It is a
+                              // full-height target, not a text link.
+                              className="mt-3 inline-flex min-h-touch items-center gap-2 rounded-pill border border-leaf-200 bg-white px-4 text-sm font-medium text-leaf-700 transition-colors hover:bg-leaf-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600 focus-visible:ring-offset-2"
                               aria-label={
                                 speakingId === turn.id
                                   ? "Stop reading the answer"
@@ -287,7 +334,7 @@ function Main() {
       </div>
 
       {/* Input area */}
-      <div className="px-4 bg-white sticky bottom-0">
+      <div className="sticky bottom-0 border-t border-soil-200 bg-white px-4 pt-2">
         <MediaPreview
           selectedImage={selectedImage}
           selectedAudio={selectedAudio}
@@ -295,55 +342,86 @@ function Main() {
           clearSelectedAudio={clearSelectedAudio}
         />
         {isRecording && (
-          <p className="text-center text-sm text-red-500 mt-2">
+          <p className="mt-2 text-center text-sm text-red-700">
             Recording… press the microphone again to stop.
           </p>
         )}
-        {micError && <p className="text-center text-sm text-red-500 mt-2">{micError}</p>}
+        {micError && <p className="mt-2 text-center text-sm text-red-700">{micError}</p>}
         {speechError && (
-          <p className="text-center text-sm text-amber-600 mt-2">{speechError}</p>
+          <p className="mt-2 text-center text-sm text-grain-700">{speechError}</p>
         )}
+        {/*
+          Every control here was a bare react-icon at the text's own size -
+          around 17px of tappable area on a touchscreen, sitting inside a
+          low-contrast grey pill. The handlers are untouched; the targets are
+          not.
+
+          The microphone is the largest thing on the bar, at 56px, and it is the
+          only one that carries a filled colour. For a farmer who does not read,
+          it is not one input among three - it is the way in. The camera is next
+          at 44px, because a photograph of a sick plant is the highest-intent
+          message this app receives. Send is last and smallest: it is the one
+          action a farmer can also reach by pressing enter.
+        */}
         <form
           onSubmit={handleSend}
-          className="flex items-center border rounded-full shadow-sm p-3 mx-auto bg-gray-100 w-full max-w-[750px] mt-2"
+          className="mx-auto mt-2 flex w-full max-w-[750px] items-center gap-2 rounded-pill border border-soil-200 bg-white p-2 shadow-card focus-within:border-leaf-400 focus-within:ring-2 focus-within:ring-leaf-100"
         >
           <input
             onChange={(e) => setInput(e.target.value)}
             value={input}
             type="text"
             placeholder="Ask about your crop, in any language"
-            className="flex-grow bg-gray-100 outline-none text-gray-700 placeholder-gray-500"
+            className="min-w-0 flex-grow bg-transparent px-3 text-base text-soil-800 outline-none placeholder:text-soil-400"
           />
-          <div className="flex items-center space-x-3">
-            <label htmlFor="image-upload" className="cursor-pointer opacity-65 hover:opacity-100">
-              <FaImage />
-              <input
-                id="image-upload"
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                style={{ display: "none" }}
-              />
-            </label>
-            <button
-              type="button"
-              onClick={handleAudioRecord}
-              aria-label={isRecording ? "Stop recording" : "Record a voice message"}
-              className={isRecording ? "text-red-500 animate-pulse" : "opacity-65 hover:opacity-100"}
-            >
-              {isRecording ? <FaStop /> : <FaMicrophone />}
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !canSend}
-              aria-label="Send"
-              className={loading || !canSend ? "opacity-30" : "opacity-65 hover:opacity-100"}
-            >
-              <IoMdSend />
-            </button>
-          </div>
+
+          <label
+            htmlFor="image-upload"
+            title="Send a photo of the crop"
+            className="grid h-touch w-touch shrink-0 cursor-pointer place-items-center rounded-full text-soil-600 transition-colors hover:bg-soil-100 hover:text-soil-800 focus-within:ring-2 focus-within:ring-leaf-500"
+          >
+            <FaImage className="h-5 w-5" />
+            <span className="sr-only">Send a photo of the crop</span>
+            <input
+              id="image-upload"
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="sr-only"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={handleAudioRecord}
+            aria-label={isRecording ? "Stop recording" : "Record a voice message"}
+            aria-pressed={isRecording}
+            className={`grid h-touch-lg w-touch-lg shrink-0 place-items-center rounded-full text-white shadow-card transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+              isRecording
+                ? "animate-pulse bg-red-600 focus-visible:ring-red-600"
+                : "bg-leaf-600 hover:bg-leaf-700 focus-visible:ring-leaf-600"
+            }`}
+          >
+            {isRecording ? (
+              <FaStop className="h-5 w-5" />
+            ) : (
+              <FaMicrophone className="h-6 w-6" />
+            )}
+          </button>
+
+          <button
+            type="submit"
+            disabled={loading || !canSend}
+            aria-label="Send"
+            className="grid h-touch w-touch shrink-0 place-items-center rounded-full text-soil-600 transition-colors hover:bg-soil-100 hover:text-soil-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 disabled:pointer-events-none disabled:text-soil-300"
+          >
+            <IoMdSend className="h-6 w-6" />
+          </button>
         </form>
-        <br />
+
+        {/* A farmer's thumb rests at the bottom of the screen; the bar should
+            not sit flush against the edge of it. Was a <br />. */}
+        <div className="h-4" />
       </div>
     </div>
   );
