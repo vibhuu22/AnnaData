@@ -9,6 +9,8 @@ from quart import Quart, request, jsonify
 
 import config
 import whatsapp
+import webhook_auth
+from incoming_filter import is_operator_notice
 from sms_text import prepare, segment_count
 
 app = Quart(__name__)
@@ -294,12 +296,19 @@ async def process_sms(data: dict):
         print(f"Ignoring machine sender {phone!r} (not a number we can reply to)")
         return
 
+    # The sender test above only catches alphanumeric IDs. An operator's own
+    # notices come from a numeric shortcode, so they survive it and are then
+    # answered as questions - see incoming_filter for the one that did.
+    if is_operator_notice(msg):
+        print(f"Ignoring operator/bank notice from {phone}: {msg.strip()[:60]!r}")
+        return
+
     # Opting out has to work before anything else, and must never depend on the
     # agent being reachable.
     if msg.strip().lower() in config.STOP_WORDS:
         print(f"Opt-out from {phone}")
-        await forget_farmer(phone)
-        await send_sms(phone, config.STOP_REPLY)
+        erased = await forget_farmer(phone)
+        await send_sms(phone, config.STOP_REPLY if erased else config.STOP_FAILURE_REPLY)
         return
 
     # A reply to the rating request is a number, not a question. Checking
@@ -407,8 +416,9 @@ async def process_whatsapp(incoming: dict):
 
     if text.strip().lower() in config.STOP_WORDS:
         print(f"Opt-out from {sender}")
-        await forget_farmer(sender)
-        await whatsapp.send(http_session(), sender, config.STOP_REPLY)
+        erased = await forget_farmer(sender)
+        await whatsapp.send(http_session(), sender,
+                            config.STOP_REPLY if erased else config.STOP_FAILURE_REPLY)
         return
 
     if await record_rating(sender, text):
@@ -439,7 +449,15 @@ async def whatsapp_incoming():
     everything immediately and answers out of band - exactly as the SMS webhook
     does for the same reason.
     """
+    if not config.WHATSAPP_APP_SECRET:
+        return jsonify({"error": "webhook authentication not configured"}), 503
+    raw = await request.get_data()
+    if not webhook_auth.verify_whatsapp(
+            raw, request.headers.get("X-Hub-Signature-256", ""), config.WHATSAPP_APP_SECRET):
+        return jsonify({"error": "invalid webhook signature"}), 401
     body = await request.get_json(force=True, silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "expected an object"}), 400
     incoming = whatsapp.extract(body)
 
     if not incoming:
@@ -458,7 +476,16 @@ async def whatsapp_incoming():
 
 @app.post(config.WEBHOOK_PATH)
 async def incoming_sms():
+    if not config.SMS_WEBHOOK_SIGNING_KEY:
+        return jsonify({"error": "webhook authentication not configured"}), 503
+    raw = await request.get_data()
+    if not webhook_auth.verify_sms(
+            raw, request.headers.get("X-Signature", ""),
+            request.headers.get("X-Timestamp", ""), config.SMS_WEBHOOK_SIGNING_KEY):
+        return jsonify({"error": "invalid webhook signature"}), 401
     data = await request.get_json(force=True, silent=True) or {}
+    if not isinstance(data, dict) or not isinstance(data.get("payload"), dict):
+        return jsonify({"error": "expected a payload object"}), 400
     message_id = data.get("payload", {}).get("messageId")
     print("Received SMS with ID:", message_id)
 

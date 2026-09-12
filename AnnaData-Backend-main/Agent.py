@@ -574,8 +574,10 @@ class AgentResult:
     def __init__(self, answer, crop=None, state=None, location=None,
                  latitude=None, longitude=None, tools_used=None,
                  missing_slots=None, intent="general", message_type="question",
-                 location_kind=None, district=None, dose_status="not_applicable"):
-        self.answer = answer
+                 location_kind=None, district=None, dose_status="not_applicable",
+                 evidence=None):
+        # All return paths pass here, including direct replies and corrections.
+        self.answer, _ = output_guards.scrub(answer, evidence or {})
         self.crop = crop
         self.state = state
         self.location = location
@@ -878,7 +880,8 @@ def run_agent(
 
     return AgentResult(
         final_response, tools_used=sorted(gathered.keys()),
-        missing_slots=missing, intent=intent, dose_status=dose_status, **facts
+        missing_slots=missing, intent=intent, dose_status=dose_status,
+        evidence=gathered, **facts
     )
 
 

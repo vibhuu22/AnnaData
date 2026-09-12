@@ -29,14 +29,16 @@ import re
 
 PRICE_SCHEME = re.compile(
     r"\b(msp|frp|minimum support price|fair and remunerative|"
-    r"support price|procurement price|floor price|samarthan mulya)\b",
+    r"support price|procurement price|floor price|samarthan mulya)\b"
+    r"|समर्थन मूल्य|एमएसपी|न्यूनतम समर्थन|সমর্থন মূল্য|ন্যূনতম সহায়ক|ਐਮਐਸਪੀ|ਸਮਰਥਨ ਮੁੱਲ",
     re.I,
 )
 
 WELFARE_SCHEME = re.compile(
     r"\b(scheme|yojana|yojna|subsidy|subsid(?:ies|ised|y)|anudan|"
     r"pm-?kisan|pmfby|kcc|kisan credit card|fasal bima|crop insurance|"
-    r"soil health card|kusum|sarkari yojana)\b",
+    r"soil health card|kusum|sarkari yojana)\b"
+    r"|योजना|सब्सिडी|अनुदान|যোজনা|প্রকল্প|ভর্তুকি|ਅਨੁਦਾਨ|ਸਬਸਿਡੀ|ਯੋਜਨਾ",
     re.I,
 )
 
@@ -45,9 +47,9 @@ WELFARE_SCHEME = re.compile(
 # and removing those sentences would cost the farmer the one useful thing left
 # in a refusal.
 FIGURE = re.compile(
-    r"(?:₹|\brs\.?\b|\binr\b)\s*[\d०-९][\d,०-९]*"
+    r"(?:₹|\brs\b\.?|\binr\b)\s*[\d०-९][\d,०-९]*"
     r"|[\d०-९][\d,०-९]*\s*(?:%|percent|per\s?cent|pratishat|"
-    r"rupees?|rupaye|rupaiya|lakh|crore|/-)",
+    r"rupees?|rupaye|rupaiya|lakh|crore|/-|रुपये|रुपए|प्रतिशत|लाख|करोड़|টাকা|শতাংশ|ਰੁਪਏ|ਪ੍ਰਤੀਸ਼ਤ)",
     re.I,
 )
 
@@ -142,7 +144,8 @@ def fix_units(answer: str) -> tuple[str, bool]:
 
 
 def _sentences(text: str) -> list[str]:
-    return re.split(r"(?<=[.!?।])\s+", text)
+    # Do not split the abbreviation 'Rs.' away from its amount.
+    return re.split(r"(?<!Rs\.)(?<!rs\.)(?<=[.!?।])\s+|\n+", text)
 
 
 def _strip(answer: str, subject: re.Pattern, fallback: str) -> tuple[str, bool]:
@@ -186,11 +189,9 @@ def scrub(answer: str, gathered: dict) -> tuple[str, bool]:
         answer, hit = _strip(answer, PRICE_SCHEME, PRICE_FALLBACK)
         changed = changed or hit
 
-    # A subsidy or scheme amount, where retrieval ran and covered nothing. If
-    # retrieval was not consulted at all there is no claim to check against, and
-    # if it returned usable passages the figure may well be theirs.
+    # Absent retrieval is also absent evidence, including the no-tools path.
     kb = gathered.get("kb") or ""
-    if kb.startswith(KB_UNCOVERED):
+    if not kb or kb.startswith(KB_UNCOVERED):
         answer, hit = _strip(answer, WELFARE_SCHEME, SCHEME_FALLBACK)
         changed = changed or hit
 
