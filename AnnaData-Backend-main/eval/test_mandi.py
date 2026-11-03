@@ -143,6 +143,50 @@ def main():
     check("unknown district changes nothing", len(nowhere), 3)
     check("and says nothing", note, "")
 
+    # --- which cached entry answers the question ---------------------------
+    #
+    # The ordering was exact-crop first, recency second. Specificity beat
+    # freshness however wide the gap, nothing expires these rows, and so a
+    # crop-specific entry shadowed every later state snapshot for that crop.
+    # A refresh job could run daily for weeks while farmers were quoted
+    # two-month-old prices, which is exactly what happened: live fetching
+    # stopped on 2 September and the cache kept answering as though it had not.
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=62)
+
+    def entry(commodity, when, label):
+        return (label, [{"commodity": commodity or "any"}], when, commodity)
+
+    fresh_state = entry("", now, "state snapshot today")
+    stale_crop = entry("potato", old, "potato, 62 days old")
+    fresh_crop = entry("potato", now, "potato today")
+    older_state = entry("", old, "state snapshot, 62 days old")
+
+    def picked(rows, crop):
+        chosen = mandi._pick_cached_row(rows, crop)
+        return chosen[0] if chosen else None
+
+    check("fresh state snapshot beats a stale crop entry",
+          picked([stale_crop, fresh_state], "potato"), "state snapshot today")
+    check("order of the rows does not matter",
+          picked([fresh_state, stale_crop], "potato"), "state snapshot today")
+    # Same day is where specificity was always the right instinct, and it is
+    # kept: ranking is by date, so a same-day crop entry still wins.
+    check("same day, the crop entry still wins",
+          picked([fresh_state, fresh_crop], "potato"), "potato today")
+    check("a stale crop entry still answers when nothing newer exists",
+          picked([stale_crop, older_state], "potato"), "potato, 62 days old")
+    check("no crop named, the state snapshot answers",
+          picked([fresh_state], ""), "state snapshot today")
+    check("nothing cached", picked([], "potato"), None)
+    # A different crop's entry must never answer. The WHERE clause excludes it,
+    # but the ranking must not promote it if one ever reaches here.
+    check("another crop's entry does not outrank the state snapshot",
+          picked([entry("wheat", now, "wheat today"), fresh_state], "potato"),
+          "state snapshot today")
+
     print(f"\n{len(failures)} failure(s)" if failures else "\nAll checks passed")
     return 1 if failures else 0
 
