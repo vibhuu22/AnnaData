@@ -488,6 +488,50 @@ def _cache_store(state: str, commodity: str | None, summary: str,
         print(f"Could not cache mandi prices: {e}")
 
 
+def _pick_cached_row(rows, commodity: str):
+    """Which cached entry answers this question: the exact crop, or the state.
+
+    The ordering used to be exact-crop first and recency second, which reads
+    sensibly and is wrong the moment the two disagree. A September entry for
+    (Uttar Pradesh, potato) outranked a state snapshot fetched this morning,
+    permanently - specificity beat freshness no matter how wide the gap. Nothing
+    expires these rows, so once a crop-specific entry existed it shadowed every
+    later snapshot for that crop, and a refresh job could run daily for weeks
+    while farmers were quoted two-month-old prices.
+
+    Freshness comes first now, by day rather than by timestamp, so that among
+    entries fetched the same day the exact crop still wins. That is the case
+    specificity was meant to serve, and the only one where it is safe.
+
+    A state snapshot can answer a crop question because the rows are stored
+    structured and `_select` narrows them. That is what makes preferring the
+    fresher entry safe rather than merely newer.
+
+    Pure, and tested in eval/test_mandi.py: this decides which prices a farmer
+    is read, and the model never sees the entry that was passed over.
+    """
+    if not rows:
+        return None
+    cm = (commodity or "").strip().lower()
+
+    # Another crop's entry is never an answer, at any age. The query already
+    # excludes it, but ranking it low rather than discarding it would let it
+    # win a tie, and the cost of that is a farmer reading someone else's crop's
+    # price - the wrong-crop bug this file has been fixed for three times.
+    usable = [r for r in rows
+              if (r[3] or "") == "" or (cm and (r[3] or "") == cm)]
+    if not usable:
+        return None
+
+    def rank(row):
+        fetched = row[2]
+        # Date, not timestamp: same-day entries are equally current, and among
+        # them the crop-specific one is the better answer.
+        return (fetched.date(), 1 if cm and (row[3] or "") == cm else 0, fetched)
+
+    return max(usable, key=rank)
+
+
 def _cache_lookup(state: str, commodity: str | None,
                   district: str | None = None) -> str | None:
     import db
@@ -500,23 +544,26 @@ def _cache_lookup(state: str, commodity: str | None,
         with db.connection() as conn:
             conn.execute(CACHE_SCHEMA)
             conn.execute(CACHE_RECORDS_COLUMN)
-            row = conn.execute(
+            # Both candidates are fetched and chosen between in code rather
+            # than ordered in SQL, so the rule that decides which prices a
+            # farmer is read can be tested without a database. It is at most
+            # two rows.
+            rows = conn.execute(
                 """
-                SELECT summary, records, fetched_at FROM mandi_cache
+                SELECT summary, records, fetched_at, commodity FROM mandi_cache
                  WHERE state = %s AND (commodity = %s OR commodity = '')
-              ORDER BY (commodity = %s) DESC, fetched_at DESC
-                 LIMIT 1
                 """,
-                (st, cm, cm),
-            ).fetchone()
+                (st, cm),
+            ).fetchall()
     except Exception as e:
         print(f"Mandi cache lookup failed: {e}")
         return None
 
+    row = _pick_cached_row(rows, cm)
     if not row:
         return None
 
-    summary, records, fetched = row
+    summary, records, fetched, _ = row
 
     # The query above deliberately falls back to the whole-state entry, because
     # a broad answer beats none when no crop was named. When one WAS named that

@@ -9,6 +9,7 @@ from config import (
     MEDIA_MODEL,
     LLM_MAX_RETRIES,
     LLM_LAST_RESORT_RETRIES,
+    LLM_TIMEOUT,
 )
 
 if not GEMINI_API_KEY:
@@ -31,10 +32,25 @@ def _build(model: str, retries: int):
     exponential backoff. That default spends ~60s stalling on a dead or
     rate-limited model before the next one is even tried; bound this way the
     same failure hands over in well under a second.
+
+    `timeout` bounds something different and must be bound the same way, for a
+    different reason. It is declared on the base model, so the constructor
+    accepts `timeout=` without complaint - and `ChatGoogleGenerativeAI` never
+    reads it. Only `llms.py` does, and that is the other class. Passed as a call
+    kwarg it survives `_allowed_params_prediction_service` and reaches the
+    request; passed to the constructor it is accepted and discarded.
+
+    The two bounds do different jobs. `max_retries` limits how often a FAILED
+    call is repeated. `timeout` limits how long one call may hang - and without
+    it the retry budget is no protection at all, because a call that never
+    returns never fails, so nothing counts against the retries and the fallback
+    chain is never reached. An extraction call was measured at 97 seconds this
+    way, against a chain that errors out in about twenty.
     """
     return ChatGoogleGenerativeAI(model=model).bind(
         max_retries=retries,
         wait_exponential_max=2.0,
+        timeout=LLM_TIMEOUT,
     )
 
 

@@ -120,6 +120,29 @@ AI_ATTEMPTS = int(_get("AI_ATTEMPTS", "4"))
 # retrying at once simply collects a second refusal from the same cold start;
 # the wait is what lets it finish waking.
 AI_RETRY_WAIT = int(_get("AI_RETRY_WAIT", "20"))
+
+
+def is_waking(status: int) -> bool:
+    """Does this status mean "not yet", rather than "never"?
+
+    The retry loop exists for one reason: a free-tier backend takes about 140
+    seconds to wake, and a farmer who writes after a quiet spell must not lose
+    their message. It only ever caught 5xx - but a waking instance does not
+    reliably answer 5xx. The platform's edge returns 429 while it waits for the
+    container, and a proxy in front of it can return 408. Both are 4xx, so both
+    fell through to "give up" and the farmer got silence.
+
+    That was observed in production: the bridge's own health check reported
+    `agent backend returned HTTP 429` against a backend that answered a direct
+    request in 0.8s, because the 429 came from the cold start rather than from
+    the backend. Retrying a 429 costs one wait; not retrying it costs the
+    message, and a lost message is indistinguishable from a working service.
+
+    Deliberately not retried: 401 and 403, which mean the bridge is not trusted
+    and will not become trusted by asking again, and 400 or 422, which mean the
+    payload is wrong. Those are worth failing fast on, and worth seeing in logs.
+    """
+    return status >= 500 or status in (408, 429)
 SMS_TIMEOUT = int(_get("SMS_TIMEOUT", "30"))
 MAX_SMS_CHARS = int(_get("MAX_SMS_CHARS", "480"))    # hard character ceiling
 # Billed segments. Latin fits 153 chars per segment, Devanagari only 67, so

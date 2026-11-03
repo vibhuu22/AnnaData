@@ -1,0 +1,82 @@
+# Can a hosted runner reach the mandi price API at all?
+#
+# Live mandi prices stopped reaching the service on 2 September 2026. The same
+# API key works from a residential connection in India and fails from Google
+# Cloud Run in four regions, from Cloud Build and from Render - so the question
+# is whether this is specific to those providers or applies to data centre
+# addresses generally.
+#
+# GitHub's runners sit in Microsoft address space, unrelated to any of the above,
+# which makes them a free one-run answer. If this probe succeeds, the scheduled
+# refresh can live here and no always-on machine is needed anywhere. If it fails
+# the same way, the block is broad and that rules out a whole class of fix.
+#
+# This probe only reads. It writes nothing, touches no deployment and does not
+# run on a schedule - trigger it by hand from the Actions tab.
+#
+# Needs one repository secret: GOV_API_KEY (Settings -> Secrets and variables
+# -> Actions -> New repository secret). GitHub masks it in these logs.
+
+name: Probe data.gov.in reachability
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Where this runner is
+        # Worth recording: if data.gov.in is willing to allowlist, they will ask
+        # which addresses to allow, and GitHub's ranges are published.
+        run: |
+          echo "Runner public IP:"
+          curl -sS --max-time 20 https://api.ipify.org || echo "(could not determine)"
+          echo
+
+      - name: Does the name resolve
+        run: getent hosts api.data.gov.in || echo "DNS FAILED"
+
+      - name: Is port 443 reachable
+        # Separates a network-level block from an application-level refusal.
+        # Cloud Run saw both: refused outright in three regions, and a 403 from
+        # nginx in Mumbai, which means the request arrived and was turned away.
+        run: |
+          if timeout 15 bash -c 'cat < /dev/null > /dev/tcp/api.data.gov.in/443'; then
+            echo "port 443: reachable"
+          else
+            echo "port 443: BLOCKED or unreachable"
+          fi
+
+      - name: Ask for three rows
+        env:
+          GOV_API_KEY: ${{ secrets.GOV_API_KEY }}
+        run: |
+          if [ -z "$GOV_API_KEY" ]; then
+            echo "GOV_API_KEY secret is not set - add it in repository settings."
+            exit 1
+          fi
+
+          # The key goes through --data-urlencode rather than into a literal URL,
+          # so it is not written into the command line this log echoes.
+          set +e
+          code=$(curl -sS --max-time 30 -o /tmp/body.json -w "%{http_code}" \
+            -H "User-Agent: AnnaData/1.0 (farmer advisory service)" \
+            --get "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070" \
+            --data-urlencode "api-key=$GOV_API_KEY" \
+            --data-urlencode "format=json" \
+            --data-urlencode "limit=3")
+          rc=$?
+          set -e
+
+          echo "curl exit code: $rc   (0 = a reply arrived, 7 = refused, 28 = timed out, 35 = reset)"
+          echo "HTTP status:    $code"
+          echo "--- first 600 bytes of the response ---"
+          head -c 600 /tmp/body.json 2>/dev/null || echo "(no body)"
+          echo
+          echo "---"
+          if [ "$code" = "200" ]; then
+            echo "VERDICT: reachable from GitHub. The scheduled refresh can live here."
+          else
+            echo "VERDICT: not reachable from GitHub either. The block is broad."
+          fi

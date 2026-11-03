@@ -141,6 +141,10 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         history = profile_store.recent_history(user_id)
 
     session_id = feedback.current_session(user_id) if user_id else None
+    # Asked before the inbound message is logged, so the newest row is still
+    # the previous turn. A greeting belongs at the start of a conversation and
+    # nowhere else; inside one it reads as the service having forgotten you.
+    continuing_session = feedback.in_live_session(user_id) if user_id else False
     if user_id:
         profile_store.log_message(user_id, "inbound", query,
                                   gateway_message_id=message_id,
@@ -155,6 +159,7 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
             channel=channel,
             profile=profile,
             vision=vision,
+            continuing_session=continuing_session,
         )
     except Exception as e:
         # Previously this returned 200 with an {"error": ...} body, so callers

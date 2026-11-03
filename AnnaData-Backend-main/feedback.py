@@ -111,6 +111,44 @@ def current_session(user_id: str) -> int:
         return 0
 
 
+def in_live_session(user_id: str) -> bool:
+    """Whether this message continues a conversation already in progress.
+
+    Same boundary as current_session, asked as a yes or no. current_session
+    returns an id and cannot say whether it just minted one, which is the thing
+    a greeting needs to know: an opening move belongs at the start of a
+    conversation and nowhere else.
+
+    A farmer four minutes into a thread wrote "kuch nahi karo" and was answered
+    with "Namaste! It is good to hear from you again" - correct words, wrong
+    moment. Called before the inbound message is logged, so the newest row is
+    genuinely the previous turn.
+
+    False when there is no database, no history, or the lookup fails: a greeting
+    is the safe thing to get wrong, and this must never be the reason an answer
+    does not go out.
+    """
+    if not user_id or not db.is_available():
+        return False
+    try:
+        with db.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT created_at FROM messages
+                 WHERE user_id = %s
+              ORDER BY created_at DESC LIMIT 1
+                """,
+                (user_id,),
+            ).fetchone()
+    except Exception as e:
+        print(f"Session recency lookup failed for {user_id}: {e}")
+        return False
+
+    if not row or row[0] is None:
+        return False
+    return datetime.now(timezone.utc) - row[0] < timedelta(hours=SESSION_GAP_HOURS)
+
+
 # --- asking -----------------------------------------------------------------
 
 def _ensure_feedback_day(conn, user_id: str) -> int:

@@ -62,21 +62,58 @@ follows the data, not the map.
 
 ---
 
+## 0. Redeploying something already live? Read this first
+
+Three things in this file were written for the *first* deploy and will take a
+running service down if followed on a redeploy.
+
+**`--set-env-vars` replaces the entire environment.** Every variable not named
+in that one flag is deleted - `DATABASE_URL`, `EE_SERVICE_KEY`, `GOV_API_KEY`,
+all of it. On a redeploy, pass **no env flag at all** (existing variables are
+kept) or use `--update-env-vars`, which merges. Only a first deploy should use
+`--set-env-vars`.
+
+**The key is `GEMINI_API_KEY`, not `GOOGLE_API_KEY`.** Earlier revisions of this
+file said the latter. `utils.py` raises on a missing `GEMINI_API_KEY` and the
+service will not start, so a redeploy inherits a name that no longer works.
+
+**`AUTH_REQUIRED` defaults to `true`.** A deployment predating the sign-in work
+has no such setting, so bringing it up to date silently turns authentication on.
+The bridge then needs `BRIDGE_TOKEN` set to the *same value* on both services or
+every message gets a 401 - and a 401 is not retried, so the farmer gets silence
+rather than an error. Either set `BRIDGE_TOKEN` on both, or pass
+`AUTH_REQUIRED=false` in the same deploy.
+
+Check what is actually set before changing it:
+
+    gcloud run services describe annadata-backend --region asia-south1 \
+      --format="value(spec.template.spec.containers[0].env)"
+
 ## 1. Deploy the backend
 
 From `AnnaData-Backend-main/`. There is no local Docker step: Cloud Build builds
 the image from the Dockerfile in this directory.
 
+First deploy:
+
     gcloud run deploy annadata-backend \
       --source . \
-      --region asia-southeast1 \
+      --region asia-south1 \
       --allow-unauthenticated \
       --memory 1Gi \
       --cpu 1 \
       --min-instances 0 \
       --max-instances 3 \
       --timeout 300 \
-      --set-env-vars "GOOGLE_API_KEY=...,DATABASE_URL=...,GOV_API_KEY=...,METNO_USER_AGENT=..."
+      --set-env-vars "GEMINI_API_KEY=...,DATABASE_URL=...,GOV_API_KEY=...,METNO_USER_AGENT=..."
+
+Redeploy of a live service - keeps every existing variable, changes only what is
+named:
+
+    gcloud run deploy annadata-backend \
+      --source . \
+      --region asia-south1 \
+      --update-env-vars "GEMINI_API_KEY=...,AUTH_REQUIRED=false"
 
 `--min-instances 0` is what keeps this free; the service costs nothing while
 idle. `--max-instances 3` is a spending guard rail, not a capacity plan.
@@ -84,8 +121,8 @@ idle. `--max-instances 3` is a spending guard rail, not a capacity plan.
 For the Earth Engine service-account key, which is a whole JSON document and
 awkward on a command line, set it in the console afterwards, or use a file:
 
-    gcloud run services update annadata-backend --region asia-southeast1 \
-      --set-env-vars "EE_SERVICE_KEY=$(cat path/to/key.json | tr -d '\n')"
+    gcloud run services update annadata-backend --region asia-south1 \
+      --update-env-vars "EE_SERVICE_KEY=$(cat path/to/key.json | tr -d '\n')"
 
 Note the URL it prints. It looks like
 `https://annadata-backend-xxxxx-el.a.run.app`.
@@ -112,6 +149,58 @@ Add the WhatsApp variables here too if that channel is in use:
 
     curl -s https://BACKEND_URL/health
     curl -s https://BRIDGE_URL/health
+
+On the backend, read the `auth` block: `required` must agree with whether
+`BRIDGE_TOKEN` is set on both services, or SMS goes silent. If the response has
+no `auth` block at all, the deployment predates the sign-in work and is older
+than it looks - which is exactly how one environment drifted two months behind
+another without anything reporting a problem.
+
+## 3a. Commas in a value need a different delimiter
+
+`--set-env-vars` and `--update-env-vars` split on commas to separate variables,
+so a value that contains commas - `TEXT_MODELS` above all - is parsed as several
+malformed variables and the command is rejected. Change the delimiter with a
+`^sep^` prefix:
+
+    gcloud run services update annadata-backend --region asia-south1 \
+      --update-env-vars "^##^TEXT_MODELS=gemini-3.5-flash-lite,gemini-3.6-flash"
+
+`--env-vars-file` also works but replaces the entire environment, so the file
+has to list every variable the service needs.
+
+## 3b. Check that the model chain's first entry actually answers
+
+A key that cannot invoke a model does not always say so. `gemini-3.1-flash-lite`
+on one project's key neither answered nor errored - it hung, and because a hang
+never fails, the retry budget was never spent and the fallback chain was never
+reached. Answers took 109 seconds instead of 3.
+
+Time a question after any deploy, and compare against another environment if
+one exists:
+
+    time curl -sS -X POST https://BACKEND_URL/agent \
+      -H "Content-Type: application/json" \
+      -d '{"query":"When should I sow wheat in Punjab?"}'
+
+Several seconds is healthy. Tens of seconds means the chain is being led by a
+model this key cannot reach: put a reachable one first and keep the rest as
+fallbacks. `LLM_TIMEOUT` bounds the damage at 30s per call but does not remove
+it, and only a real `generateContent` call settles which models a key can use.
+
+## 4. The webhook decides which bridge is live
+
+The handset posts to whatever URL is registered with the gateway, and nothing in
+either deployment knows or reports which one that is. Two bridges can both be
+healthy while only one receives messages.
+
+    python webhook.py --list
+
+That is the authoritative answer to "which bridge is actually serving". Check it
+before concluding anything from a healthy `/health`, and re-register after
+moving the bridge to a new URL:
+
+    python webhook.py
 
 The backend should report every feature true and `database: connected`. The
 bridge should report `status: ok` and `backend_reachable: true`. If the bridge

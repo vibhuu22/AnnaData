@@ -172,6 +172,22 @@ LLM_MAX_RETRIES = int(_get("LLM_MAX_RETRIES", "1"))
 # The final model in the chain has no fallback behind it, so it gets a larger
 # budget to ride out a transient 503.
 LLM_LAST_RESORT_RETRIES = int(_get("LLM_LAST_RESORT_RETRIES", "3"))
+# Seconds any single model call may take before it is abandoned and the next
+# model in the chain is tried.
+#
+# The retry budgets above bound how many times a FAILED call is repeated. They
+# do nothing about a call that neither succeeds nor fails, and an unbounded one
+# blocks the whole answer: observed at 97 seconds for an extraction call whose
+# entire retry chain, had it errored, would have given up in about twenty.
+#
+# This is the same lesson the mandi fetch taught - a generous timeout is worth
+# having when an upstream is slow, and worthless when it is hanging. Every tool
+# in this system is bounded; the model calls were not, which made them the one
+# place a farmer could wait indefinitely.
+#
+# 30s is deliberately well above a healthy call (2-4s) and well below the SMS
+# bridge's own 150s ceiling, so the chain can try every model and still answer.
+LLM_TIMEOUT = float(_get("LLM_TIMEOUT", "30"))
 
 # --- Tunables ---
 MANDI_MAX_RECORDS = int(_get("MANDI_MAX_RECORDS", "80"))
