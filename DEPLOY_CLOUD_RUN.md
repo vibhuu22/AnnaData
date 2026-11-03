@@ -156,6 +156,38 @@ no `auth` block at all, the deployment predates the sign-in work and is older
 than it looks - which is exactly how one environment drifted two months behind
 another without anything reporting a problem.
 
+## 3a. Commas in a value need a different delimiter
+
+`--set-env-vars` and `--update-env-vars` split on commas to separate variables,
+so a value that contains commas - `TEXT_MODELS` above all - is parsed as several
+malformed variables and the command is rejected. Change the delimiter with a
+`^sep^` prefix:
+
+    gcloud run services update annadata-backend --region asia-south1 \
+      --update-env-vars "^##^TEXT_MODELS=gemini-3.5-flash-lite,gemini-3.6-flash"
+
+`--env-vars-file` also works but replaces the entire environment, so the file
+has to list every variable the service needs.
+
+## 3b. Check that the model chain's first entry actually answers
+
+A key that cannot invoke a model does not always say so. `gemini-3.1-flash-lite`
+on one project's key neither answered nor errored - it hung, and because a hang
+never fails, the retry budget was never spent and the fallback chain was never
+reached. Answers took 109 seconds instead of 3.
+
+Time a question after any deploy, and compare against another environment if
+one exists:
+
+    time curl -sS -X POST https://BACKEND_URL/agent \
+      -H "Content-Type: application/json" \
+      -d '{"query":"When should I sow wheat in Punjab?"}'
+
+Several seconds is healthy. Tens of seconds means the chain is being led by a
+model this key cannot reach: put a reachable one first and keep the rest as
+fallbacks. `LLM_TIMEOUT` bounds the damage at 30s per call but does not remove
+it, and only a real `generateContent` call settles which models a key can use.
+
 ## 4. The webhook decides which bridge is live
 
 The handset posts to whatever URL is registered with the gateway, and nothing in

@@ -1108,6 +1108,113 @@ The lesson is narrower than "retry more". The condition was written from what we
 said. A guard written against an imagined failure is worth re-reading once the
 real failure turns up, because the two rarely have the same shape.
 
+### The service was fixed on the wrong platform for half a day
+
+SMS had gone quiet. The obvious suspect was the sign-in work, which defaults
+`AUTH_REQUIRED` to true and would have had the backend answer every bridge call
+with a 401 - and a 401 is not retried, so the farmer gets silence. The Render
+backend did report `auth.required` false and `bridge_token` not set, the Render
+bridge was running code 44 commits behind the backend, and both were redeployed
+on that theory.
+
+None of it mattered. The gateway's registered webhook pointed at Cloud Run:
+
+    python webhook.py --list
+    sms:received -> https://annadata-sms-....run.app/incoming-sms
+
+Two complete deployments existed, Render and Cloud Run, both healthy, and only
+one of them had ever received a farmer's message. Every `/health` consulted that
+morning was true and irrelevant. The lesson is cheap to state and was expensive
+to learn: **the webhook decides which deployment is live, and nothing in either
+deployment reports which one that is.** A healthy service proves only that it is
+healthy.
+
+The Cloud Run backend turned out to be older than it looked, and its own
+`/health` said so to anyone who read it carefully - no `auth` block, no
+`lesion_bank`, and answers carrying no `dose_status`. A response's *shape* dates
+a deployment more honestly than a dashboard does.
+
+### A model that hangs is worse than a model that is gone
+
+Once Cloud Run was current, the same question that answers in 2.9s elsewhere
+took 109 seconds. The retry chain could not explain it: `LLM_MAX_RETRIES` is 1,
+`LLM_LAST_RESORT_RETRIES` is 3 and the backoff is capped at two seconds, so
+every model failing outright gives up in about twenty. Quota was ruled out by
+the same arithmetic, and the container was not starved - one full vCPU, 1Gi,
+startup boost on, concurrency 80.
+
+The logs gave the shape of it:
+
+    10:26:36  Final query after refinement
+    10:27:11  LLM output            <- 35s
+    10:27:50  Final response        <- 39s
+
+Both model calls, not one. And 35 and 39 are 30 plus five and nine - a call
+hanging until the timeout, then failing over to a model that answers quickly.
+The first model in the chain, `gemini-3.1-flash-lite`, is not usable by that
+project's key. It does not 404. It hangs, and a hang never fails, so nothing
+counts against the retry budget and the fallback chain is never reached.
+
+This is the retired-model problem wearing a different face. `models.list`
+lying about what a key can invoke was survivable because the failure was a 404
+and failover took a second. Silence from the same cause costs a hundred times
+more. **Reordering the chain so a reachable model leads it took answers from
+109s to 5.3s** - a configuration change, no code involved.
+
+The code change that matters is smaller and duller: nothing bounded how long one
+model call could take. Every tool in this system has a timeout because
+data.gov.in taught that lesson at ninety seconds a question. The model calls
+never got one, which made them the only place a farmer could wait without limit.
+`LLM_TIMEOUT` now bounds them at 30s.
+
+It has to be bound as a *call* kwarg, which is the same trap `max_retries` set
+here before. `timeout` is declared on the base model, so the constructor accepts
+it and `ChatGoogleGenerativeAI` then never reads it - only `llms.py` does, and
+that is a different class. Verified against the pinned 2.1.9 source rather than
+assumed, after writing it the wrong way first.
+
+### A greeting in the middle of a conversation
+
+Reading a morning of real SMS again, as the thirty-four-message morning was
+read, turned up a farmer being greeted mid-thread:
+
+    10:17:46  us       Namaste! It is good to hear from you again. How are ...
+    10:21:33  farmer   accha
+    10:21:37  farmer   kuch nahi karo
+    10:24:00  us       Namaste! It is good to hear from you again. How are ...
+
+A farmer closing a conversation - *fine*, *do nothing* - was answered with an
+opening move, four minutes after the last one.
+
+The routing is sound as far as it goes. Smalltalk carrying a topic is already
+treated as a continuation, and a short reply following a question we asked is
+already treated as an answer. Neither guard fires here, correctly: *accha* and
+*kuch nahi karo* carry no topic, and `answers_our_question` requires our last
+reply to contain a question mark, which it will not when the previous turn
+happened to end on a statement.
+
+What is actually wrong is one line further on. `greet(query, profile, channel)`
+is **history-blind**. Its prompt opens "A farmer has sent a greeting" and
+branches only on whether the profile is recognised, so it can tell a stranger
+from a returning farmer and cannot tell either from someone four minutes into a
+live conversation. Given a known profile it produces a resumption - which is
+right on first contact of the day and wrong as the fifth message of a thread.
+
+The concept it is missing already exists in this codebase. `feedback.py` has
+`SESSION_GAP_HOURS`, two hours of silence being what ends a conversation. A
+greeting is an opening move and belongs only at the start of a session; inside
+one it should be a brief acknowledgement. Checked against the same log that gap
+also settles the earlier case correctly - *shukriya* arrived four and a half
+hours after the previous turn, which is a new session, and greeting it was
+defensible.
+
+Worth recording alongside: three outbound messages went out for two inbound in
+that same window. The backend was taking 35 to 75 seconds a question at the
+time and the bridge's ceiling is 150, so a retry producing a duplicate reply is
+the likely cause, and each duplicate costs a real segment off the SIM. It should
+stop now that answers take five seconds, which makes it a thing to watch rather
+than a thing to fix blind.
+
 ---
 
 ## 4. Two kinds of memory
