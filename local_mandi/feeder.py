@@ -137,9 +137,17 @@ def publish(state, rows, database_url, stop):
                 ON CONFLICT (state, commodity) DO UPDATE SET
                   summary = EXCLUDED.summary, records = EXCLUDED.records, fetched_at = now()""",
                 (state_key(state), summary(rows), json.dumps(rows)))
-            # Legacy cloud readers prefer any commodity key, even months-old keys.
-            # They must fall back to the complete fresh state snapshot instead.
-            conn.execute("DELETE FROM mandi_cache WHERE state = %s AND commodity <> ''", (state_key(state),))
+            # Crop-specific rows are deliberately left alone. They used to be
+            # deleted here because the reader ordered by exact crop before
+            # recency, so a months-old (state, potato) row outranked a snapshot
+            # published this morning. The reader now ranks by date first and
+            # narrows the state snapshot to the crop it was asked about, which
+            # is tested, so nothing needs removing for fresh prices to win.
+            #
+            # Not deleting them is the safer property for a job that runs
+            # unattended: this publisher only ever inserts, so a bad run cannot
+            # destroy the only prices on file. Those older rows stay as a
+            # fallback and lose on age the moment a snapshot lands.
             count = conn.execute("SELECT jsonb_array_length(records) FROM mandi_cache WHERE state=%s AND commodity=''",
                                  (state_key(state),)).fetchone()[0]
             if count != len(rows):
