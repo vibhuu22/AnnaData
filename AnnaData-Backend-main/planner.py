@@ -107,3 +107,52 @@ def missing_slots(intent: str, *, crop: str | None, location: str | None,
     """Which required details this question is still missing, most useful first."""
     have = {"crop": bool(crop), "location": bool(location), "state": bool(state)}
     return [slot for slot in REQUIRED_SLOTS[normalise_intent(intent)] if not have.get(slot)]
+
+
+# --- Greeting ---------------------------------------------------------------
+#
+# A short message with no question in it is one of three things, and they need
+# genuinely different replies. The old code read only the profile, which
+# separates a stranger from a returning farmer and separates neither of them
+# from someone four minutes into a live conversation - so a farmer who wrote
+# "kuch nahi karo" was answered with "It is good to hear from you again. How
+# are your wheat fields?".
+#
+# This lives here rather than in Agent.py for the reason everything else here
+# does: it is a routing decision made from facts already in hand, so it costs
+# no model call and can be checked without one.
+
+GREETING_MODES = ("continuation", "returning", "first_contact")
+
+
+def profile_facts(profile) -> list:
+    """What we already know about this farmer, phrased for a prompt."""
+    known = []
+    if profile:
+        if profile.get("location_text"):
+            known.append(f"they farm near {profile['location_text']}")
+        if profile.get("crops"):
+            known.append(f"they grow {', '.join(profile['crops'])}")
+    return known
+
+
+def greeting_mode(profile, continuing_session: bool = False) -> str:
+    """Which of the three a smalltalk message actually is.
+
+      continuation  - mid-conversation. "accha", "shukriya", "kuch nahi karo":
+                      the farmer is acknowledging or closing, not arriving. An
+                      opening move here is wrong however warmly it is worded,
+                      and on SMS it is a billed segment saying nothing.
+      returning     - a known farmer starting a fresh conversation. Resume
+                      rather than re-introduce.
+      first_contact - nobody we know. Say what the service is for.
+
+    Session state wins over the profile: whether we recognise someone says
+    nothing about whether we are already talking to them. `continuing_session`
+    is false whenever the database is unavailable or the lookup failed, which
+    makes the default a greeting - clumsy in the wrong place, but never the
+    reason an answer fails to go out.
+    """
+    if continuing_session:
+        return "continuation"
+    return "returning" if profile_facts(profile) else "first_contact"

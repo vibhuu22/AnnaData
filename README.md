@@ -480,6 +480,7 @@ deterministic tests:
 | `eval/test_romanisation.py` | Rare nondeterministic output would make a case pass or fail on the roll of the model. Checks the correction, on hand-written inputs |
 | `eval/test_profile_location.py` | Profile and location-precision bookkeeping |
 | `eval/test_retry.py` | Transport classification: which backend statuses the bridge waits out and which it drops. The model never sees a status code, and the fault it guards against produces *no message at all* |
+| `eval/test_greeting.py` | Whether a short message is an arrival or someone closing a conversation. Decided before any model is called, and what it picks is which instruction the model is then given |
 
 A suite that can only express "ask the model and look at the answer" quietly
 leaves the deterministic half of the system untested — and that half is where

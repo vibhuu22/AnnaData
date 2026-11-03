@@ -361,30 +361,60 @@ def handle_correction(query: str, history, channel: str) -> str:
     return llm.invoke([HumanMessage(content=prompt)]).content.strip()
 
 
-def greet(query: str, profile, channel: str) -> str:
+_GREETING_INSTRUCTION = {
+    "continuation": (
+        "You are already in the middle of a conversation with this farmer, and "
+        "they have just acknowledged you or signalled they are done - something "
+        "like 'thanks', 'ok', or 'nothing more'. Reply the way a person would: "
+        "one short, warm line accepting it, and tell them they can write again "
+        "whenever they need something. Do NOT greet them, do NOT say it is good "
+        "to hear from them, do NOT ask how their crop is doing, and do NOT open "
+        "a new topic. They are closing, not starting."
+    ),
+    "returning": (
+        "This is someone you already know: {known}. Greet them as you would "
+        "someone you have spoken to before - briefly and by name of place if "
+        "you know it. Do NOT recite your full list of capabilities to a farmer "
+        "who has already used the service; they know. Ask what they need today."
+    ),
+    "first_contact": (
+        "You have not spoken to this farmer before. Introduce yourself in one "
+        "sentence: you are AnnaData, an agricultural advisor they can text any "
+        "time, free. Then say what is worth asking about - pests and diseases, "
+        "fertiliser, irrigation, sowing times, weather, and support prices - and "
+        "invite them to say where they farm and what they grow."
+    ),
+}
+
+
+def greet(query: str, profile, channel: str,
+          continuing_session: bool = False) -> str:
     """Answer a greeting by saying what this service can actually do.
 
     A greeting previously fell through to the advice path and produced a
     lecture on wheat sowing, which answers a question nobody asked. What a
     farmer needs on first contact is to know what is worth asking.
+
+    What a farmer mid-conversation needs is the opposite, and that case was
+    missing: this said "It is good to hear from you again. How are your wheat
+    fields?" to someone who had written "kuch nahi karo" four minutes earlier.
+    Mid-thread, the right reply is short and closes gracefully - and on SMS it
+    is also a billed segment, so a greeting nobody asked for costs real money.
     """
     style = style_for(channel, query)
-    known = []
-    if profile:
-        if profile.get("location_text"):
-            known.append(f"they farm near {profile['location_text']}")
-        if profile.get("crops"):
-            known.append(f"they grow {', '.join(profile['crops'])}")
+    mode = planner.greeting_mode(profile, continuing_session)
+    instruction = _GREETING_INSTRUCTION[mode]
+    if mode == "returning":
+        instruction = instruction.format(
+            known=" and ".join(planner.profile_facts(profile)))
 
-    returning = bool(known)
     prompt = f"""
-    A farmer has sent a greeting.
+    A farmer has sent a short message with no question in it.
 
-    {"This is someone you already know: " + " and ".join(known) + ". Greet them as you would someone you have spoken to before - briefly and by name of place if you know it. Do NOT recite your full list of capabilities to a farmer who has already used the service; they know. Ask what they need today." if returning else
-     "You have not spoken to this farmer before. Introduce yourself in one sentence: you are AnnaData, an agricultural advisor they can text any time, free. Then say what is worth asking about - pests and diseases, fertiliser, irrigation, sowing times, weather, and support prices - and invite them to say where they farm and what they grow."}
+    {instruction}
 
     Be warm and human. No lists, no bullet points, no formal announcements.
-    Do NOT give farming advice they did not ask for. Invite their question.
+    Do NOT give farming advice they did not ask for.
 
     {script_instruction(query)}
 
@@ -619,6 +649,7 @@ def run_agent(
     channel: str = "web",
     profile: Optional[dict] = None,
     vision: Optional[dict] = None,
+    continuing_session: bool = False,
 ) -> AgentResult:
     """Answer a farmer's question and report what was learned and used.
 
@@ -764,7 +795,7 @@ def run_agent(
     # answer below, which would otherwise swallow it.
     if message_type == "smalltalk":
         return AgentResult(
-            greet(query, profile, channel),
+            greet(query, profile, channel, continuing_session),
             tools_used=["greeting"], intent=intent, message_type=message_type, **facts
         )
 
