@@ -1065,6 +1065,49 @@ the problem - a token that must be exact, produced by a process that is right
 most of the time - is the third instance of the pattern that produced
 `output_guards.py`, and the answer was the same on all three.
 
+### The retry built for a cold backend did not catch what a cold backend returns
+
+A farmer texted and got nothing back. The backend was healthy: a direct request
+to `/health` answered in 0.8s and a full advisory in 18s. The bridge's own
+health check, hitting the same host, reported `agent backend returned HTTP 429`.
+
+The 429 is not the backend's. A free-tier instance that has spun down is
+answered by the platform's edge while the container starts, and the edge
+rate-limits rather than reporting the service unavailable. Thirty seconds later
+the same check returned `ok` with no problems, which is why this never showed up
+in a deliberate test - by the time anyone goes looking, the thing has woken.
+
+The bridge already had a retry loop for precisely this. It waits at roughly 0,
+20, 60 and 120 seconds against a cold start of about 140, and the comment above
+it says it exists so "a farmer who wrote after a quiet spell" does not lose
+their message. It tested `500 <= resp.status < 600`. A 429 is 4xx, so it fell
+through to `return None`: no reply sent, nothing queued, nothing logged beyond
+one line. The retry written to survive a cold backend did not fire on the status
+a cold backend actually produces.
+
+Two things kept it hidden. The branch that drops the message is the *give up*
+branch, which reads as correct - it is meant to drop malformed requests. And a
+dropped SMS produces nothing for anyone to read, which is the failure this
+project keeps meeting: silence is indistinguishable from working.
+
+It surfaced alongside a second problem worth recording. The backend had just
+moved 44 commits in a single deploy while the bridge stayed two months behind,
+and neither service reports the other's version, so nothing anywhere said they
+had diverged. A system of two independently deployed services with no version
+check will eventually run mismatched, and the first symptom will not look like a
+version problem.
+
+`config.is_waking()` now decides it: 5xx, plus 408 and 429, are waiting; 401 and
+403 are not, because the bridge will not become trusted by asking again, and
+400, 404 and 422 are not, because the payload or the endpoint is wrong and will
+stay wrong. Failing fast on those matters - retrying them spends three waits and
+about 200 seconds to reach the same refusal. `eval/test_retry.py` holds it.
+
+The lesson is narrower than "retry more". The condition was written from what we
+*assumed* a sleeping service says, and never checked against what one actually
+said. A guard written against an imagined failure is worth re-reading once the
+real failure turns up, because the two rarely have the same shape.
+
 ---
 
 ## 4. Two kinds of memory

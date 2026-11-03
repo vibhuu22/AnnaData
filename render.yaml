@@ -54,6 +54,37 @@ services:
         sync: false
       - key: AWS_SECRET_KEY
         sync: false
+      # --- Identity and sign-in -------------------------------------------
+      # These were set only in the dashboard, so a blueprint sync could wipe
+      # them and take the SMS channel down silently. Declared here so that
+      # cannot happen again.
+      #
+      # `sync: false` is deliberate rather than lazy: Render prompts once and
+      # then leaves the dashboard value alone. This switch gets flipped during
+      # an incident, and a later sync must not quietly turn auth back on while
+      # the bridge is still on old code.
+      - key: AUTH_REQUIRED
+        sync: false
+      # Unset, the backend generates a secret per process, so every restart
+      # signs every farmer out. Letting Render generate and keep one fixes that.
+      - key: AUTH_SECRET
+        generateValue: true
+      # Proves the SMS bridge is the SMS bridge. The bridge copies this exact
+      # value via `fromService` below, so the two can never drift apart - which
+      # is the failure this variable existed to cause when set by hand.
+      - key: BRIDGE_TOKEN
+        generateValue: true
+      # Sending sign-in codes through the handset gateway. Same credentials as
+      # the bridge's APP_USERNAME / PASSWORD. Without them nobody can sign in
+      # on the web, and /health reports code_transport as "console".
+      - key: SMS_GATEWAY_USER
+        sync: false
+      - key: SMS_GATEWAY_PASSWORD
+        sync: false
+      # Retrieval floor, measured against the current corpus. Re-measure
+      # whenever the corpus grows materially - it has been broken once already.
+      - key: RAG_MIN_SIMILARITY
+        value: "0.70"
 
   # --------------------------------------------------------------- SMS bridge
   - type: web
@@ -96,6 +127,23 @@ services:
         sync: false
       - key: MAX_SMS_SEGMENTS
         value: "4"
+      # Must be byte-identical to the backend's, or the backend does not believe
+      # the bridge is the bridge. `envVarKey` copies the VALUE of another
+      # service's variable, which is exactly what is wanted here - unlike
+      # `property: host` warned about above, which yields an internal hostname.
+      - key: BRIDGE_TOKEN
+        fromService:
+          type: web
+          name: annadata-backend
+          envVarKey: BRIDGE_TOKEN
+      # Optional second channel, and redundancy for the single handset. Without
+      # these the bridge serves SMS and web only.
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
 
   # ----------------------------------------------------------------- frontend
   - type: web

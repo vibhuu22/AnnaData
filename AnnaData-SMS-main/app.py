@@ -177,7 +177,7 @@ async def generate_response(message: str, phone: str, message_id: str | None,
                 body = await resp.text()
                 if resp.status != 200:
                     print(f"AI API error {resp.status} (attempt {attempt}): {body[:300]}")
-                    if 500 <= resp.status < 600 and attempt < config.AI_ATTEMPTS:
+                    if config.is_waking(resp.status) and attempt < config.AI_ATTEMPTS:
                         # A cold backend refuses immediately, so retrying at
                         # once just collects the same refusal. Waiting is what
                         # gives it time to finish waking; without this, a farmer

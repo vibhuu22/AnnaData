@@ -470,7 +470,7 @@ price or subsidy, a capability not offered while it is failing. Tags exist
 because the free tier's daily quota does not fit the suite. Twenty-eight were
 passing at the last recorded full run; ten have been added since.
 
-Three kinds of fault cannot be written as a model case, and have their own
+Several kinds of fault cannot be written as a model case, and have their own
 deterministic tests:
 
 | Test | Why it cannot be a case |
@@ -479,6 +479,7 @@ deterministic tests:
 | `eval/test_mandi.py` | Selection logic: the model never sees the rows wrongly included. Runs against fixtures from a real day's publication, so it costs no model calls |
 | `eval/test_romanisation.py` | Rare nondeterministic output would make a case pass or fail on the roll of the model. Checks the correction, on hand-written inputs |
 | `eval/test_profile_location.py` | Profile and location-precision bookkeeping |
+| `eval/test_retry.py` | Transport classification: which backend statuses the bridge waits out and which it drops. The model never sees a status code, and the fault it guards against produces *no message at all* |
 
 A suite that can only express "ask the model and look at the answer" quietly
 leaves the deterministic half of the system untested — and that half is where
@@ -616,9 +617,14 @@ the risk sits.
   says so when asked.
 - **data.gov.in** returns 502 for days at a time. A circuit breaker stops
   farmers waiting out the timeouts.
-- **`.env.example` and `render.yaml` predate sign-in.** `AUTH_SECRET`,
-  `BRIDGE_TOKEN`, `AUTH_REQUIRED`, `SMS_GATEWAY_*`, `RAG_MIN_SIMILARITY` and the
-  WhatsApp variables must be set by hand. See sections 7 and 9.
+- **`.env.example` predates sign-in.** `render.yaml` no longer does:
+  `AUTH_REQUIRED`, `AUTH_SECRET`, `BRIDGE_TOKEN`, `SMS_GATEWAY_*`,
+  `RAG_MIN_SIMILARITY` and the WhatsApp variables are declared there now, with
+  `BRIDGE_TOKEN` generated on the backend and copied to the bridge via
+  `fromService`, so the two cannot drift apart. See sections 7 and 9.
+- **The two services deploy independently, and nothing checks they agree.**
+  The backend ran 44 commits ahead of the bridge for a day without either
+  reporting a problem. Until a version check exists, deploy both together.
 - **CRA is unmaintained.** It builds fine today; Vite is the eventual path.
 - **One farmer.** The rating loop, the session features and the eval harness all
   work. What is missing is people using the service.
