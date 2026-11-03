@@ -26,11 +26,13 @@ DEVICE_PORT = _get("DEVICE_PORT", "8080")
 
 USERNAME = _get("APP_USERNAME")
 PASSWORD = _get("PASSWORD")
+SMS_WEBHOOK_SIGNING_KEY = _get("SMS_WEBHOOK_SIGNING_KEY")
 
 # --- WhatsApp Cloud API (optional second channel) -------------------------
 # Absent credentials disable the channel and nothing else, the same way every
 # other integration in this project is optional rather than fatal.
 WHATSAPP_TOKEN = _get("WHATSAPP_TOKEN")
+WHATSAPP_APP_SECRET = _get("WHATSAPP_APP_SECRET")
 WHATSAPP_PHONE_NUMBER_ID = _get("WHATSAPP_PHONE_NUMBER_ID")
 # Any string; it is echoed back to Meta during webhook verification to prove
 # the endpoint belongs to whoever configured the app.
@@ -148,6 +150,10 @@ STOP_REPLY = _get(
     "STOP_REPLY",
     "Your saved details have been deleted. Message us any time to start again.",
 )
+STOP_FAILURE_REPLY = _get(
+    "STOP_FAILURE_REPLY",
+    "We could not delete your saved details just now. Please send STOP again shortly.",
+)
 
 
 def public_url() -> str | None:
@@ -189,6 +195,12 @@ def validate() -> list[str]:
         problems.append("APP_USERNAME / PASSWORD not set (gateway credentials)")
     if not AI_ENDPOINT:
         problems.append("AI_ENDPOINT not set (backend /agent URL)")
+    if not SMS_WEBHOOK_SIGNING_KEY:
+        problems.append("SMS_WEBHOOK_SIGNING_KEY not set (SMS webhooks disabled)")
+    if whatsapp_enabled() and not WHATSAPP_APP_SECRET:
+        problems.append("WHATSAPP_APP_SECRET not set (WhatsApp webhooks disabled)")
+    if not BRIDGE_TOKEN:
+        problems.append("BRIDGE_TOKEN not set (backend authentication unavailable)")
     try:
         base_url()
     except RuntimeError as e:

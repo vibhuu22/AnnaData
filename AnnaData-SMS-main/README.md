@@ -1,5 +1,29 @@
 # AnnaData SMS Bridge
 
+## Authentication rollout
+
+Inbound SMS now verifies `X-Signature` over the raw body plus `X-Timestamp`,
+using `SMS_WEBHOOK_SIGNING_KEY`. Copy the key from the handset's SMS Gateway
+Settings -> Webhooks -> Signing Key into the bridge deployment secret. Timestamps
+must be within five minutes; keep the handset clock automatic. This follows the
+[gateway signing protocol](https://docs.sms-gate.app/features/webhooks/).
+
+WhatsApp POSTs require `WHATSAPP_APP_SECRET`, the Meta application secret, and
+`X-Hub-Signature-256`. The GET verification token is not the POST signing secret.
+See [Meta's webhook authentication reference](https://whatsapp.github.io/WhatsApp-Nodejs-SDK/api-reference/webhooks/start/).
+
+Configure these secrets **before deploying this revision**. Missing secrets return
+503; invalid, missing or stale signatures return 401 before message processing.
+Set the same `BRIDGE_TOKEN` on backend and bridge. No webhook URL change is needed.
+Test a real inbound SMS after deployment and check delivery on the handset.
+
+The current in-memory deduplication and background tasks are not a durable queue.
+These authentication changes do not solve message loss during restarts or Cloud
+Run CPU throttling. Durable work dispatch remains a release blocker for a pilot.
+
+Offline tests: `python -m unittest discover -s tests -v`. They mock processing and
+outbound sends; no real messages are sent.
+
 Receives incoming SMS from the [SMS Gateway for Android](https://github.com/capcom6/android-sms-gateway), forwards the text to the AnnaData agent backend, and sends the answer back as an SMS.
 
 Deployment is covered in the [root runbook](../README.md). This file covers the service itself.
