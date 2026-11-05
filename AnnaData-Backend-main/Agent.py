@@ -62,9 +62,18 @@ def temporal_context() -> str:
 # append this instruction to the farmer's message, which meant the query parser
 # saw it as part of the question and could mis-extract crop and location.
 CHANNEL_STYLE = {
+    # Tightened after the founder found web answers good but padded - things
+    # said that nobody asked for, where the same question by SMS (two or three
+    # sentences) went straight to the point. The web may be longer than SMS,
+    # but it should not be a different kind of answer.
     "web": (
-        "Keep the answer concise, ideally under 250 words. "
-        "Format it clearly using markdown."
+        "This answer is read on a phone screen. Answer exactly what the farmer "
+        "asked, in the first sentence. Keep it short: usually 60 to 150 words, "
+        "never more than 220. Use markdown only where it helps the farmer find "
+        "something - a short list for steps or products, bold for a product name "
+        "or a dose - and no headings for a short answer. Do not add background, "
+        "general tips, data or warnings they did not ask for and that would not "
+        "change what they do. Finish every sentence you begin."
     ),
     # WhatsApp has no segment budget, so the SMS economy does not apply - but a
     # farmer reading on a phone still wants the answer, not an essay. Light
@@ -261,7 +270,7 @@ def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: st
 
     prompt = f"""
     **Role and Goal:**
-    You are a highly knowledgeable agronomist and expert agricultural advisor, specializing in Indian farming conditions. Your goal is to provide a detailed, scientifically valid, and practical answer to the farmer's question, using the provided conversation history for context.
+    You are a highly knowledgeable agronomist and expert agricultural advisor, specializing in Indian farming conditions. Your goal is to provide a scientifically valid, practical answer to the farmer's question, no longer than the question needs, using the provided conversation history for context.
 
     **Current date and season:**
     {temporal}
@@ -549,7 +558,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     - A PHOTOGRAPH IS EVIDENCE, NOT A DIAGNOSIS. Where a WHAT THE PHOTOGRAPH SHOWS section is present, treat it as what a careful person could see in one picture and nothing more. Say what you are going off - "from the photo, this looks like leaf blast" - so the farmer can tell you if it is wrong. Where its confidence is low, or it names no pest at all, say plainly that the picture is not enough to be sure, name the one or two things it could be, and ask for the single detail that would separate them - where on the plant the damage started, whether it is spreading, how the underside of the leaf looks. Where that section says NOT CONFIRMED, the picture was checked against labelled photographs of the same crop and they did not agree on one disease: name the two or three it could be, say plainly that a photograph cannot separate them, give the measures that are safe whichever it is - removing and destroying affected material, field sanitation, drainage, stopping excess nitrogen - and ask for the one detail that would settle it. Do NOT quote a dose in that case even if one appears above, because it is a dose for a disease not yet established. Where the section says CORROBORATED, say so in ordinary words - that plants with these exact symptoms are on record with this disease - and proceed normally. Hedge the IDENTIFICATION, never the dose. Once a pest has been matched in the register, where the name came from - the farmer's words or the photograph - changes nothing about which products are registered against it, and the rule above applies unchanged: give at least one, with its dose, and say what it treats. "It looks like blast, and for blast on rice the registered options are..." is the shape of a good answer. Refusing a registered dose because the pest was identified from a picture leaves the farmer with neither a diagnosis nor a treatment, which is the worst of both. Never describe a part of the plant the photograph did not contain.
     - WHEN THE FARMER SAYS THEY CANNOT DO WHAT YOU SUGGESTED - no animals for dung, no irrigation, no money for a product, no tractor - that is not the end of the conversation and it is not a reason to start over. Do not repeat the suggestion they just ruled out, and do not ask a fresh unrelated question. Give them the next best option that fits what they DO have: compost can be bought or made from crop residue alone, green manure can be grown, a neighbour's dairy sells dung. Name the alternative in the same breath as acknowledging the constraint.
     - End with ONE short, specific question only where the answer would genuinely change with it - the crop stage, how widespread the damage is, whether they have irrigation. Never ask for something already given above. If nothing useful is missing, end with the advice.
-    - Format response clearly into sections.
+    - Use sections only if the answer genuinely has separate parts; a short answer needs none.
 
     {conversation}
     Context:

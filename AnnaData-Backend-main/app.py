@@ -201,6 +201,9 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
     that remembered nothing.
     """
     started = time.monotonic()
+    # The web sends the open chat's own turns as history; SMS sends none and
+    # its context comes from the database. Kept before that lookup fills it in.
+    chat_history_sent = history is not None and channel != "sms"
     profile = profile_store.get_profile(user_id) if user_id else None
 
     # An explicit position in the request wins; otherwise fall back to what we
@@ -225,7 +228,16 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
     # Asked before the inbound message is logged, so the newest row is still
     # the previous turn. A greeting belongs at the start of a conversation and
     # nowhere else; inside one it reads as the service having forgotten you.
-    continuing_session = feedback.in_live_session(user_id) if user_id else False
+    #
+    # On the web the conversation is the chat. A "hii" in a new chat is an
+    # arrival, even if the same farmer was talking in another chat a minute
+    # ago - judged by the session instead, it was taken for a goodbye and
+    # answered "You're very welcome". So the chat's own turns decide there; the
+    # time-based session still decides for SMS, which has no chats.
+    if chat_history_sent:
+        continuing_session = bool(history)
+    else:
+        continuing_session = feedback.in_live_session(user_id) if user_id else False
     if user_id:
         chat = _chat(chat_id)
         profile_store.log_message(user_id, "inbound", query,

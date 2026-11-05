@@ -78,6 +78,26 @@ check("done carries the authoritative answer, with anything added at the end",
 check("and the fields /agent returns", (done["dose_status"], done["tools_used"]), ("available", ["doses"]))
 check("the agent was asked to stream", calls[-1], True)
 
+print("\nA new web chat is a new conversation")
+seen = {}
+
+
+def spy_agent(query, **kw):
+    seen.update(kw)
+    return AgentResult("Namaste!", tools_used=["greeting"])
+
+
+appmod.run_agent = spy_agent
+appmod.feedback.in_live_session = lambda user_id: True  # talked a minute ago, in another chat
+web.post("/agent/stream", json={"query": "hii", "history": []}, headers=G)
+check("hello in a new chat is an arrival, not a goodbye", seen.get("continuing_session"), False)
+web.post("/agent/stream", json={"query": "theek hai", "history": [
+    {"role": "user", "content": "Kapas me sundi"}, {"role": "assistant", "content": "Acephate..."}]}, headers=G)
+check("a short reply inside a chat continues it", seen.get("continuing_session"), True)
+web.post("/agent", json={"query": "hii", "channel": "sms"}, headers=G)
+check("SMS, which has no chats, still goes by the session", seen.get("continuing_session"), True)
+appmod.run_agent = fake_agent
+
 print("\nSMS never streams")
 web.post("/agent/stream", json={"query": "q", "channel": "sms"}, headers=G)
 check("channel sms: the agent is not asked to stream", calls[-1], False)
