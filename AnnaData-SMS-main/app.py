@@ -3,6 +3,7 @@ import encoding_setup  # noqa: F401  (must be first)
 import asyncio
 import re
 import time
+from uuid import uuid4, uuid5, NAMESPACE_URL
 
 import aiohttp
 from quart import Quart, request, jsonify
@@ -145,7 +146,7 @@ async def send_feedback_requests() -> dict:
 
 
 async def generate_response(message: str, phone: str, message_id: str | None,
-                            channel: str = "sms") -> str | None:
+                            channel: str = "sms", request_id: str | None = None) -> str | None:
     """Ask the agent backend for a reply, already trimmed for SMS."""
     if not config.AI_ENDPOINT:
         print("AI_ENDPOINT not configured")
@@ -162,6 +163,7 @@ async def generate_response(message: str, phone: str, message_id: str | None,
         "channel": channel,
         "user_id": phone,
         "message_id": message_id,
+        "request_id": request_id or str(uuid4()),
     }
 
     # A sleeping backend can take over two minutes to wake, which is longer
@@ -226,6 +228,27 @@ async def generate_response(message: str, phone: str, message_id: str | None,
             print(f"AI request failed (attempt {attempt}): {e}")
 
     return None
+
+
+def request_key(channel, phone, message_id):
+    # Re-delivered gateway messages and backend retries retain one logical ID.
+    return str(uuid5(NAMESPACE_URL, f'annadata:{channel}:{phone}:{message_id}')) if message_id else str(uuid4())
+
+
+async def record_delivery(request_id, accepted, segments=None):
+    base = config.backend_base()
+    if not base:
+        return
+    try:
+        async with http_session().post(f'{base}/telemetry/delivery',
+            json={'request_id': request_id,
+                  'status': 'gateway_accepted' if accepted else 'send_failed',
+                  'sms_segments': segments}, headers=config.bridge_headers(),
+            timeout=aiohttp.ClientTimeout(total=5)) as response:
+            if response.status != 200:
+                print(f'Delivery telemetry unavailable: HTTP {response.status}')
+    except Exception:
+        print('Delivery telemetry unavailable; message send result is unchanged')
 
 
 # === SMS Sending ===
@@ -317,10 +340,12 @@ async def process_sms(data: dict):
         await send_sms(phone, config.FEEDBACK_THANKS)
         return
 
-    reply = await generate_response(msg, phone, payload.get("messageId"))
+    request_id = request_key('sms', phone, payload.get('messageId'))
+    reply = await generate_response(msg, phone, payload.get("messageId"), request_id=request_id)
     if reply:
         print("AI Reply:", reply)
-        await send_sms(phone, reply)
+        accepted = await send_sms(phone, reply)
+        await record_delivery(request_id, accepted, segment_count(reply))
     else:
         await send_sms(
             phone,
@@ -425,12 +450,15 @@ async def process_whatsapp(incoming: dict):
         await whatsapp.send(http_session(), sender, config.FEEDBACK_THANKS)
         return
 
+    request_id = request_key('whatsapp', sender, incoming.get('message_id'))
     reply = await generate_response(text, sender, incoming.get("message_id"),
-                                    channel="whatsapp")
-    await whatsapp.send(
+                                    channel="whatsapp", request_id=request_id)
+    accepted = await whatsapp.send(
         http_session(), sender,
         reply or "Sorry, AnnaData could not answer right now. Please try again shortly."
     )
+    if reply:
+        await record_delivery(request_id, accepted)
 
 
 @app.get("/whatsapp")

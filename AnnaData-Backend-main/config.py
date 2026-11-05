@@ -9,6 +9,9 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+# Optional local admin configuration. Production uses environment secrets.
+from pathlib import Path
+load_dotenv(Path(__file__).with_name('.env.admin'))
 
 
 def _get(name: str, default: str | None = None) -> str | None:

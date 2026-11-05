@@ -599,7 +599,7 @@ class AgentResult:
     __slots__ = ("answer", "crop", "state", "location", "latitude", "longitude",
                  "location_kind", "district",
                  "tools_used", "missing_slots", "intent", "message_type",
-                 "dose_status")
+                 "dose_status", "source_evidence")
 
     def __init__(self, answer, crop=None, state=None, location=None,
                  latitude=None, longitude=None, tools_used=None,
@@ -608,6 +608,8 @@ class AgentResult:
                  evidence=None):
         # All return paths pass here, including direct replies and corrections.
         self.answer, _ = output_guards.scrub(answer, evidence or {})
+        from metrics_store import evidence_summary
+        self.source_evidence = evidence_summary(evidence)
         self.crop = crop
         self.state = state
         self.location = location
