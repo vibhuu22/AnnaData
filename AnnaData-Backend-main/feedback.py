@@ -203,6 +203,16 @@ def due_for_feedback() -> list[str]:
                   FROM farmers f
                   JOIN messages m ON m.user_id = f.user_id
                  WHERE (f.feedback_asked_at IS NULL OR f.feedback_asked_at < %s)
+                   -- Only a conversation that happened over SMS is asked about
+                   -- over SMS. A signed-in farmer's id is their phone number on
+                   -- the web too, and without this they were texted - at the
+                   -- founder's expense - to rate a chat they had in a browser,
+                   -- where the answer already carries its own thumbs up and down.
+                   -- Rows from before replies recorded a channel count as SMS,
+                   -- which is all there was then.
+                   AND COALESCE((SELECT o.meta->>'channel' FROM messages o
+                                  WHERE o.user_id = f.user_id AND o.direction = 'outbound'
+                               ORDER BY o.created_at DESC LIMIT 1), 'sms') = 'sms'
                    AND NOT EXISTS (SELECT 1 FROM feedback fb
                                     WHERE fb.user_id = f.user_id
                                       AND fb.created_at >= %s)
@@ -389,6 +399,18 @@ def record(user_id: str, rating: int, raw_message: str, session_id: int | None) 
     except Exception as e:
         print(f"Could not record rating for {user_id}: {e}")
         return False
+
+
+def record_web(user_id: str, up: bool, note: str = "") -> bool:
+    """A thumbs up or down on a web answer, stored with the SMS ratings.
+
+    On the same 1-5 scale so one summary covers both channels: up is 5, down
+    is 1. The raw message says it came from the web, so the two can still be
+    told apart - a tap is not the same signal as a farmer typing "4".
+    """
+    session_id = current_session(user_id)
+    raw = ("web: up" if up else "web: down") + (f" - {note}" if note else "")
+    return record(user_id, 5 if up else 1, raw, session_id)
 
 
 def summary() -> dict:

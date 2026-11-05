@@ -70,23 +70,62 @@ async function errorFrom(response) {
 }
 
 /**
+ * Read a streamed answer: newline-separated JSON events, as they arrive.
+ * Returns the `done` event's fields, which are exactly what /agent returns.
+ */
+async function readEvents(response, { onHeard, onText }) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let done = null;
+  const handle = (line) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line);
+    if (event.type === "heard") onHeard?.(event.transcript || "", event.vision || null);
+    else if (event.type === "text") onText?.(event.text || "");
+    else if (event.type === "done") done = event;
+    else if (event.type === "error") {
+      throw new Error(`API error ${event.status || 502}: ${event.detail || "the answer failed"}`);
+    }
+  };
+  for (;;) {
+    const { value, done: finished } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !finished });
+    let newline;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      handle(buffer.slice(0, newline));
+      buffer = buffer.slice(newline + 1);
+    }
+    if (finished) break;
+  }
+  handle(buffer);
+  if (!done) throw new Error("The answer was cut off. Please try again.");
+  return done;
+}
+
+/**
  * Ask the agent one question, with an optional photo and voice note.
  *
- * Media goes to /agent/media as multipart in a single round trip. The previous
- * version described the media at one endpoint, spliced the description into the
- * text box as a parenthetical, and posted that to /agent - two sequential waits,
- * and a structured reading of the photograph flattened into prose.
+ * Media goes to /agent/media as multipart in a single round trip.
+ *
+ * STREAMED WHERE IT CAN BE. With `onText`, the question goes to the /stream
+ * form of the endpoint and each checked sentence of the answer is handed to
+ * onText as it is written - the screen fills in, and voice mode starts
+ * speaking, while the rest is still being written. `onHeard` receives what the
+ * microphone was heard to say as soon as it is known. A backend without the
+ * stream endpoints (404) is asked the ordinary way, so the two can be deployed
+ * in either order.
  *
  * Always resolves. A failure comes back as { answer, error } so the caller can
  * render it as a message rather than having to catch.
  */
-export async function ask({ text = "", history = [], image = null, audio = null }) {
+export async function ask({ text = "", history = [], image = null, audio = null, onHeard, onText }) {
   const coords = await getCoordinates();
   const hasMedia = Boolean(image || audio);
+  const canStream = Boolean(onText) && typeof ReadableStream !== "undefined" && typeof TextDecoder !== "undefined";
 
-  try {
-    let response;
-
+  const send = (streamed) => {
+    const suffix = streamed ? "/stream" : "";
     if (hasMedia) {
       const form = new FormData();
       if (image) form.append("image", image, image.name || "photo.jpg");
@@ -100,22 +139,26 @@ export async function ask({ text = "", history = [], image = null, audio = null 
         form.append("longitude", String(coords.longitude));
       }
       // No Content-Type header: the browser sets it with the multipart boundary.
-      response = await fetch(`${getApiUrl()}/agent/media`, {
-        method: "POST",
-        headers: askHeaders(),
-        body: form,
-      });
-    } else {
-      const body = { query: text, history };
-      if (coords) {
-        body.latitude = coords.latitude;
-        body.longitude = coords.longitude;
-      }
-      response = await fetch(`${getApiUrl()}/agent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...askHeaders() },
-        body: JSON.stringify(body),
-      });
+      return fetch(`${getApiUrl()}/agent/media${suffix}`, { method: "POST", headers: askHeaders(), body: form });
+    }
+    const body = { query: text, history };
+    if (coords) {
+      body.latitude = coords.latitude;
+      body.longitude = coords.longitude;
+    }
+    return fetch(`${getApiUrl()}/agent${suffix}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...askHeaders() },
+      body: JSON.stringify(body),
+    });
+  };
+
+  try {
+    let streamed = canStream;
+    let response = await send(streamed);
+    if (streamed && (response.status === 404 || response.status === 405 || !response.body)) {
+      streamed = false;
+      response = await send(false);
     }
 
     // A token that stopped working mid-conversation. Reported so the app can
@@ -149,7 +192,7 @@ export async function ask({ text = "", history = [], image = null, audio = null 
 
     if (!response.ok) throw await errorFrom(response);
 
-    const data = await response.json();
+    const data = streamed ? await readEvents(response, { onHeard, onText }) : await response.json();
     if (typeof data.answer !== "string" || !data.answer.trim()) {
       throw new Error("The service returned an empty answer. Please try again.");
     }
@@ -173,6 +216,7 @@ export async function ask({ text = "", history = [], image = null, audio = null 
       // The backend decides this from the script the answer is actually in, so
       // the browser never has to guess which voice to read it with.
       replyLanguage: data.reply_language || "en-IN",
+      streamed,
       error: null,
     };
   } catch (error) {

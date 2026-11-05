@@ -1,3 +1,10 @@
+// jsdom does not expose Node's streams; the browser has them natively.
+const { ReadableStream: NodeReadableStream } = require('stream/web');
+const { TextDecoder: NodeTextDecoder, TextEncoder: NodeTextEncoder } = require('util');
+global.ReadableStream = global.ReadableStream || NodeReadableStream;
+global.TextDecoder = global.TextDecoder || NodeTextDecoder;
+global.TextEncoder = global.TextEncoder || NodeTextEncoder;
+
 import { ask } from './Gemini';
 
 const okResponse = () => ({
@@ -34,4 +41,33 @@ test('a question is not held up waiting for a location prompt', async () => {
   expect(JSON.parse(fetch.mock.calls[0][1].body).latitude).toBeUndefined();
   delete navigator.permissions;
   delete navigator.geolocation;
+});
+
+const streamable = typeof ReadableStream !== 'undefined' && typeof TextDecoder !== 'undefined';
+(streamable ? test : test.skip)('a streamed answer arrives sentence by sentence, then whole', async () => {
+  const lines = [
+    { type: 'text', text: 'Pehla vakya. ' },
+    { type: 'text', text: 'Doosra vakya.' },
+    { type: 'done', answer: 'Pehla vakya. Doosra vakya.\n\n**Registered for this pest (CIB&RC):**', tools_used: ['doses'], dose_status: 'available' },
+  ].map((e) => JSON.stringify(e) + '\n').join('');
+  const bytes = new TextEncoder().encode(lines);
+  global.fetch = jest.fn(async () => ({
+    ok: true, status: 200, headers: { get: () => null },
+    body: new ReadableStream({ start(c) { c.enqueue(bytes.slice(0, 20)); c.enqueue(bytes.slice(20)); c.close(); } }),
+  }));
+  const pieces = [];
+  const result = await ask({ text: 'q', onText: (p) => pieces.push(p) });
+  expect(fetch.mock.calls[0][0]).toMatch(/\/agent\/stream$/);
+  expect(pieces).toEqual(['Pehla vakya. ', 'Doosra vakya.']);
+  expect(result.answer).toMatch(/Registered for this pest/);
+  expect(result.doseStatus).toBe('available');
+});
+
+(streamable ? test : test.skip)('a backend without streaming is asked the ordinary way', async () => {
+  global.fetch = jest.fn(async (url) => (url.endsWith('/stream')
+    ? { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}) }
+    : okResponse()));
+  const result = await ask({ text: 'q', onText: () => {} });
+  expect(fetch.mock.calls.map((c) => c[0].split('/').pop())).toEqual(['stream', 'agent']);
+  expect(result.answer).toBe('ok');
 });

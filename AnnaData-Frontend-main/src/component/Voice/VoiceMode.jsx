@@ -1,7 +1,8 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
-import { speak, stopSpeaking, unlockAudio } from "../../Config/speech";
+import { createSpeaker, stopSpeaking, unlockAudio } from "../../Config/speech";
+import { followUpAsk } from "../../Config/asks";
 import { primaryButton } from "../Flow/ui";
 
 /**
@@ -13,13 +14,19 @@ import { primaryButton } from "../Flow/ui";
  * press between turns. A farmer with mud on their hands, or who does not read,
  * can hold a whole conversation by talking.
  *
- * WHAT "PERSISTENT" MEANS HERE, AND WHAT IT DOES NOT. The microphone and the
- * conversation persist; the connection to the backend does not. Each turn is
- * still one request, answered whole and read aloud by the phone's own voice,
- * so a reply starts only once the full answer has arrived. Streaming audio both
- * ways over one open connection, so the reply can start while it is still being
- * written, is the next step and needs the backend to change - see
- * ENGINEERING_NOTES, "Voice mode".
+ * STREAMED BOTH WAYS. The answer arrives a sentence at a time from
+ * /agent/media/stream, and each sentence goes straight to the speaker, which
+ * streams Gemini's voice back for it - so the first sentence is heard while the
+ * rest of the answer is still being written. What the farmer is heard to have
+ * said comes back first, before any of the answer.
+ *
+ * TALKING OVER IT. While an answer is spoken the microphone stays live. A voice
+ * well above the room's noise, held for BARGE_MS, stops the answer and starts
+ * the next turn at once - as in ChatGPT's and Claude's voice modes. The
+ * threshold is several times the noise floor measured while listening, and the
+ * first BARGE_GRACE_MS of each answer are ignored, so the answer's own sound
+ * from the speaker - which the browser's echo cancellation removes from the
+ * microphone, but not perfectly on every phone - does not interrupt itself.
  *
  * Turn-taking is a level detector, not speech recognition: the noise floor is
  * measured for the first moment of each turn, speech is anything well above
@@ -32,6 +39,11 @@ const CALIBRATE_MS = 350; // measuring the room before trusting the threshold
 const MIN_SPEECH_MS = 250; // shorter than this is a cough, not a question
 const MAX_TURN_MS = 45000; // a question, not a speech
 const IDLE_MS = 15000; // nothing said: pause rather than listen forever
+const BARGE_GRACE_MS = 700; // the start of an answer cannot be talked over
+const BARGE_MS = 350; // held this long, a voice is an interruption, not a cough
+const BARGE_FLOOR = 0.05; // never more sensitive than this while speaking
+const BARGE_FACTOR = 6; // times the noise floor measured while listening
+const DOSE_HEADING = "Registered for this pest (CIB&RC):";
 
 const LABELS = {
   starting: "Starting…",
@@ -68,6 +80,12 @@ function VoiceMode({ onClose }) {
   const closedRef = useRef(false);
   const sendRef = useRef(send);
   const turnRef = useRef(null);
+  // Which turn is current. An answer still arriving for a turn the farmer has
+  // talked over updates the text but never speaks over the new one.
+  const turnIdRef = useRef(0);
+  const floorRef = useRef(0.005);
+  const thresholdRef = useRef(0.02);
+  const bargedRef = useRef(false);
   sendRef.current = send;
 
   // The phase is read inside the audio loop and after awaits, which run before
@@ -107,9 +125,48 @@ function VoiceMode({ onClose }) {
     setNotice(message);
   }, []);
 
-  /** Read the answer aloud, then go straight back to listening. */
-  const respond = useCallback(async (result) => {
-    if (closedRef.current) return;
+  /**
+   * While an answer is spoken: a sustained voice over it is the farmer
+   * interrupting. Stop speaking and start listening to them at once.
+   */
+  const watchForBargeIn = useCallback(() => {
+    const analyser = analyserRef.current;
+    if (!analyser) return;
+    stopLoop();
+    const buffer = new Float32Array(analyser.fftSize);
+    const started = performance.now();
+    const limit = Math.max(BARGE_FLOOR, floorRef.current * BARGE_FACTOR);
+    let loud = 0;
+    let last = started;
+    const tick = (now) => {
+      if (closedRef.current || phaseRef.current !== "speaking") return;
+      analyser.getFloatTimeDomainData(buffer);
+      const level = rms(buffer);
+      const dt = now - last;
+      last = now;
+      if (now - started > BARGE_GRACE_MS) {
+        loud = level > limit ? loud + dt : Math.max(0, loud - dt);
+        if (loud >= BARGE_MS) {
+          bargedRef.current = true;
+          stopSpeaking();
+          turnRef.current();
+          return;
+        }
+      }
+      frameRef.current = requestAnimationFrame(tick);
+    };
+    frameRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const startSpeaking = useCallback(() => {
+    if (phaseRef.current === "speaking") return;
+    go("speaking");
+    watchForBargeIn();
+  }, [watchForBargeIn]);
+
+  /** After the whole answer is in: say what is left, then listen again. */
+  const respond = useCallback(async (result, speaker, streamed, turn) => {
+    if (closedRef.current || turn !== turnIdRef.current) return;
     if (!result) {
       pause();
       return;
@@ -125,23 +182,43 @@ function VoiceMode({ onClose }) {
       pause("That did not go through. Tap the circle to try again.");
       return;
     }
-    go("speaking");
-    const { ok, reason } = await speak(result.answer, result.replyLanguage);
-    // Ended, or paused by the farmer while it was being read: stay put.
-    if (closedRef.current || phaseRef.current === "paused") return;
+    if (phaseRef.current === "paused") return;
+
+    // Whatever the stream did not already carry: the whole answer if it was
+    // not streamed, or a registered dose the final check added at the end.
+    if (!streamed) {
+      speaker.push(result.answer);
+    } else {
+      const added = result.answer.indexOf(DOSE_HEADING);
+      if (added >= 0 && !streamed.includes(DOSE_HEADING)) speaker.push(result.answer.slice(added));
+    }
+    // The one thing still missing, said aloud - a farmer in voice mode is not
+    // reading the screen. In the answer's own language.
+    const ask = followUpAsk({ ...result, response: result.answer });
+    if (ask) speaker.push(ask.text);
+
+    startSpeaking();
+    const { ok, reason } = await speaker.finish();
+    // Ended, paused, or talked over while it was being read: stay put.
+    if (closedRef.current || phaseRef.current === "paused" || turn !== turnIdRef.current) return;
     if (!ok) {
-      // No voice for this language on this phone: the answer is on screen,
-      // and listening waits until the farmer has had time to read it.
+      // No voice could be had at all: the answer is on screen, and listening
+      // waits until the farmer has had time to read it.
       pause(`${reason} The answer is written below.`);
       return;
     }
     turnRef.current();
-  }, [pause]);
+  }, [pause, startSpeaking]);
 
   const listen = useCallback(() => {
     if (closedRef.current || !streamRef.current) return;
     const analyser = analyserRef.current;
     const stream = streamRef.current;
+    const turn = ++turnIdRef.current;
+    // Talked over the last answer: they are already speaking, so this turn
+    // starts as speech, with the threshold the room was last measured at.
+    const barged = bargedRef.current;
+    bargedRef.current = false;
 
     setNotice("");
     go("listening");
@@ -158,7 +235,7 @@ function VoiceMode({ onClose }) {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
     recorder.onstop = async () => {
-      if (closedRef.current) return;
+      if (closedRef.current || turn !== turnIdRef.current) return;
       const audio = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
       if (!audio.size) {
         pause();
@@ -170,8 +247,23 @@ function VoiceMode({ onClose }) {
         pause("No internet connection. Your question was not sent.");
         return;
       }
-      const result = await sendRef.current({ audio, quiet: true });
-      respond(result);
+      const speaker = createSpeaker();
+      let streamed = "";
+      const result = await sendRef.current({
+        audio,
+        quiet: true,
+        onHeard: (transcript) => {
+          if (transcript && turn === turnIdRef.current) setHeard(transcript);
+        },
+        onText: (piece) => {
+          if (closedRef.current || turn !== turnIdRef.current || phaseRef.current === "paused") return;
+          streamed += piece;
+          setReply((text) => text + piece);
+          startSpeaking();
+          speaker.push(piece);
+        },
+      });
+      respond(result, speaker, streamed, turn);
     };
     recorder.start();
 
@@ -179,9 +271,9 @@ function VoiceMode({ onClose }) {
     const started = performance.now();
     let floorSum = 0;
     let floorCount = 0;
-    let threshold = 0.02;
-    let speechMs = 0;
-    let lastVoice = 0;
+    let threshold = barged ? thresholdRef.current : 0.02;
+    let speechMs = barged ? MIN_SPEECH_MS : 0;
+    let lastVoice = barged ? started : 0;
     let last = started;
 
     const tick = (now) => {
@@ -191,12 +283,14 @@ function VoiceMode({ onClose }) {
       const dt = now - last;
       last = now;
 
-      if (now - started < CALIBRATE_MS) {
+      if (!barged && now - started < CALIBRATE_MS) {
         floorSum += level;
         floorCount += 1;
       } else {
         if (floorCount) {
-          threshold = Math.max(0.015, (floorSum / floorCount) * 3);
+          floorRef.current = floorSum / floorCount;
+          threshold = Math.max(0.015, floorRef.current * 3);
+          thresholdRef.current = threshold;
           floorCount = 0;
         }
         if (level > threshold) {
@@ -213,7 +307,7 @@ function VoiceMode({ onClose }) {
       frameRef.current = requestAnimationFrame(tick);
     };
     frameRef.current = requestAnimationFrame(tick);
-  }, [finishTurn, pause, respond]);
+  }, [finishTurn, pause, respond, startSpeaking]);
 
   turnRef.current = listen;
 
@@ -268,7 +362,10 @@ function VoiceMode({ onClose }) {
   const tapOrb = async () => {
     unlockAudio();
     if (phase === "speaking") {
-      stopSpeaking(); // speak() resolves, and respond() goes back to listening
+      // Interrupted: stop at once and listen. The answer still arriving, if
+      // any, finishes on screen but is not spoken over the new turn.
+      stopSpeaking();
+      listen();
       return;
     }
     if (phase === "listening") {

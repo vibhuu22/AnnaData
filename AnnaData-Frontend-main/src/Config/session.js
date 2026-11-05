@@ -226,6 +226,20 @@ export function fetchHistory(limit = 50) {
   return apiFetch(`/history?limit=${encodeURIComponent(limit)}`);
 }
 
+/**
+ * A thumbs up or down on the answer just given. Guests may rate too, under
+ * their browser id, and the rating moves onto their number if they sign in.
+ */
+export async function rateAnswer(up, note = "") {
+  const response = await fetch(`${getApiUrl()}/feedback/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...askHeaders() },
+    body: JSON.stringify({ up, note: note || null }),
+  });
+  if (!response.ok) throw new Error(`rating ${response.status}`);
+  return response.json();
+}
+
 export async function signOut() {
   try {
     await apiFetch("/auth/signout", { method: "POST" });

@@ -9,6 +9,8 @@ import Home from "../Home/Home";
 import VoiceMode from "../Voice/VoiceMode";
 import { primaryButton, textButton, SMS_NUMBER } from "../Flow/ui";
 import { speak, stopSpeaking, isSpeechSupported, unlockAudio } from "../../Config/speech";
+import { followUpAsk } from "../../Config/asks";
+import { rateAnswer } from "../../Config/session";
 
 /**
  * The conversation, laid out as in the wireframes.
@@ -38,25 +40,46 @@ const EXAMPLES = [
 const SLOW_AFTER_MS = 60000;
 
 /**
- * The one thing an answer still needs, asked the way SMS asks it.
+ * Thumbs up or down on an answer, stored with the SMS ratings.
  *
- * The backend returns missing_slots and needs_location with every answer. The
- * SMS bridge has always turned the first of them into one line on the end of
- * the reply ("Reply with your crop name for specific advice."); the web threw
- * them away, so a web farmer was never asked and an SMS farmer was asked
- * every time. Same order as the bridge: a missing slot first, then location.
+ * SMS farmers are asked to rate a conversation after it ends; web farmers had
+ * no way to say an answer was wrong. One tap, no form - and a thumbs down
+ * asks for nothing more, because a farmer who has to explain will not tap.
  */
-const SLOT_ASKS = {
-  crop: "Tell us your crop for advice specific to it.",
-  location: "Tell us your village or district for advice specific to your area.",
-  state: "Tell us your state so we can check your local mandi prices.",
-};
-
-function followUpAsk(turn) {
-  const slot = (turn.missingSlots || []).find((s) => SLOT_ASKS[s]);
-  if (slot) return { slot, text: SLOT_ASKS[slot] };
-  if (turn.needsLocation) return { slot: "location", text: SLOT_ASKS.location };
-  return null;
+function Rate() {
+  const [rated, setRated] = useState(null);
+  const send = (up) => {
+    setRated(up ? "up" : "down");
+    Promise.resolve()
+      .then(() => rateAnswer(up))
+      .catch(() => {});
+  };
+  if (rated) {
+    return (
+      <p className="mt-2 text-xs text-soil-600" role="status">
+        {rated === "up" ? "Thanks — glad it helped." : "Thanks for telling us. This helps us fix answers."}
+      </p>
+    );
+  }
+  const button =
+    "grid h-touch w-touch place-items-center rounded-full text-soil-600 transition-colors hover:bg-soil-100 hover:text-soil-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600";
+  return (
+    <div className="mt-1 flex items-center gap-1">
+      <span className="mr-1 text-xs text-soil-600">Was this useful?</span>
+      <button type="button" onClick={() => send(true)} aria-label="Yes, useful" className={button}>
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M7 10v11H4V10z" />
+          <path d="M7 10l4-7a2 2 0 0 1 3 2l-1 5h6a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 2H7" />
+        </svg>
+      </button>
+      <button type="button" onClick={() => send(false)} aria-label="No, not useful" className={button}>
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17 14V3h3v11z" />
+          <path d="M17 14l-4 7a2 2 0 0 1-3-2l1-5H5a2 2 0 0 1-2-2l2-7a2 2 0 0 1 2-2h10" />
+        </svg>
+      </button>
+    </div>
+  );
 }
 
 function FollowUpAsk({ ask }) {
@@ -264,7 +287,7 @@ function Main() {
   // it is in view when the farmer has just read something useful.
   const latestAnswered = [...thread]
     .reverse()
-    .find((turn) => !turn.pending && !turn.failed && turn.response?.trim());
+    .find((turn) => !turn.pending && !turn.streaming && !turn.failed && turn.response?.trim());
   const limited = Boolean(latestAnswered?.needsSignIn);
   // "Not now" holds for this visit. Reaching the guest limit brings the card
   // back regardless, because then saving is the only way to keep asking.
@@ -509,6 +532,14 @@ function Main() {
                   <div className="rounded-[14px] border-[1.5px] border-grain-300 bg-grain-50 p-4 text-base text-soil-900">
                     {turn.response}
                   </div>
+                ) : turn.streaming ? (
+                  // Still being written: the text as far as it has come, with
+                  // nothing that depends on the whole answer - no badge, no
+                  // Listen, no rating - until it is complete and checked.
+                  <div className="flex min-w-0 flex-col gap-2.5 rounded-[14px] border-[1.5px] border-soil-300 p-4" aria-busy="true">
+                    <Answer markdown={turn.response} doseStatus={null} />
+                    <span className="wait-shimmer text-xs font-semibold">Writing…</span>
+                  </div>
                 ) : turn.failed ? (
                   <div className="rounded-[14px] border-[1.5px] border-red-200 bg-red-50 p-4 text-base text-red-800" role="alert">
                     {turn.response}
@@ -550,6 +581,7 @@ function Main() {
                     )}
                     <Answer markdown={turn.response} doseStatus={turn.doseStatus} />
                     <Sources tools={turn.toolsUsed} />
+                    <Rate />
                   </div>
                 )}
               </div>

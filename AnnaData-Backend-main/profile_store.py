@@ -379,6 +379,9 @@ def claim_guest(guest_user_id: str, phone: str) -> int:
                 """,
                 (phone, guest_user_id),
             )
+            # Thumbs up and down given before signing in are theirs too.
+            conn.execute("UPDATE feedback SET user_id = %s WHERE user_id = %s",
+                         (phone, guest_user_id))
             conn.execute("DELETE FROM farmers WHERE user_id = %s", (guest_user_id,))
         if moved:
             print(f"Moved {moved} guest message(s) onto a verified number")

@@ -77,11 +77,41 @@ def main() -> int:
             conn.execute("DELETE FROM feedback WHERE user_id = %s", (USER,))
         check("due again once the cooldown has passed",
               USER in feedback.due_for_feedback(), True)
+
+        # The same farmer's last conversation was on the website. Their id is
+        # their phone number there too, but a chat in a browser is not asked
+        # about by SMS - the answer on screen carries its own thumbs.
+        with db.connection() as conn:
+            conn.execute(
+                """INSERT INTO messages (user_id, direction, body, meta, created_at)
+                   VALUES (%s, 'outbound', 'jawab', '{"channel": "web"}', %s)""",
+                (USER, now - timedelta(hours=5)),
+            )
+        check("NOT asked by SMS about a conversation on the web",
+              USER in feedback.due_for_feedback(), False)
+        with db.connection() as conn:
+            conn.execute(
+                """INSERT INTO messages (user_id, direction, body, meta, created_at)
+                   VALUES (%s, 'outbound', 'jawab', '{"channel": "sms"}', %s)""",
+                (USER, now - timedelta(hours=4)),
+            )
+        check("asked again once their latest conversation is on SMS",
+              USER in feedback.due_for_feedback(), True)
+
+        feedback.record_web(USER, up=False, note="galat dawa")
+        with db.connection() as conn:
+            row = conn.execute(
+                "SELECT rating, raw_message FROM feedback WHERE user_id = %s ORDER BY id DESC LIMIT 1",
+                (USER,)).fetchone()
+        check("a thumbs down is stored as 1, marked as from the web",
+              (row[0], row[1]), (1, "web: down - galat dawa"))
+        check("and counts as their rating, so SMS does not ask as well",
+              USER in feedback.due_for_feedback(), False)
     finally:
         with db.connection() as conn:
             cleanup(conn)
 
-    print(f"\n{6 - len(failures)} passed, {len(failures)} failed")
+    print(f"\n{10 - len(failures)} passed, {len(failures)} failed")
     return 1 if failures else 0
 
 

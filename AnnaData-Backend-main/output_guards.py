@@ -197,6 +197,47 @@ def scrub(answer: str, gathered: dict) -> tuple[str, bool]:
     return answer, changed
 
 
+class SentenceGuard:
+    """`scrub`, applied one sentence at a time, for an answer being streamed.
+
+    A streamed sentence is on the farmer's screen - or in their ear - before the
+    answer is finished, so it cannot wait for `scrub` to see the whole thing.
+    This makes the same decision per sentence: a sentence naming a support
+    price or a scheme amount, with a figure in it and no retrieved evidence
+    behind it, is never sent. The rule is sentence-scoped in `scrub` too (see
+    `_strip`), so nothing it would have kept is dropped here or the reverse.
+
+    The one whole-answer rule - an answer stripped down to under 40 characters
+    gets the fallback sentence instead - becomes `closing()`: said at the end,
+    after whatever little survived.
+    """
+
+    def __init__(self, gathered: dict):
+        self.price = not gathered.get("msp")
+        self.scheme = (gathered.get("kb") or "").startswith(KB_UNCOVERED)
+        self.kept = 0
+        self.fallback = None
+
+    def check(self, sentence: str) -> str | None:
+        """The sentence to send (units corrected), or None to drop it."""
+        sentence, _ = fix_units(sentence)
+        if FIGURE.search(sentence):
+            if self.price and PRICE_SCHEME.search(sentence):
+                self.fallback = self.fallback or PRICE_FALLBACK
+                return None
+            if self.scheme and WELFARE_SCHEME.search(sentence):
+                self.fallback = self.fallback or SCHEME_FALLBACK
+                return None
+        self.kept += len(sentence.strip())
+        return sentence
+
+    def closing(self) -> str | None:
+        """The fallback, when stripping left almost nothing - as `scrub` does."""
+        if self.fallback and self.kept < 40:
+            return self.fallback
+        return None
+
+
 # --- the same failure, in the other direction -------------------------------
 
 # Everything above removes a figure the data does not support. This adds one the

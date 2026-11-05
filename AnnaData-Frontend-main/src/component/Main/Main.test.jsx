@@ -1,10 +1,11 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Main from './Main';
 import { Auth } from '../../Context/AuthProvider';
 import { Context } from '../../Context/ContextProvider';
 import { Flow } from '../../Context/Flow';
+import { rateAnswer } from '../../Config/session';
 
-jest.mock('../../Config/session', () => ({ saveProfile: jest.fn() }));
+jest.mock('../../Config/session', () => ({ saveProfile: jest.fn(), rateAnswer: jest.fn(() => Promise.resolve({ stored: true })) }));
 jest.mock('../../Config/speech', () => ({
   speak: jest.fn(), stopSpeaking: jest.fn(), isSpeechSupported: () => false, unlockAudio: jest.fn(),
 }));
@@ -103,9 +104,40 @@ describe('what an answer still needs', () => {
     expect(screen.getByRole('button', { name: 'Use my location' })).toBeInTheDocument();
   });
 
+  test('asked in the language the answer is in', () => {
+    show([{ id: '1', response: 'गेहूं में पीला रतुआ है। प्रोपिकोनाज़ोल डालें।', missingSlots: ['crop'] }]);
+    expect(screen.getByText('अपनी फ़सल का नाम बताइए, ताकि सलाह आपकी फ़सल के हिसाब से हो।')).toBeInTheDocument();
+  });
+
+  test('a Hinglish answer is asked in Hinglish', () => {
+    show([{ id: '1', response: 'Gehu ki buwai November mein karein, aur beej upchar zaroor karein.', needsLocation: true }]);
+    expect(screen.getByText(/Apna gaon ya zila bataiye/)).toBeInTheDocument();
+  });
+
   test('nothing is asked when nothing is missing', () => {
     show([{ id: '1', response: 'An answer', missingSlots: [], needsLocation: false }]);
     expect(screen.queryByText(/Tell us your/)).not.toBeInTheDocument();
+  });
+});
+
+describe('an answer being written', () => {
+  test('fills in as it arrives, with nothing that needs the whole answer', () => {
+    show([{ id: '1', prompt: 'q', response: 'Pehla vakya.', streaming: true, doseStatus: 'available' }]);
+    expect(screen.getByText('Pehla vakya.')).toBeInTheDocument();
+    expect(screen.getByText('Writing…')).toBeInTheDocument();
+    expect(screen.queryByText('Approved dose')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Yes, useful' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add farm details' })).not.toBeInTheDocument();
+  });
+});
+
+describe('rating an answer', () => {
+  test('one tap records it and says thanks', async () => {
+    show([{ id: '1', prompt: 'q', response: 'An answer' }]);
+    fireEvent.click(screen.getByRole('button', { name: 'No, not useful' }));
+    await waitFor(() => expect(rateAnswer).toHaveBeenCalledWith(false));
+    expect(screen.getByText(/Thanks for telling us/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Yes, useful' })).not.toBeInTheDocument();
   });
 });
 

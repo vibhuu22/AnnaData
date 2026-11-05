@@ -1274,11 +1274,31 @@ Web Audio, because an iPhone refuses an `<audio>` element started after a
 network wait but keeps playing through an AudioContext a tap has unlocked. If
 `/speak` fails, whatever has not yet been heard is read in the phone's voice.
 
-What this is not: a persistent connection. The reply cannot start until the
-whole answer has been written, and the speech is generated a piece at a time
-rather than streamed.
+Streamed end to end since: `/agent/media/stream` sends what was heard first,
+then each sentence of the answer as the final model call writes it, and voice
+mode hands each sentence straight to the speaker, which streams Gemini's voice
+for it (`/speak/stream`). Measured in a browser with the backend mocked,
+speech began 0.1 s after the answer's first sentence arrived. A streamed
+sentence cannot be taken back, so each passes `output_guards.SentenceGuard`
+before it is sent - the per-sentence form of `scrub` - and the whole answer
+still goes through `scrub` and `ensure_registered_doses` afterwards; that
+result is sent last and is the one stored. A registered dose added at the end
+is therefore still spoken.
 
-The next step, and the choice it turns on:
+The farmer can talk over an answer: a voice several times the measured noise
+floor, held for 350 ms after the first 700 ms of the answer, stops it and starts
+the next turn at once. The answer still arriving for the old turn finishes on
+screen but is never spoken over the new one. Echo cancellation keeps the
+answer's own sound out of the microphone on most phones; on a phone where it
+does not, the thresholds are what stop an answer interrupting itself, and they
+are the first thing to tune from real use.
+
+What is still not streamed: understanding the question, choosing tools and
+fetching their data, about four seconds before the first sentence can be
+written. The audio upload is one recording per turn rather than a live stream;
+turn-taking happens in the browser.
+
+The step after this, and the choice it turns on:
 
 - **Gemini Live** (one WebSocket, audio in and audio out, server-side turn
   detection and barge-in, our tools as function calls). Lowest latency. But the

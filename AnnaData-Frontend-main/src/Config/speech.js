@@ -104,6 +104,9 @@ let context = null;
 let session = 0;
 let scheduled = [];
 let aborter = null;
+// Speakers idle-waiting for their next sentence. stopSpeaking() wakes them so
+// they notice they were stopped instead of waiting for ever.
+const idle = new Set();
 
 function audioContext() {
   if (!AudioContextClass) return null;
@@ -152,6 +155,8 @@ export function stopSpeaking() {
     }
   });
   scheduled = [];
+  idle.forEach((resume) => resume());
+  idle.clear();
   if (SUPPORTED) window.speechSynthesis.cancel();
 }
 
@@ -285,54 +290,133 @@ async function wholePiece(ctx, line, text, lang, signal) {
 }
 
 /**
- * Read an answer aloud with Gemini's voice, falling back to the phone's.
- * Resolves when it finishes, is stopped, or cannot start: { ok, reason }.
+ * A queue that speaks whatever is pushed into it, in order, as soon as it can.
  *
- * Streaming first. If a stream cannot be had, the same piece is asked for as
- * a whole file; if speech cannot be had at all, whatever has not been heard is
- * read in the phone's own voice.
+ * Voice mode pushes each sentence of an answer as it is written, so the first
+ * is being spoken while the rest are still arriving; `speak` below pushes a
+ * whole answer at once. Either way: Gemini's voice, streamed if it can be, a
+ * whole file if not, and the phone's voice for anything left if Gemini cannot
+ * be had at all.
+ *
+ *   const speaker = createSpeaker(lang);
+ *   speaker.push("first sentence");  // starts speaking
+ *   speaker.push("second sentence");
+ *   const { ok, reason } = await speaker.finish();  // when all of it is heard
+ *
+ * stopSpeaking() ends it; finish() then resolves { ok: true }.
  */
-export async function speak(markdown, lang) {
-  const text = speakableText(markdown);
-  if (!text) return { ok: false, reason: "Nothing to read." };
+export function createSpeaker(lang) {
   stopSpeaking();
   const mine = session;
-  const pieces = piecesOf(text);
   const ctx = audioContext();
-  if (!ctx || typeof fetch !== "function") return speakOnDevice(text, lang);
-
+  const line = ctx ? timeline(ctx, mine) : null;
+  const queue = [];
+  let finished = false;
+  let wake = null;
+  let streaming = typeof ReadableStream !== "undefined";
+  let device = !ctx || typeof fetch !== "function";
+  let heardAny = false;
   aborter = new AbortController();
   const { signal } = aborter;
-  const line = timeline(ctx, mine);
-  let streaming = typeof ReadableStream !== "undefined";
-  let index = 0;
-  try {
-    if (ctx.state === "suspended") await ctx.resume().catch(() => {});
-    for (index = 0; index < pieces.length; index += 1) {
+
+  const poke = () => {
+    const resume = wake;
+    wake = null;
+    if (resume) {
+      idle.delete(resume);
+      resume();
+    }
+  };
+
+  // Wait until a sentence is pushed, finish() is called, or speech is stopped.
+  const nextSentence = () =>
+    new Promise((resolve) => {
+      wake = resolve;
+      idle.add(resolve);
+    });
+
+  // Sentences joined up to a piece; a short first piece so speech starts soon.
+  const take = () => {
+    const limit = heardAny ? 400 : 120;
+    let piece = queue.shift();
+    if (piece.length > limit) {
+      const parts = piecesOf(piece, limit, 400);
+      piece = parts.shift();
+      queue.unshift(...parts);
+      return piece;
+    }
+    while (queue.length && `${piece} ${queue[0]}`.length <= limit) piece = `${piece} ${queue.shift()}`;
+    return piece;
+  };
+
+  const done = (async () => {
+    if (ctx && ctx.state === "suspended") await ctx.resume().catch(() => {});
+    for (;;) {
       if (mine !== session) return { ok: true };
-      if (streaming) {
+      if (!queue.length) {
+        if (finished) break;
+        await nextSentence();
+        continue;
+      }
+      const piece = take();
+      if (!device) {
         const before = scheduled.length;
         try {
-          await streamPiece(ctx, line, pieces[index], lang, signal, mine);
+          if (streaming) {
+            try {
+              await streamPiece(ctx, line, piece, lang, signal, mine);
+              heardAny = true;
+              continue;
+            } catch (e) {
+              if (mine !== session) return { ok: true };
+              streaming = false;
+              // Part of it was heard: move on rather than say it twice.
+              if (scheduled.length > before) continue;
+            }
+          }
+          await wholePiece(ctx, line, piece, lang, signal);
+          heardAny = true;
           continue;
         } catch (e) {
           if (mine !== session) return { ok: true };
-          streaming = false;
-          // Part of this piece was already heard: move on rather than say it
-          // twice. Nothing was heard: ask for the same piece again, whole.
-          if (scheduled.length > before) continue;
+          console.warn("Spoken answer unavailable, using the phone's voice:", e.message);
+          device = true;
         }
       }
-      await wholePiece(ctx, line, pieces[index], lang, signal);
+      // The phone's own voice, once whatever Gemini already said has finished.
+      if (line) await line.done();
+      const result = await speakOnDevice(piece, lang);
+      if (!result.ok) return result;
     }
-    await line.done();
+    if (line) await line.done();
     return { ok: true };
-  } catch (e) {
-    if (mine !== session) return { ok: true }; // stopped by the farmer
-    console.warn("Spoken answer unavailable, using the phone's voice:", e.message);
-    await line.done();
-    return speakOnDevice(pieces.slice(index).join(" "), lang);
-  }
+  })();
+
+  return {
+    push(markdown) {
+      const text = speakableText(markdown);
+      if (text && mine === session) {
+        queue.push(text);
+        poke();
+      }
+    },
+    finish() {
+      finished = true;
+      poke();
+      return done;
+    },
+  };
+}
+
+/**
+ * Read an answer aloud with Gemini's voice, falling back to the phone's.
+ * Resolves when it finishes, is stopped, or cannot start: { ok, reason }.
+ */
+export async function speak(markdown, lang) {
+  if (!speakableText(markdown)) return { ok: false, reason: "Nothing to read." };
+  const speaker = createSpeaker(lang);
+  speaker.push(markdown);
+  return speaker.finish();
 }
 
 /**

@@ -18,6 +18,7 @@ import lesion_bank
 import msp
 import planner
 import output_guards
+import answer_stream
 import provenance
 import re
 
@@ -224,7 +225,8 @@ def extract_markdown_content(text: str) -> str:
     return match.group(1).strip() if match else text
 
 
-def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: str = "web") -> str:
+def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: str = "web",
+                          on_text=None) -> str:
     """
     query: str - the farmer's latest question
     history: list[dict] - [{"role": "user"/"assistant", "content": "..."}]
@@ -271,6 +273,8 @@ def get_open_ended_answer(query: str, history: Optional[List[dict]], channel: st
     **Assistant's Expert Agronomic Advice:**
     """
 
+    if on_text:
+        return answer_stream.write(llm, prompt, on_text).strip()
     return llm.invoke([HumanMessage(content=prompt)]).content.strip()
 
 
@@ -459,7 +463,7 @@ def acknowledge_statement(query: str, facts: dict, channel: str,
 
 
 def get_farming_advice(location, state, crop, gathered, farmer_query,
-                       channel: str = "web", history=None) -> str:
+                       channel: str = "web", history=None, on_text=None) -> str:
     """Compose the final advisory from whatever data was gathered.
 
     Only tools that actually ran appear in the prompt. Padding the context with
@@ -537,6 +541,10 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     - Farmer's Question: {farmer_query}
     """
 
+    if on_text:
+        # Each sentence is checked against the same evidence scrub() uses
+        # before it is sent; scrub() still runs on the whole answer afterwards.
+        return answer_stream.write(llm, prompt, on_text, gathered)
     return llm.invoke([HumanMessage(content=prompt)]).content
 
 
@@ -650,6 +658,7 @@ def run_agent(
     profile: Optional[dict] = None,
     vision: Optional[dict] = None,
     continuing_session: bool = False,
+    on_text=None,
 ) -> AgentResult:
     """Answer a farmer's question and report what was learned and used.
 
@@ -867,7 +876,8 @@ def run_agent(
     # and the open-ended one does not.
     if not tools and not vision:
         return AgentResult(
-            extract_markdown_content(get_open_ended_answer(query_final, history, channel)),
+            extract_markdown_content(get_open_ended_answer(query_final, history, channel,
+                                                           on_text=on_text)),
             tools_used=["general"], missing_slots=missing, intent=intent, **facts
         )
 
@@ -883,7 +893,7 @@ def run_agent(
 
     final_response = extract_markdown_content(
         get_farming_advice(facts["location"], facts["state"], facts["crop"],
-                           gathered, query, channel, history=history)
+                           gathered, query, channel, history=history, on_text=on_text)
     )
     # A price or a subsidy is a number a farmer acts on. If nothing retrieved
     # supports it, no sentence claiming one survives, whatever the model wrote.

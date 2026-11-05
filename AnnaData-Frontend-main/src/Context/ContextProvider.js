@@ -201,7 +201,7 @@ const ContextProvider = (props) => {
    * got an answer are included - a failed request must not teach the agent that
    * it said "could not reach the service".
    */
-  const send = useCallback(async ({ text = "", image = null, audio = null, quiet = false }) => {
+  const send = useCallback(async ({ text = "", image = null, audio = null, quiet = false, onHeard, onText }) => {
     const trimmed = text.trim();
     if (!trimmed && !image && !audio) return null;
 
@@ -226,7 +226,26 @@ const ContextProvider = (props) => {
     if (trimmed) setPreviousPrompt((prev) => [...prev, trimmed]);
     setInput("");
 
-    const result = await ask({ text: trimmed, history, image, audio });
+    // The answer fills in as it is written: the first sentence replaces the
+    // waiting indicator, and the rest follow. `streaming` marks a turn whose
+    // text is still arriving, so the badge, Listen and rating wait for the
+    // whole, checked answer.
+    const update = (change) =>
+      setResponses((prev) => prev.map((item) => (item.id === id ? { ...item, ...change(item) } : item)));
+    const result = await ask({
+      text: trimmed,
+      history,
+      image,
+      audio,
+      onHeard: (transcript, vision) => {
+        update(() => ({ transcript, vision }));
+        onHeard?.(transcript, vision);
+      },
+      onText: (piece) => {
+        update((item) => ({ response: (item.streaming ? item.response : "") + piece, pending: false, streaming: true }));
+        onText?.(piece);
+      },
+    });
 
     setResponses((prev) =>
       prev.map((item) =>
@@ -234,7 +253,10 @@ const ContextProvider = (props) => {
           ? item
           : {
               ...item,
+              // The authoritative answer, after every check on the whole of
+              // it - which can add to what was streamed, never contradict it.
               response: result.answer,
+              streaming: false,
               // What the microphone heard, shown back so the farmer can catch a
               // misheard word rather than wondering why the answer is odd.
               transcript: result.transcript,

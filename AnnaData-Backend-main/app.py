@@ -1,6 +1,9 @@
 import encoding_setup  # noqa: F401  (must be first)
 
+import asyncio
 import json
+import queue
+import threading
 import secrets
 from typing import List, Optional
 
@@ -136,7 +139,7 @@ def health():
 
 
 def _answer(query, *, user_id, channel, latitude, longitude, history,
-            message_id=None, vision=None):
+            message_id=None, vision=None, on_text=None):
     """Answer one message and record what it taught us about the farmer.
 
     Shared by the text and the media endpoints, so a voice note or a photo gets
@@ -183,6 +186,9 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
             profile=profile,
             vision=vision,
             continuing_session=continuing_session,
+            # Sentences of the answer as they are written - only for the
+            # streaming endpoints, and never on SMS, which sends one message.
+            on_text=on_text if channel != "sms" else None,
         )
     except Exception as e:
         # Previously this returned 200 with an {"error": ...} body, so callers
@@ -257,6 +263,10 @@ _guests = guest_access.GuestLimiter(
     per_ip=config.GUEST_IP_PER_HOUR,
     daily_cap=config.GUEST_DAILY_CAP,
 )
+
+# Ratings cost nothing but a row, so this only stops one browser filling the
+# table.
+_raters = guest_access.GuestLimiter(per_guest=60, per_ip=600, daily_cap=5000)
 
 # Spoken answers are counted apart from questions: one answer is read as
 # several pieces, so sharing the question limit would cut a guest off halfway
@@ -711,6 +721,136 @@ async def run_agent_media(
     return response
 
 
+def _stream_events(work):
+    """Run `work(emit)` on a thread and stream what it emits, one JSON per line.
+
+    Events: {"type": "heard"} once a voice note is transcribed, {"type": "text"}
+    for each checked sentence of the answer, then {"type": "done", ...} carrying
+    exactly what /agent would have returned - the authoritative answer, after
+    every guard - or {"type": "error"} with the status /agent would have sent.
+    Who may ask is decided before this starts, so a refusal is still a real
+    HTTP status rather than an event.
+    """
+    events: "queue.Queue[str | None]" = queue.Queue()
+
+    def emit(event):
+        events.put(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+
+    def run():
+        try:
+            emit({"type": "done", **work(emit)})
+        except HTTPException as e:
+            emit({"type": "error", "status": e.status_code, "detail": e.detail})
+        except Exception as e:  # noqa: BLE001
+            print(f"Streamed answer failed: {e}")
+            emit({"type": "error", "status": 502, "detail": f"Agent failed: {e}"})
+        finally:
+            events.put(None)
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def lines():
+        while True:
+            item = events.get()
+            if item is None:
+                return
+            yield item
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+@app.post("/agent/stream")
+def run_agent_stream(request: QueryRequest,
+                     http: Request,
+                     authorization: Optional[str] = Header(None),
+                     x_bridge_token: Optional[str] = Header(None),
+                     x_guest_id: Optional[str] = Header(None),
+                     x_forwarded_for: Optional[str] = Header(None)):
+    """/agent, with the answer sent a sentence at a time as it is written."""
+    if not request.query or not request.query.strip():
+        raise HTTPException(status_code=400, detail="query must not be empty")
+    caller = _caller(authorization, x_bridge_token, request.user_id,
+                     guest_id=x_guest_id,
+                     client_ip=guest_access.client_ip(x_forwarded_for, _peer(http)))
+
+    def work(emit):
+        return _answer(
+            request.query, user_id=caller, channel=request.channel or "web",
+            latitude=request.latitude, longitude=request.longitude,
+            history=request.history, message_id=request.message_id,
+            on_text=lambda text: emit({"type": "text", "text": text}),
+        )
+
+    return _stream_events(work)
+
+
+@app.post("/agent/media/stream")
+async def run_agent_media_stream(
+    http: Request,
+    audio: Optional[UploadFile] = File(None, description="Voice note"),
+    image: Optional[UploadFile] = File(None, description="Photo of the crop"),
+    query: str = Form(""),
+    latitude: Optional[str] = Form(None),
+    longitude: Optional[str] = Form(None),
+    history: Optional[str] = Form(None),
+    channel: str = Form("web"),
+    user_id: Optional[str] = Form(None),
+    message_id: Optional[str] = Form(None),
+    authorization: Optional[str] = Header(None),
+    x_bridge_token: Optional[str] = Header(None),
+    x_guest_id: Optional[str] = Header(None),
+    x_forwarded_for: Optional[str] = Header(None),
+):
+    """/agent/media, streamed: what was heard first, then the answer as written.
+
+    Voice mode's endpoint. Telling the farmer what was heard as soon as it is
+    known, and starting to speak the first sentence while the rest is written,
+    is most of the difference between a pause and a conversation.
+    """
+    caller = _caller(authorization, x_bridge_token, user_id,
+                     guest_id=x_guest_id,
+                     client_ip=guest_access.client_ip(x_forwarded_for, _peer(http)))
+    audio_bytes = await audio.read() if audio is not None else None
+    image_bytes = await image.read() if image is not None else None
+    too_big = config.MAX_UPLOAD_BYTES
+    for label, blob in (("audio", audio_bytes), ("image", image_bytes)):
+        if blob is not None and len(blob) > too_big:
+            raise HTTPException(status_code=413,
+                                detail=f"that {label} is larger than {too_big // (1024 * 1024)} MB")
+    typed = (query or "").strip()
+    if not audio_bytes and not image_bytes and not typed:
+        raise HTTPException(status_code=400, detail="send text, an image or an audio file")
+    names = {
+        "audio_filename": audio.filename if audio else None,
+        "audio_content_type": audio.content_type if audio else None,
+        "image_filename": image.filename if image else None,
+    }
+
+    def work(emit):
+        try:
+            understood = asyncio.run(understand_media(
+                audio_bytes=audio_bytes, image_bytes=image_bytes, **names))
+        except Exception as e:  # noqa: BLE001
+            print(f"Media understanding failed: {e}")
+            raise HTTPException(status_code=502, detail=f"Could not read the media: {e}")
+        transcript, vision = understood["transcript"], understood["vision"]
+        emit({"type": "heard", "transcript": transcript, "vision": vision})
+        spoken = " ".join(part for part in (transcript, typed) if part).strip()
+        if not spoken:
+            spoken = "What is wrong with this crop, and what should I do about it?"
+        result = _answer(
+            spoken, user_id=caller, channel=channel or "web",
+            latitude=_to_float(latitude), longitude=_to_float(longitude),
+            history=_parse_history(history), message_id=message_id, vision=vision,
+            on_text=lambda text: emit({"type": "text", "text": text}),
+        )
+        result.update({"transcript": transcript, "vision": vision, "query_used": spoken})
+        return result
+
+    return _stream_events(work)
+
+
 class UserRequest(BaseModel):
     """Anything addressed at a single farmer by their identifier."""
     user_id: str
@@ -745,6 +885,39 @@ def record_rating(request: RatingRequest,
     session_id = request.session_id or feedback.current_session(user_id)
     stored = feedback.record(user_id, rating, request.message, session_id)
     return {"is_rating": True, "rating": rating, "stored": stored}
+
+
+class AnswerRating(BaseModel):
+    up: bool
+    # Optional: the farmer's own words on what was wrong. Kept short.
+    note: Optional[str] = None
+
+
+@app.post("/feedback/answer")
+def rate_answer(request: AnswerRating,
+                http: Request,
+                authorization: Optional[str] = Header(None),
+                x_guest_id: Optional[str] = Header(None),
+                x_forwarded_for: Optional[str] = Header(None)):
+    """A thumbs up or down on the answer just given, from the web.
+
+    Recorded against the farmer's current session, with that session's
+    features (tools, intent, dose status), exactly as an SMS rating is - so the
+    question "which kinds of answer do farmers rate badly" has one answer
+    across both channels.
+    """
+    user_id = auth.read_token(_bearer(authorization))
+    if not user_id:
+        guest = guest_access.guest_user_id(x_guest_id) if config.GUEST_ASK_ENABLED else None
+        if not guest:
+            raise HTTPException(status_code=401, detail="sign in to rate answers")
+        admitted, wait, _ = _raters.check(guest, guest_access.client_ip(x_forwarded_for, _peer(http)))
+        if not admitted:
+            raise HTTPException(status_code=429, detail="too many ratings just now",
+                                headers={"Retry-After": str(wait)})
+        user_id = guest
+    note = (request.note or "").strip()[:300]
+    return {"stored": feedback.record_web(user_id, request.up, note)}
 
 
 @app.get("/feedback/due")

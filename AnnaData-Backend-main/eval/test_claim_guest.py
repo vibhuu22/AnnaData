@@ -53,6 +53,7 @@ def cleanup():
         for uid in (GUEST, OTHER, NEW, KNOWN):
             conn.execute("DELETE FROM messages WHERE user_id = %s", (uid,))
             conn.execute("DELETE FROM farmers WHERE user_id = %s", (uid,))
+            conn.execute("DELETE FROM feedback WHERE user_id = %s", (uid,))
 
 
 def seed_guest(uid, crops, district, lat=None):
@@ -91,6 +92,7 @@ try:
     seed_guest(GUEST, ["wheat"], "Karnal", lat=29.69)
     seed_guest(OTHER, ["cotton"], "Hisar")
     farmer_account.ensure(NEW, channel="web")
+    feedback.record_web(GUEST, up=True)
     check("both guest messages move", profile_store.claim_guest(GUEST, NEW), 2)
     check("and are now the farmer's", count(NEW), 2)
     check("the guest has none left", count(GUEST), 0)
@@ -100,6 +102,9 @@ try:
     check("district fills the gap", district, "Karnal")
     check("location moves with its coordinates", (place, lat), ("Karnal", 29.69))
     check("the guest row is gone", row(GUEST), None)
+    with db.connection() as conn:
+        rated = conn.execute("SELECT count(*) FROM feedback WHERE user_id = %s", (NEW,)).fetchone()[0]
+    check("a thumbs up given as a guest is the farmer's now", rated, 1)
     check("claiming again moves nothing", profile_store.claim_guest(GUEST, NEW), 0)
     check("and the account is unchanged by it", row(NEW)[2], ["wheat"])
 
