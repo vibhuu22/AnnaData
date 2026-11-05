@@ -16,18 +16,22 @@ function Header({ onSignIn }) {
   const canGoHome = Boolean(user && responses?.length && screen !== "home" && goHome);
 
   return (
-    <header className="sticky top-0 z-30 w-full border-b border-soil-200 bg-white/95 backdrop-blur">
+    <header className="glass sticky top-0 z-20 w-full !border-x-0 !border-t-0">
       {/*
         pl-16 below the large breakpoint, because the sidebar's menu button is
         position:fixed at the top-left corner and floats above this bar.
       */}
       <div className="mx-auto flex max-w-[900px] items-center justify-between gap-3 py-2 pl-16 pr-4 lg:pl-5">
         {canGoHome ? (
-          <button type="button" onClick={goHome} className="min-h-touch text-lg font-bold text-soil-900" aria-label="AnnaData — home">
+          <button type="button" onClick={goHome} className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900" aria-label="AnnaData — home">
+            <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-[10px] bg-leaf-600 text-sm font-bold text-white">अ</span>
             AnnaData
           </button>
         ) : (
-          <span className="flex min-h-touch items-center text-lg font-bold text-soil-900">AnnaData</span>
+          <span className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900">
+            <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-[10px] bg-leaf-600 text-sm font-bold text-white">अ</span>
+            AnnaData
+          </span>
         )}
         {!user && onSignIn && (
           <button type="button" onClick={onSignIn} className={textButton}>

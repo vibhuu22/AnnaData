@@ -200,6 +200,7 @@ crop is theirs to state, and a picture of one leaf does not get to correct them.
 | `GET`/`PUT /profile`, `GET /history` | A signed-in farmer, about themselves only |
 | `POST /agent`, `POST /agent/media` | A signed-in farmer, the bridge with `BRIDGE_TOKEN`, or a guest sending `X-Guest-Id` (a v4 UUID) within the guest limits — 429 with `Retry-After` beyond them |
 | `POST /agent/stream`, `POST /agent/media/stream` | The same callers as `/agent`. Newline-separated JSON: `heard` (the transcript), `text` (each checked sentence as it is written), then `done` with exactly what `/agent` returns. Never used for SMS |
+| `GET /news?state=` | Anyone. The week's farming headlines for a known Indian state (or all India) from Google News, cached for 30 minutes; the signed-in farmer's own state when none is named |
 | `POST /feedback/answer` | A signed-in farmer or a guest: 👍/👎 on a web answer, stored with the SMS ratings (up = 5, down = 1) |
 | `POST /speak` | The same callers as `/agent`; guests within separate speaking limits. Returns WAV, or 503 for the browser to fall back to the phone's voice |
 | `POST /speak/stream` | The same, streamed as raw 16-bit PCM while Gemini makes it (sample rate in `X-Sample-Rate`), so speech starts before the piece is finished |
@@ -501,6 +502,7 @@ deterministic tests:
 | `eval/test_speak.py` | What reaches Gemini TTS (no markdown), that a browser can decode what comes back, model fallback, and who may call `/speak` |
 | `eval/test_answer_stream.py` | That a streamed answer says nothing the whole-answer guards would remove - once a sentence is sent it cannot be taken back. Also layout, decimals and fences |
 | `eval/test_stream_endpoints.py` | Who may use the streaming endpoints and `/feedback/answer`, the event order, and that `done` carries the authoritative answer |
+| `eval/test_news.py` | That `/news` only ever searches a known state, parses headlines cleanly (https links only, publisher split from the title) and caches |
 | `eval/test_greeting.py` | Whether a short message is an arrival or someone closing a conversation. Decided before any model is called, and what it picks is which instruction the model is then given |
 
 A suite that can only express "ask the model and look at the answer" quietly

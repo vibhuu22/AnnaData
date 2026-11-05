@@ -24,18 +24,24 @@ function App() {
   // rather than a spinner: it is one request, and a spinner that flashes for
   // 200ms reads as breakage rather than as progress.
   if (checking) {
-    return <div className="body min-h-screen bg-white" />;
+    return <div className="body min-h-screen bg-[#eaf2ec]" />;
   }
 
   return (
     <Flow.Provider value={setFlow}>
+      {/* The soft field of colour every glass surface sits over. */}
+      <div className="app-backdrop" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
       {flow && (
-        <div className="body">
+        <div className="body relative z-10">
           <SaveFlow start={flow} onClose={() => setFlow(null)} />
         </div>
       )}
       {/* "body" is not decorative: index.css hangs the app font off it. */}
-      <div className={`body bg-white ${flow ? "hidden" : ""}`} aria-hidden={flow ? true : undefined}>
+      <div className={`body relative z-10 ${flow ? "hidden" : ""}`} aria-hidden={flow ? true : undefined}>
         <div className="flex">
           <Sidebar />
           {/* min-w-0 so the chat column may shrink; without it a long unbroken

@@ -482,3 +482,65 @@ body { margin: 0; padding-top: env(safe-area-inset-top, 0px); }
   .wait-mark, .wait-mark::after, .wait-shimmer, .voice-orb { animation: none !important; }
   .wait-shimmer { color: theme("colors.soil.600"); background: none; }
 }
+
+/* --- Design E: A's frosted look, C's readability ------------------------
+ * Glass for everything around the content - the header, the sidebar, the
+ * composer, the farmer's own bubbles, the offers - and a near-solid card for
+ * the words a farmer acts on, so an answer keeps full contrast in sunlight.
+ */
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: #eaf2ec;
+}
+.app-backdrop span {
+  position: absolute;
+  border-radius: 9999px;
+}
+.app-backdrop span:nth-child(1) {
+  left: -90px; top: 60px; width: 320px; height: 320px;
+  background: #9cd3af; filter: blur(60px); opacity: 0.75;
+}
+.app-backdrop span:nth-child(2) {
+  right: -110px; top: 40%; width: 300px; height: 300px;
+  background: #f6d68e; filter: blur(70px); opacity: 0.6;
+}
+.app-backdrop span:nth-child(3) {
+  left: 30%; bottom: -80px; width: 340px; height: 260px;
+  background: #b8dbc3; filter: blur(60px); opacity: 0.7;
+}
+
+.glass,
+.glass-panel,
+.glass-soft {
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+}
+.glass {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+.glass-panel {
+  /* More solid than the rest: on a phone it is a drawer over the chat, and
+     its words need to read cleanly over whatever is behind. */
+  background: rgba(255, 255, 255, 0.82);
+  border-right: 1px solid rgba(255, 255, 255, 0.85);
+}
+.glass-soft {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.88);
+}
+/* The answer: nearly solid, so the advice reads at full contrast. */
+.card-read {
+  background: rgba(255, 255, 255, 0.94);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+  box-shadow: 0 2px 6px rgba(26, 24, 21, 0.04), 0 14px 36px rgba(31, 107, 69, 0.14);
+}
+/* Phones too old for backdrop-filter get solid surfaces, never see-through ones. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass, .glass-panel, .glass-soft { background: rgba(255, 255, 255, 0.92); }
+}

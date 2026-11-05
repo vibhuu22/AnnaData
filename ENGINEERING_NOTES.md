@@ -1327,6 +1327,27 @@ The second keeps the property the product is built on - doses from the
 register, figures only when retrieved - and is the recommendation. Cloud Run
 supports WebSockets; the request timeout has to be raised for long sessions.
 
+### Chats, Explore and News (web)
+
+The web app keeps conversations as separate chats, as ChatGPT does, instead of
+one long thread. The browser makes a chat id and sends it with each question;
+the backend stores it in both messages' meta (`chat`), and `/history` returns
+it along with the message's `session`. SMS messages have no chat id and are
+grouped by session - a conversation the backend already counts as ended after
+a quiet gap - so a farmer's SMS conversations appear as chats too. Only the
+open chat is sent to the agent as context.
+
+The sidebar is Home, New chat, Explore and News, then recent chats. On a phone
+it is a drawer that closes on a tap outside it, on Escape, and after anything
+in it is chosen. Explore lists only what the agent can actually do today, each
+with a sample question that opens a new chat. News shows Google News headlines
+for the farmer's state, each linking to the publisher, labelled as unchecked by
+AnnaData: a headline is not advice, and the grounding rules do not reach it.
+
+The visual style is "E" from the design canvas: a soft field of colour behind
+glass surfaces for everything around the content, and a near-solid card for
+the answer itself, so advice keeps full contrast in sunlight.
+
 ## 4. Two kinds of memory
 
 Deliberately separate, because they have different lifetimes:

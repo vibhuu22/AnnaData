@@ -7,6 +7,8 @@ import Sources from "../Sources/Sources";
 import Answer from "../Answer/Answer";
 import Home from "../Home/Home";
 import VoiceMode from "../Voice/VoiceMode";
+import Explore from "../Explore/Explore";
+import News from "../News/News";
 import { primaryButton, textButton, SMS_NUMBER } from "../Flow/ui";
 import { speak, stopSpeaking, isSpeechSupported, unlockAudio } from "../../Config/speech";
 import { followUpAsk } from "../../Config/asks";
@@ -212,11 +214,13 @@ const BADGES = {
   },
 };
 
+// The answer is the one surface that is nearly solid (design E): advice keeps
+// full contrast in sunlight. The border still says what kind of answer it is.
 const CARD = {
-  approved: "border-2 border-leaf-600",
-  refusal: "border-2 border-dashed border-soil-800",
-  "photo-unsure": "border-2 border-dashed border-soil-800",
-  plain: "border-[1.5px] border-soil-300",
+  approved: "card-read border-2 border-leaf-600",
+  refusal: "card-read border-2 border-dashed border-soil-800",
+  "photo-unsure": "card-read border-2 border-dashed border-soil-800",
+  plain: "card-read border border-white",
 };
 
 function Badge({ kind }) {
@@ -267,7 +271,7 @@ function Pending({ startedAt }) {
           {seconds > 0 ? `${seconds}s · ` : ""}usually 5 to 20 seconds
         </span>
         {elapsed >= SLOW_AFTER_MS && (
-          <p className="mt-2 rounded-xl bg-soil-50 px-3.5 py-3 text-sm text-soil-700">
+          <p className="glass-soft mt-2 rounded-xl px-3.5 py-3 text-sm text-soil-700">
             Some answers take up to a couple of minutes. Please keep this page open — the answer will appear here.
           </p>
         )}
@@ -278,7 +282,7 @@ function Pending({ startedAt }) {
 
 function Main() {
   const {
-    send, thread, loading, setInput, input, screen, responses, focusId,
+    send, thread, loading, setInput, input, screen, responses, focusId, newChat,
   } = useContext(Context);
   const { user, needsOnboarding } = useContext(Auth);
   const openFlow = useContext(Flow);
@@ -402,9 +406,27 @@ function Main() {
   const canSend = Boolean(input.trim() || selectedImage);
   const voice = voiceOpen && <VoiceMode micContext={micContext} onClose={() => setVoiceOpen(false)} />;
 
+  if (screen === "explore" || screen === "news") {
+    return (
+      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto">
+        {screen === "explore" ? (
+          <Explore
+            onAsk={(text) => {
+              newChat();
+              submit({ text });
+            }}
+            onPhoto={newChat}
+          />
+        ) : (
+          <News />
+        )}
+      </div>
+    );
+  }
+
   if (screen === "home" && user && responses.length > 0) {
     return (
-      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto bg-white">
+      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto">
         <Home />
       </div>
     );
@@ -439,7 +461,7 @@ function Main() {
     <label
       htmlFor="image-upload"
       title="Add a photo of the crop"
-      className={`grid ${size} shrink-0 cursor-pointer place-items-center rounded-xl border-[1.5px] border-soil-400 bg-white text-soil-900 hover:bg-soil-50 focus-within:ring-2 focus-within:ring-leaf-600`}
+      className={`grid ${size} shrink-0 cursor-pointer place-items-center rounded-full bg-white/80 text-soil-900 hover:bg-white focus-within:ring-2 focus-within:ring-leaf-600`}
     >
       <CameraIcon />
       <span className="sr-only">Add a photo of the crop</span>
@@ -449,7 +471,7 @@ function Main() {
 
   if (screen === "ask") {
     return (
-      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto bg-white">
+      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto">
         {voice}
         <div className="mx-auto flex w-full max-w-[30rem] flex-grow flex-col gap-4 px-5 pb-5 pt-6">
           <h1 className="text-2xl font-bold leading-tight text-soil-900">What is happening in your field?</h1>
@@ -463,7 +485,7 @@ function Main() {
                 key={text}
                 type="button"
                 onClick={() => submit({ text })}
-                className="flex min-h-[48px] items-center rounded-[10px] border-[1.5px] border-soil-400 px-3.5 py-2.5 text-left text-sm text-soil-900 transition-colors hover:border-leaf-500 hover:bg-leaf-50"
+                className="glass-soft flex min-h-[48px] items-center rounded-2xl px-4 py-2.5 text-left text-sm text-soil-900 transition-transform hover:-translate-y-0.5"
               >
                 {text}
               </button>
@@ -486,8 +508,8 @@ function Main() {
 
           <div className="chat-composer">
             {notices}
-            <form onSubmit={handleSend} className="flex items-end gap-2">
-              {photoButton("h-[52px] w-[52px]")}
+            <form onSubmit={handleSend} className="glass flex items-end gap-2 rounded-[28px] p-2 shadow-lift">
+              {photoButton("h-11 w-11")}
               <label htmlFor="q" className="sr-only">
                 Your question
               </label>
@@ -500,13 +522,13 @@ function Main() {
                   if (e.key === "Enter" && !e.shiftKey) handleSend(e);
                 }}
                 placeholder="Or type your question…"
-                className="min-h-[52px] min-w-0 flex-1 resize-none rounded-xl border-[1.5px] border-soil-400 px-3.5 py-3 text-base text-soil-900 outline-none placeholder:text-soil-500 focus:border-leaf-600 focus:ring-2 focus:ring-leaf-100"
+                className="min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-2 py-2.5 text-base text-soil-900 outline-none placeholder:text-soil-600"
               />
               <button
                 type="submit"
                 disabled={loading || !canSend}
                 aria-label="Send"
-                className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-xl bg-soil-900 text-white transition-colors hover:bg-soil-800 disabled:bg-soil-300"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-leaf-600 text-white transition-colors hover:bg-leaf-700 disabled:bg-soil-300"
               >
                 <SendIcon />
               </button>
@@ -521,14 +543,14 @@ function Main() {
   return (
     <div className="flex min-h-0 w-full flex-grow flex-col overflow-hidden">
       {voice}
-      <div className="flex flex-grow flex-col items-center overflow-y-auto bg-white px-4 py-4">
+      <div className="flex flex-grow flex-col items-center overflow-y-auto px-4 py-4">
         <div className="flex w-full max-w-[42rem] flex-col gap-4">
           {thread.map((turn) => {
             const kind = kindOf(turn);
             return (
               <div key={turn.id} id={`turn-${turn.id}`} className="response-item flex flex-col gap-3">
                 {/* The farmer's words, on the right, in their own script. */}
-                <div className="flex max-w-[80%] flex-col gap-2 self-end rounded-[14px] rounded-br-[4px] bg-soil-100 px-3.5 py-2.5 text-base text-soil-900">
+                <div className="glass-soft flex max-w-[80%] flex-col gap-2 self-end rounded-[20px] rounded-br-[6px] px-4 py-2.5 text-base text-soil-900 shadow-card">
                   {turn.mediaFile && <SentMedia file={turn.mediaFile} kind={turn.mediaKind} />}
                   {turn.prompt && <p>{turn.prompt}</p>}
                   {/* What the microphone heard, so a misheard word is visible
@@ -544,23 +566,23 @@ function Main() {
                 {turn.pending ? (
                   <Pending startedAt={turn.startedAt} />
                 ) : turn.needsSignIn ? (
-                  <div className="rounded-[14px] border-[1.5px] border-grain-300 bg-grain-50 p-4 text-base text-soil-900">
+                  <div className="card-read rounded-[22px] border-[1.5px] border-grain-300 p-4 text-base text-soil-900">
                     {turn.response}
                   </div>
                 ) : turn.streaming ? (
                   // Still being written: the text as far as it has come, with
                   // nothing that depends on the whole answer - no badge, no
                   // Listen, no rating - until it is complete and checked.
-                  <div className="flex min-w-0 flex-col gap-2.5 rounded-[14px] border-[1.5px] border-soil-300 p-4" aria-busy="true">
+                  <div className="card-read flex min-w-0 flex-col gap-2.5 rounded-[22px] border border-white p-4" aria-busy="true">
                     <Answer markdown={turn.response} doseStatus={null} />
                     <span className="wait-shimmer text-xs font-semibold">Writing…</span>
                   </div>
                 ) : turn.failed ? (
-                  <div className="rounded-[14px] border-[1.5px] border-red-200 bg-red-50 p-4 text-base text-red-800" role="alert">
+                  <div className="card-read rounded-[22px] border-[1.5px] border-red-200 p-4 text-base text-red-800" role="alert">
                     {turn.response}
                   </div>
                 ) : (
-                  <div className={`flex min-w-0 flex-col gap-2.5 rounded-[14px] p-4 ${CARD[kind]}`}>
+                  <div className={`flex min-w-0 flex-col gap-2.5 rounded-[22px] p-4 ${CARD[kind]}`}>
                     {(BADGES[kind] || isSpeechSupported()) && (
                       <div className="flex items-center justify-between gap-2">
                         <Badge kind={kind} />
@@ -610,7 +632,7 @@ function Main() {
           {/* A guest is offered the way to save; a farmer who confirmed their
               number but left the profile halfway is offered the rest. */}
           {latestAnswered && !user && (limited || !saveDismissed) && (
-            <div className="flex flex-col gap-2.5 rounded-xl bg-soil-50 p-4">
+            <div className="glass-soft flex flex-col gap-2.5 rounded-[20px] p-4">
               <h2 className="text-base font-bold text-soil-900">
                 {limited ? "Confirm your number to keep asking" : "Get answers for your own farm"}
               </h2>
@@ -630,7 +652,7 @@ function Main() {
             </div>
           )}
           {latestAnswered && user && needsOnboarding && !saveDismissed && (
-            <div className="flex flex-col gap-2.5 rounded-xl bg-soil-50 p-4">
+            <div className="glass-soft flex flex-col gap-2.5 rounded-[20px] p-4">
               <h2 className="text-base font-bold text-soil-900">Finish your farm details</h2>
               <p className="text-sm text-soil-700">Add your district and crops so answers fit your own field.</p>
               <div className="flex items-center gap-2">
@@ -649,10 +671,10 @@ function Main() {
 
       {/* The follow-up row. The microphone stands in for Send until there is
           something typed or attached, as in the wireframe. */}
-      <div className="chat-composer shrink-0 border-t border-soil-200 bg-white px-4 pb-3 pt-2">
+      <div className="chat-composer shrink-0 px-3 pb-3 pt-1">
         {notices}
-        <form onSubmit={handleSend} className="mx-auto flex w-full max-w-[42rem] items-center gap-2">
-          {photoButton("h-12 w-12")}
+        <form onSubmit={handleSend} className="glass mx-auto flex w-full max-w-[42rem] items-center gap-2 rounded-[30px] p-2 shadow-lift">
+          {photoButton("h-11 w-11")}
           <label htmlFor="followup" className="sr-only">
             Ask a follow-up
           </label>
@@ -662,14 +684,14 @@ function Main() {
             value={input}
             type="text"
             placeholder="Ask a follow-up…"
-            className="h-12 min-w-0 flex-1 rounded-xl border-[1.5px] border-soil-400 px-3.5 text-base text-soil-900 outline-none placeholder:text-soil-500 focus:border-leaf-600 focus:ring-2 focus:ring-leaf-100"
+            className="h-11 min-w-0 flex-1 bg-transparent px-2 text-base text-soil-900 outline-none placeholder:text-soil-600"
           />
           {canSend ? (
             <button
               type="submit"
               disabled={loading}
               aria-label="Send"
-              className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-soil-900 text-white hover:bg-soil-800 disabled:bg-soil-300"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-leaf-600 text-white hover:bg-leaf-700 disabled:bg-soil-300"
             >
               <SendIcon />
             </button>
@@ -678,7 +700,7 @@ function Main() {
               type="button"
               onClick={openVoice}
               aria-label="Talk to AnnaData"
-              className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-leaf-600 text-white hover:bg-leaf-700"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-leaf-600 text-white hover:bg-leaf-700"
             >
               <MicIcon size={22} />
             </button>

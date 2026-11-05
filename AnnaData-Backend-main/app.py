@@ -3,6 +3,7 @@ import encoding_setup  # noqa: F401  (must be first)
 import asyncio
 import json
 import queue
+import re
 import threading
 import secrets
 from typing import List, Optional
@@ -21,6 +22,7 @@ import feedback
 import guest_access
 import lesion_bank
 import msp
+import news
 import profile_store
 import sms_out
 import startup
@@ -84,6 +86,10 @@ class QueryRequest(BaseModel):
     user_id: Optional[str] = None
     # Gateway message id, so a redelivered webhook cannot be logged twice.
     message_id: Optional[str] = None
+    # Which of the farmer's chats this belongs to, made by the browser. Stored
+    # with both messages so the web app can show conversations as separate
+    # chats; SMS has none, and its messages are grouped by session instead.
+    chat_id: Optional[str] = None
 
 
 @app.on_event("shutdown")
@@ -138,8 +144,17 @@ def health():
     }
 
 
+_CHAT_ID = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+
+
+def _chat(chat_id):
+    """A browser-made chat id, or None if it is not a plain short token."""
+    value = (chat_id or "").strip()
+    return value if _CHAT_ID.match(value) else None
+
+
 def _answer(query, *, user_id, channel, latitude, longitude, history,
-            message_id=None, vision=None, on_text=None):
+            message_id=None, vision=None, on_text=None, chat_id=None):
     """Answer one message and record what it taught us about the farmer.
 
     Shared by the text and the media endpoints, so a voice note or a photo gets
@@ -172,9 +187,11 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
     # nowhere else; inside one it reads as the service having forgotten you.
     continuing_session = feedback.in_live_session(user_id) if user_id else False
     if user_id:
+        chat = _chat(chat_id)
         profile_store.log_message(user_id, "inbound", query,
                                   gateway_message_id=message_id,
-                                  session_id=session_id)
+                                  session_id=session_id,
+                                  meta={"chat": chat} if chat else None)
 
     try:
         result = run_agent(
@@ -219,7 +236,7 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
             meta={"tools": result.tools_used, "channel": channel,
                   "intent": result.intent,
                   "message_type": result.message_type, "missing": result.missing_slots,
-                  "dose_status": result.dose_status},
+                  "dose_status": result.dose_status, "chat": _chat(chat_id)},
         )
         # Re-read so the decision reflects anything just learned.
         needs_location = profile_store.should_ask_location(
@@ -592,6 +609,7 @@ def run_agent_endpoint(request: QueryRequest,
         longitude=request.longitude,
         history=request.history,
         message_id=request.message_id,
+        chat_id=request.chat_id,
     )
 
 
@@ -626,6 +644,7 @@ async def run_agent_media(
     channel: str = Form("web"),
     user_id: Optional[str] = Form(None),
     message_id: Optional[str] = Form(None),
+    chat_id: Optional[str] = Form(None),
     authorization: Optional[str] = Header(None),
     x_bridge_token: Optional[str] = Header(None),
     x_guest_id: Optional[str] = Header(None),
@@ -711,6 +730,7 @@ async def run_agent_media(
         history=_parse_history(history),
         message_id=message_id,
         vision=vision,
+        chat_id=chat_id,
     )
 
     # Echoed back so the browser can show the farmer what was heard and what was
@@ -778,7 +798,7 @@ def run_agent_stream(request: QueryRequest,
         return _answer(
             request.query, user_id=caller, channel=request.channel or "web",
             latitude=request.latitude, longitude=request.longitude,
-            history=request.history, message_id=request.message_id,
+            history=request.history, message_id=request.message_id, chat_id=request.chat_id,
             on_text=lambda text: emit({"type": "text", "text": text}),
         )
 
@@ -797,6 +817,7 @@ async def run_agent_media_stream(
     channel: str = Form("web"),
     user_id: Optional[str] = Form(None),
     message_id: Optional[str] = Form(None),
+    chat_id: Optional[str] = Form(None),
     authorization: Optional[str] = Header(None),
     x_bridge_token: Optional[str] = Header(None),
     x_guest_id: Optional[str] = Header(None),
@@ -842,7 +863,7 @@ async def run_agent_media_stream(
         result = _answer(
             spoken, user_id=caller, channel=channel or "web",
             latitude=_to_float(latitude), longitude=_to_float(longitude),
-            history=_parse_history(history), message_id=message_id, vision=vision,
+            history=_parse_history(history), message_id=message_id, vision=vision, chat_id=chat_id,
             on_text=lambda text: emit({"type": "text", "text": text}),
         )
         result.update({"transcript": transcript, "vision": vision, "query_used": spoken})
@@ -918,6 +939,20 @@ def rate_answer(request: AnswerRating,
         user_id = guest
     note = (request.note or "").strip()[:300]
     return {"stored": feedback.record_web(user_id, request.up, note)}
+
+
+@app.get("/news")
+def read_news(state: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """Farming headlines for a state: the signed-in farmer's own if none is named.
+
+    Open to guests, because it spends no model quota and fetches only Google
+    News searches built here from a known state name.
+    """
+    if not state:
+        user_id = auth.read_token(_bearer(authorization))
+        if user_id:
+            state = (farmer_account.account(user_id) or {}).get("state")
+    return news.headlines(state)
 
 
 @app.get("/feedback/due")

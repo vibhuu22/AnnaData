@@ -1,5 +1,4 @@
 import React, { useState, useContext, useEffect } from "react";
-import { FaPlus } from "react-icons/fa";
 import { IoIosMenu } from "react-icons/io";
 import { FaRightFromBracket } from "react-icons/fa6";
 import { Context } from "../../Context/ContextProvider";
@@ -45,9 +44,25 @@ function describeDay(date, index) {
   return date.toLocaleDateString("en-IN", { weekday: "long" });
 }
 
+const svg = (paths) => (
+  <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {paths}
+  </svg>
+);
+const ICONS = {
+  home: svg(<><path d="M3 11l9-7 9 7" /><path d="M5 10v10h14V10" /><path d="M10 20v-6h4v6" /></>),
+  plus: svg(<><path d="M12 5v14" /><path d="M5 12h14" /></>),
+  compass: svg(<><circle cx="12" cy="12" r="9" /><path d="M15.5 8.5l-2 5-5 2 2-5z" /></>),
+  news: svg(<><path d="M4 5h13v14H6a2 2 0 0 1-2-2z" /><path d="M17 9h3v8a2 2 0 0 1-2 2" /><path d="M8 9h5" /><path d="M8 13h5" /></>),
+};
+
 function Sidebar() {
-  const [extended, setExtended] = useState(false);
-  const { resetChat } = useContext(Context);
+  // Open by default on a wide screen, where it is a panel; closed on a phone,
+  // where it is a drawer over the chat.
+  const [extended, setExtended] = useState(
+    () => typeof window !== "undefined" && window.innerWidth >= 1024
+  );
+  const { newChat, goHome, setScreen, screen, chats = [], openChat, currentChatId } = useContext(Context);
   const { user, signOut } = useContext(Auth);
 
   const [weatherData, setWeatherData] = useState(null);
@@ -151,64 +166,125 @@ function Sidebar() {
     };
   }, [locateTick]);
 
-  const handleNewChat = () => resetChat();
+  // Close the drawer on a phone after anything is chosen in it; on a wide
+  // screen it is a panel, not an overlay, and stays as the farmer left it.
+  const isNarrow = () => typeof window !== "undefined" && window.innerWidth < 1024;
+  const choose = (action) => () => {
+    action();
+    if (isNarrow()) setExtended(false);
+  };
+
+  // Escape closes the drawer, as tapping outside it does.
+  useEffect(() => {
+    if (!extended) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape" && isNarrow()) setExtended(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [extended]);
 
   const wet = weatherData ? nextWetDay(weatherData.daily) : null;
+  const nav = [
+    { key: "home", label: "Home", icon: ICONS.home, action: goHome, active: screen === "home" },
+    { key: "new", label: "New chat", icon: ICONS.plus, action: newChat, active: screen === "ask" },
+    { key: "explore", label: "Explore", icon: ICONS.compass, action: () => setScreen("explore"), active: screen === "explore" },
+    { key: "news", label: "News", icon: ICONS.news, action: () => setScreen("news"), active: screen === "news" },
+  ];
 
   return (
     <div className="flex">
-      {/* Menu icon for small screens */}
+      {/* The menu button on a phone, where the sidebar is a drawer. */}
       <div className="fixed left-0 top-0 z-50 p-2 lg:hidden">
         <button
           type="button"
           onClick={() => setExtended((prev) => !prev)}
           aria-label={extended ? "Close menu" : "Open menu"}
           aria-expanded={extended}
-          className="grid h-touch w-touch place-items-center rounded-full text-soil-700 hover:bg-soil-100"
+          className="grid h-touch w-touch place-items-center rounded-full text-soil-800 hover:bg-white/60"
         >
           <IoIosMenu className="h-7 w-7" />
         </button>
       </div>
 
-      <div
-        className={`fixed left-0 top-0 z-40 h-screen border-r border-soil-200 bg-soil-50 transition-transform duration-300 ease-in-out lg:static lg:flex lg:translate-x-0 lg:flex-col ${
-          extended ? "translate-x-0" : "-translate-x-full"
-        } ${extended ? "w-72 sm:w-80 lg:w-64" : "lg:w-16"}`}
-      >
-        {/* Menu icon for large screens */}
-        <div className="hidden p-2 lg:flex">
-          <button
-            type="button"
-            onClick={() => setExtended((prev) => !prev)}
-            aria-label={extended ? "Collapse sidebar" : "Expand sidebar"}
-            aria-expanded={extended}
-            className="grid h-touch w-touch place-items-center rounded-full text-soil-700 hover:bg-soil-100"
-          >
-            <IoIosMenu className="h-7 w-7" />
-          </button>
-        </div>
+      {/* Tapping anywhere outside the open drawer closes it. */}
+      {extended && (
+        <button
+          type="button"
+          aria-label="Close menu"
+          tabIndex={-1}
+          onClick={() => setExtended(false)}
+          className="fixed inset-0 z-30 bg-soil-900/20 backdrop-blur-[2px] lg:hidden"
+        />
+      )}
 
-        <div className="flex h-screen flex-col px-2 pt-16 lg:pt-0">
-          <div className="mb-4 flex-grow">
+      <nav
+        aria-label="AnnaData"
+        className={`glass-panel fixed left-0 top-0 z-40 h-screen transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+          extended ? "translate-x-0" : "-translate-x-full"
+        } ${extended ? "w-72 lg:w-64" : "lg:w-[4.25rem]"}`}
+      >
+        <div className="flex h-screen flex-col px-2 pb-3 pt-16 lg:pt-2">
+          <div className="hidden lg:flex">
             <button
               type="button"
-              onClick={handleNewChat}
-              className="flex min-h-touch w-full items-center gap-3 rounded-pill border border-soil-200 bg-white px-3 text-left text-soil-700 transition-colors hover:bg-soil-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600"
+              onClick={() => setExtended((prev) => !prev)}
+              aria-label={extended ? "Collapse sidebar" : "Expand sidebar"}
+              aria-expanded={extended}
+              className="grid h-touch w-touch place-items-center rounded-full text-soil-800 hover:bg-white/70"
             >
-              <FaPlus className="h-4 w-4 shrink-0" />
-              {extended && <span className="text-sm">New question</span>}
+              <IoIosMenu className="h-7 w-7" />
             </button>
+          </div>
+
+          <ul className="mt-1 flex flex-col gap-1">
+            {nav.map((item) => (
+              <li key={item.key}>
+                <button
+                  type="button"
+                  onClick={choose(item.action)}
+                  aria-current={item.active ? "page" : undefined}
+                  title={extended ? undefined : item.label}
+                  className={`flex min-h-touch w-full items-center gap-3 rounded-2xl px-3 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600 ${
+                    item.active ? "bg-white/85 text-leaf-800 shadow-card" : "text-soil-800 hover:bg-white/60"
+                  }`}
+                >
+                  <span className="grid h-5 w-5 shrink-0 place-items-center">{item.icon}</span>
+                  {extended && <span>{item.label}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-4 min-h-0 flex-grow overflow-y-auto">
+            {extended && chats.length > 0 && (
+              <section aria-label="Recent chats">
+                <h2 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-soil-600">Recent chats</h2>
+                <ul className="flex flex-col gap-0.5">
+                  {chats.slice(0, 30).map((chat) => (
+                    <li key={chat.id}>
+                      <button
+                        type="button"
+                        onClick={choose(() => openChat(chat.id))}
+                        aria-current={screen === "chat" && chat.id === currentChatId ? "page" : undefined}
+                        className={`w-full truncate rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                          screen === "chat" && chat.id === currentChatId
+                            ? "bg-white/85 font-medium text-soil-900"
+                            : "text-soil-800 hover:bg-white/60"
+                        }`}
+                      >
+                        {chat.title}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             {extended && (
-              <section className="mt-4 rounded-card border border-soil-200 bg-white p-3">
-                <h4 className="text-xs uppercase tracking-wide text-soil-500">
-                  Your area
-                </h4>
-
-                {loading && (
-                  <p className="mt-2 text-sm text-soil-500">Finding your area…</p>
-                )}
-
+              <section className="glass-soft mt-4 rounded-2xl p-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-soil-600">Your area</h2>
+                {loading && <p className="mt-2 text-sm text-soil-600">Finding your area…</p>}
                 {/* Not an error state. A farmer who declined the location
                     prompt has not broken anything - the agent asks for a
                     district in the conversation instead. */}
@@ -222,101 +298,69 @@ function Sidebar() {
                   </button>
                 )}
                 {error && (
-                  <p className="mt-2 text-sm text-soil-500">
-                    Location unavailable — mention your district in the question
-                    and the answer will use it.
+                  <p className="mt-2 text-sm text-soil-600">
+                    Location unavailable — mention your district in the question and the answer will use it.
                   </p>
                 )}
-
                 {!loading && !error && weatherData && (
                   <>
-                    {locationName && (
-                      <p className="mt-1 text-base font-semibold text-soil-900">
-                        {locationName}
-                      </p>
-                    )}
-
-                    <p className="mt-2 text-sm text-soil-700">
-                      <span className="text-2xl font-semibold text-soil-900">
+                    {locationName && <p className="mt-1 text-sm font-semibold text-soil-900">{locationName}</p>}
+                    <p className="mt-1 text-sm text-soil-700">
+                      <span className="text-xl font-semibold text-soil-900">
                         {Math.round(weatherData.current_weather.temperature)}°C
                       </span>
                       {weatherData.daily?.temperature_2m_max?.[0] != null && (
-                        <span className="ml-2 text-soil-500">
+                        <span className="ml-2 text-soil-600">
                           today {Math.round(weatherData.daily.temperature_2m_min[0])}–
                           {Math.round(weatherData.daily.temperature_2m_max[0])}°
                         </span>
                       )}
                     </p>
-
-                    <div className="mt-3 border-t border-soil-200 pt-3">
+                    <p className="mt-2 border-t border-white/80 pt-2 text-sm text-soil-700">
                       {wet ? (
-                        <p className="text-sm text-soil-700">
-                          <span className="font-semibold text-soil-900">
-                            Rain {describeDay(wet.date, wet.index)}
-                          </span>
-                          <br />
-                          about {wet.mm.toFixed(0)} mm expected
-                        </p>
+                        <>
+                          <span className="font-semibold text-soil-900">Rain {describeDay(wet.date, wet.index)}</span>, about{" "}
+                          {wet.mm.toFixed(0)} mm
+                        </>
                       ) : (
-                        <p className="text-sm text-soil-700">
-                          <span className="font-semibold text-soil-900">
-                            No rain expected
-                          </span>
-                          <br />
-                          in the next seven days
-                        </p>
+                        <>
+                          <span className="font-semibold text-soil-900">No rain expected</span> in the next seven days
+                        </>
                       )}
-                    </div>
+                    </p>
                   </>
                 )}
               </section>
             )}
           </div>
 
-          {/* The account, at the bottom where a footer belongs. Collapsed, it is
-              the initial alone - enough to tell you that you are signed in and
-              as whom, in 44px of rail. Absent for a guest: there is no account
-              to show, and the header carries the way to sign in. */}
+          {/* The account, at the bottom where a footer belongs. Absent for a
+              guest: there is no account to show, and the header carries the
+              way to sign in. */}
           {user && (
-          <div className="mb-3 border-t border-soil-200 pt-3">
-            {extended ? (
-              <>
-                <p className="truncate px-1 text-sm font-semibold text-soil-900">
-                  {user?.name || "Your account"}
-                </p>
-                <p className="truncate px-1 text-xs text-soil-500">
-                  {[user?.district, user?.phone].filter(Boolean).join(" · ")}
-                </p>
-                {user?.total_area_text && (
-                  <p className="truncate px-1 text-xs text-soil-500">
-                    {user.total_area_text}
-                    {user.crops?.length ? ` · ${user.crops.join(", ")}` : ""}
+            <div className="mt-3 border-t border-white/80 pt-3">
+              {extended && (
+                <>
+                  <p className="truncate px-3 text-sm font-semibold text-soil-900">{user?.name || "Your account"}</p>
+                  <p className="truncate px-3 text-xs text-soil-600">
+                    {[user?.district, user?.phone].filter(Boolean).join(" · ")}
                   </p>
-                )}
-                <button
-                  type="button"
-                  onClick={signOut}
-                  className="mt-2 flex min-h-touch w-full items-center gap-3 rounded-pill px-3 text-left text-sm text-soil-700 transition-colors hover:bg-soil-100"
-                >
-                  <FaRightFromBracket className="h-4 w-4 shrink-0" />
-                  Sign out
-                </button>
-              </>
-            ) : (
+                </>
+              )}
               <button
                 type="button"
-                onClick={signOut}
-                aria-label="Sign out"
-                title={user?.name || "Sign out"}
-                className="grid h-touch w-touch place-items-center rounded-full text-soil-700 hover:bg-soil-100"
+                onClick={choose(signOut)}
+                aria-label={extended ? undefined : "Sign out"}
+                title={extended ? undefined : "Sign out"}
+                className="mt-1 flex min-h-touch w-full items-center gap-3 rounded-2xl px-3 text-left text-sm text-soil-800 transition-colors hover:bg-white/60"
               >
-                <FaRightFromBracket className="h-4 w-4" />
+                <FaRightFromBracket className="h-4 w-4 shrink-0" />
+                {extended && "Sign out"}
               </button>
-            )}
-          </div>
+            </div>
           )}
         </div>
-      </div>
+      </nav>
     </div>
   );
 }

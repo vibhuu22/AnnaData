@@ -47,9 +47,10 @@ beforeEach(() => {
       agentHeaders.push(options.headers || {});
       if (agentStatus !== 200) return response(agentBody, agentStatus);
       if (agentBody.answer) {
+        // Stored as the backend stores them: with the chat they belong to.
         messages.push(
-          { direction: 'inbound', body: body.query, at: '2026-11-05T05:00:00Z' },
-          { direction: 'outbound', body: agentBody.answer, meta: { tools: agentBody.tools_used, dose_status: agentBody.dose_status } },
+          { direction: 'inbound', body: body.query, at: '2026-11-05T05:00:00Z', meta: { chat: body.chat_id } },
+          { direction: 'outbound', body: agentBody.answer, meta: { tools: agentBody.tools_used, dose_status: agentBody.dose_status, chat: body.chat_id } },
         );
       }
       return response(agentBody);
@@ -123,7 +124,9 @@ test('a guest asks, saves their farm in two steps, comes back, and signs out', a
   mount();
   expect(await screen.findByRole('heading', { name: 'Welcome back, Test' })).toBeInTheDocument();
   expect(screen.getByText(/Karnal · Cotton/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: /Kapas me sundi/ }));
+  // One chat, holding both questions, opened from the home screen.
+  expect(screen.getByText('2 questions')).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole('button', { name: /Kapas me sundi/ })[0]);
   expect(await screen.findAllByText('This is a simulated advisory answer.')).not.toHaveLength(0);
 
   fireEvent.click(screen.getByRole('button', { name: 'AnnaData — home' }));
@@ -151,7 +154,7 @@ test('a returning farmer signs in from the header and lands on their home screen
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
   await confirmNumber('Sign in');
   expect(await screen.findByRole('heading', { name: 'Welcome back, Ramesh' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Ask a new question' }));
+  fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0]);
   expect(screen.getByRole('heading', { name: 'What is happening in your field?' })).toBeInTheDocument();
 });
 

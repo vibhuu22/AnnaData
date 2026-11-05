@@ -46,13 +46,13 @@ export function FlowScreen({ label, top, children, actions }) {
   return (
     <section
       aria-label={label}
-      className="body flex min-h-screen w-full flex-col bg-white text-soil-900"
+      className="body relative flex min-h-screen w-full flex-col text-soil-900"
     >
-      <div className="mx-auto flex w-full max-w-[30rem] flex-grow flex-col gap-5 px-5 pb-6 pt-4 sm:px-6">
+      <div className="glass-soft mx-auto my-0 flex w-full max-w-[30rem] flex-grow flex-col gap-5 px-5 pb-6 pt-4 sm:my-6 sm:rounded-[28px] sm:px-6">
         {top && <div className="flex items-center justify-between gap-3">{top}</div>}
         {children}
         <div className="flex-grow" />
-        {actions && <div className="sticky bottom-0 -mx-1 flex flex-col gap-2 bg-white px-1 pb-[env(safe-area-inset-bottom,0px)] pt-2">{actions}</div>}
+        {actions && <div className="sticky bottom-0 -mx-1 flex flex-col gap-2 px-1 pb-[env(safe-area-inset-bottom,0px)] pt-2">{actions}</div>}
       </div>
     </section>
   );

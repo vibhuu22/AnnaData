@@ -110,10 +110,7 @@ let aborter = null;
 // own voice reports the word it is on, which `onDevice` holds.
 let spoken = [];
 let onDevice = null;
-// When a short cue already playing ends, so an answer queued behind it starts
-// after it rather than on top of it.
-let busyUntil = 0;
-const cues = new Map();
+
 
 // Speakers idle-waiting for their next sentence. stopSpeaking() wakes them so
 // they notice they were stopped instead of waiting for ever.
@@ -178,7 +175,6 @@ export function stopSpeaking() {
   scheduled = [];
   spoken = [];
   onDevice = null;
-  busyUntil = 0;
   idle.forEach((resume) => resume());
   idle.clear();
   if (SUPPORTED) window.speechSynthesis.cancel();
@@ -240,7 +236,7 @@ function timeline(ctx, mine) {
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(ctx.destination);
-      cursor = Math.max(cursor, ctx.currentTime + 0.06, busyUntil);
+      cursor = Math.max(cursor, ctx.currentTime + 0.06);
       source.start(cursor);
       if (record && record.start === null) record.start = cursor;
       cursor += buffer.duration;
@@ -324,41 +320,6 @@ async function wholePiece(ctx, line, text, lang, signal) {
   // The callback form, because older Safari does not return a promise.
   const buffer = await new Promise((resolve, reject) => ctx.decodeAudioData(bytes, resolve, reject));
   line.add(buffer, line.begin(text));
-}
-
-/**
- * A short spoken cue - "Ji, ek pal..." - made once and kept, so it can be
- * played the instant a farmer stops talking. A reply takes several seconds to
- * understand and write; silence for that long sounds like nothing happened.
- * The cue says only that the question was heard, which it was.
- */
-export async function prepareCue(text) {
-  if (!text || cues.has(text)) return;
-  cues.set(text, null);
-  try {
-    const ctx = audioContext();
-    const response = await post("/speak", text, "", undefined);
-    if (!ctx || !response.ok) throw new Error(`cue ${response.status}`);
-    const bytes = await response.arrayBuffer();
-    cues.set(text, await new Promise((resolve, reject) => ctx.decodeAudioData(bytes, resolve, reject)));
-  } catch (e) {
-    cues.delete(text); // tried again next turn
-  }
-}
-
-/** Play a prepared cue now, if it is ready. Returns whether it played. */
-export function playCue(text) {
-  const ctx = audioContext();
-  const buffer = cues.get(text);
-  if (!ctx || !buffer) return false;
-  const source = ctx.createBufferSource();
-  source.buffer = buffer;
-  source.connect(ctx.destination);
-  const at = Math.max(ctx.currentTime + 0.02, busyUntil);
-  source.start(at);
-  busyUntil = at + buffer.duration + 0.15;
-  scheduled.push(source);
-  return true;
 }
 
 /**

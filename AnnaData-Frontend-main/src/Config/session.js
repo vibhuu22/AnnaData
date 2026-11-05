@@ -240,6 +240,14 @@ export async function rateAnswer(up, note = "") {
   return response.json();
 }
 
+/** The week's farming headlines for a state; the farmer's own when none is named. */
+export async function fetchNews(state = "") {
+  const query = state ? `?state=${encodeURIComponent(state)}` : "";
+  const response = await fetch(`${getApiUrl()}/news${query}`, { headers: authHeaders() });
+  if (!response.ok) throw new Error(`news ${response.status}`);
+  return response.json();
+}
+
 export async function signOut() {
   try {
     await apiFetch("/auth/signout", { method: "POST" });

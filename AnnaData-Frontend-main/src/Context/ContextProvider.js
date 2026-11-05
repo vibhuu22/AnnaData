@@ -18,6 +18,43 @@ export const Context = createContext();
  * empty answer rather than dropped. Silently losing a farmer's question from
  * their own history would be worse than showing that it went unanswered.
  */
+/**
+ * Which chat a stored message belongs to. Web messages carry the chat id the
+ * browser made; SMS messages have none and are grouped by session - a
+ * conversation the backend counts as finished after a quiet gap - and failing
+ * that, by day.
+ */
+function chatOf(message) {
+  if (message.meta?.chat) return message.meta.chat;
+  if (message.session) return `session-${message.session}`;
+  return `day-${String(message.at || "").slice(0, 10) || "earlier"}`;
+}
+
+/** A fresh chat id: short, and only the characters the backend accepts. */
+export function newChatId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * The chats, newest activity first: id, title (its first question), when it
+ * last moved, and how many turns it has.
+ */
+export function chatsOf(turns) {
+  const byId = new Map();
+  turns.forEach((turn) => {
+    const chat = byId.get(turn.chatId) || { id: turn.chatId, title: "", at: null, count: 0, order: 0 };
+    if (!chat.title) chat.title = (turn.prompt || turn.transcript || "").trim();
+    chat.at = turn.at || chat.at;
+    chat.count += 1;
+    chat.order = Math.max(chat.order, turns.indexOf(turn));
+    byId.set(turn.chatId, chat);
+  });
+  return [...byId.values()]
+    .map((chat) => ({ ...chat, title: chat.title || "Voice or photo question" }))
+    .sort((a, b) => b.order - a.order);
+}
+
 function foldIntoTurns(messages) {
   const turns = [];
   let current = null;
@@ -27,6 +64,7 @@ function foldIntoTurns(messages) {
       if (current) turns.push(current);
       current = {
         id: `history-${index}`,
+        chatId: chatOf(message),
         prompt: message.body,
         response: "",
         mediaFile: null,
@@ -94,45 +132,63 @@ const ContextProvider = (props) => {
   const [resultData, setResultData] = useState("");
   const [responses, setResponses] = useState([]);
   /*
-   * Which of three screens the conversation is on:
-   *   ask   the empty "What is happening in your field?" screen
-   *   chat  a conversation
-   *   home  a returning farmer's welcome: their farm, earlier questions
+   * Which screen the main area shows:
+   *   ask      the empty "What is happening in your field?" screen
+   *   chat     one conversation
+   *   home     a returning farmer's welcome: their farm, recent chats
+   *   explore  what AnnaData can help with
+   *   news     farming news for their state
    *
-   * `threadStart` is where the conversation on screen begins. "Ask a new
-   * question" moves it to the end rather than throwing the earlier turns away,
-   * so they stay listed on the home screen, and so the agent is not handed a
-   * month-old conversation as context for a new question.
+   * CHATS, NOT ONE LONG THREAD. Each conversation is its own chat, as in
+   * ChatGPT: "New chat" starts one, the sidebar lists them, and only the open
+   * chat's turns are on screen or sent to the agent as context.
    */
   const [screen, setScreen] = useState("ask");
-  const [threadStart, setThreadStart] = useState(0);
+  const [currentChatId, setCurrentChatId] = useState(null);
   const screenRef = useRef(screen);
-  const threadRef = useRef(threadStart);
+  const chatRef = useRef(currentChatId);
   const responsesRef = useRef(responses);
   screenRef.current = screen;
-  threadRef.current = threadStart;
+  chatRef.current = currentChatId;
   responsesRef.current = responses;
 
-  const startNewQuestion = useCallback(() => {
-    setThreadStart(responsesRef.current.length);
+  const newChat = useCallback(() => {
+    // Set on the ref at once too, so a question sent straight after (from
+    // Explore) lands in the new chat, not the one before it.
+    const id = newChatId();
+    chatRef.current = id;
+    setCurrentChatId(id);
     setScreen("ask");
     setShowResult(false);
     setResultData("");
     setRecentPrompt("");
   }, []);
 
-  /** Open the conversation with every past turn, scrolled to this one. */
+  /** Open one chat, scrolled to a turn in it if one is named. */
   const [focusId, setFocusId] = useState(null);
-  const openTurn = useCallback((id) => {
-    setThreadStart(0);
+  const openChat = useCallback((chatId, turnId = null) => {
+    setCurrentChatId(chatId);
     setScreen("chat");
-    setFocusId(id);
+    setFocusId(turnId);
   }, []);
+  const openTurn = useCallback(
+    (turnId) => {
+      const turn = responses.find((t) => t.id === turnId);
+      if (turn) openChat(turn.chatId, turnId);
+    },
+    [responses, openChat]
+  );
 
-  const goHome = useCallback(() => setScreen("home"), []);
+  // Home is the welcome for a farmer with chats; for anyone else it is the
+  // ask screen, which is the app's front door.
+  const goHome = useCallback(() => {
+    if (user && responses.length) setScreen("home");
+    else newChat();
+  }, [user, responses.length, newChat]);
 
-  // Kept for the sidebar's "New chat", which used to wipe the conversation.
-  const resetChat = startNewQuestion;
+  // Kept for older callers.
+  const startNewQuestion = newChat;
+  const resetChat = newChat;
 
   /**
    * Load this farmer's past conversation, or throw it away when they sign out.
@@ -149,7 +205,7 @@ const ContextProvider = (props) => {
       // A guest, or a farmer who just signed out. A sign-out must not leave
       // the previous farmer's conversation on a shared phone.
       setResponses([]);
-      setThreadStart(0);
+      setCurrentChatId(null);
       setScreen("ask");
       setHistoryLoaded(true);
       return undefined;
@@ -158,7 +214,7 @@ const ContextProvider = (props) => {
     setHistoryLoaded(false);
     (async () => {
       try {
-        const data = await fetchHistory(50);
+        const data = await fetchHistory(200);
         if (cancelled) return;
         const turns = foldIntoTurns(data.messages || []);
         // A guest who has just signed in had their questions moved onto this
@@ -167,19 +223,22 @@ const ContextProvider = (props) => {
         // them), keep what is on screen rather than blanking the conversation
         // the farmer is in the middle of.
         if (turns.length === 0) return;
-        if (screenRef.current === "chat") {
-          // Signed in from the middle of a conversation (the guest's save
-          // flow). Stay in it, showing the same turns as before - which are
-          // now the last ones in the stored history.
-          const onScreen = responsesRef.current.length - threadRef.current;
-          setResponses(turns);
-          setThreadStart(Math.max(0, turns.length - onScreen));
-        } else {
-          // A returning farmer: welcome them, with what they asked before.
-          setResponses(turns);
-          setThreadStart(turns.length);
-          setScreen("home");
+        // Signed in mid-chat, but the stored messages carry no chat id (a
+        // backend from before chats): keep the turns that were on screen in
+        // the open chat rather than letting the conversation vanish.
+        const open = chatRef.current;
+        if (screenRef.current === "chat" && open && !turns.some((t) => t.chatId === open)) {
+          const onScreen = responsesRef.current.filter((t) => t.chatId === open).length;
+          turns.slice(-onScreen).forEach((t) => {
+            t.chatId = open;
+          });
         }
+        setResponses(turns);
+        // Signed in from the middle of a chat (the guest's save flow): the
+        // questions were stored with this chat's id and moved onto the number,
+        // so the same chat is still open. Otherwise, a returning farmer is
+        // welcomed with their chats.
+        if (screenRef.current !== "chat" || !chatRef.current) setScreen("home");
       } catch (e) {
         // History is a convenience. Failing to load it must not stop a farmer
         // asking a new question, so this is a warning and not an error state.
@@ -209,10 +268,19 @@ const ContextProvider = (props) => {
     // by which time the farmer may have sent another message and shifted every
     // index after this one.
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setResponses((prev) => [...prev, { ...newTurn({ text: trimmed, image, audio, quiet }), id, startedAt: Date.now() }]);
+    const chatId = chatRef.current || newChatId();
+    if (!chatRef.current) {
+      chatRef.current = chatId;
+      setCurrentChatId(chatId);
+    }
+    setResponses((prev) => [
+      ...prev,
+      { ...newTurn({ text: trimmed, image, audio, quiet }), id, chatId, startedAt: Date.now(), at: new Date().toISOString() },
+    ]);
 
+    // Only this chat is the agent's context, never the farmer's other chats.
     const history = responses
-      .slice(threadStart)
+      .filter((item) => item.chatId === chatId)
       .filter((item) => item.response && !item.failed && !item.needsSignIn)
       .flatMap((item) => [
         { role: "user", content: item.transcript || item.prompt },
@@ -238,6 +306,7 @@ const ContextProvider = (props) => {
       image,
       audio,
       channel,
+      chatId,
       onHeard: (transcript, vision) => {
         update(() => ({ transcript, vision }));
         onHeard?.(transcript, vision);
@@ -279,7 +348,7 @@ const ContextProvider = (props) => {
     setLoading(false);
     // Handed back for voice mode, which reads the answer aloud itself.
     return { ...result, id };
-  }, [responses, threadStart]);
+  }, [responses]);
 
   /** Text-only send, for the callers that still pass through `input`. */
   const onSent = useCallback(() => send({ text: input }), [send, input]);
@@ -300,8 +369,12 @@ const ContextProvider = (props) => {
     input,
     setInput,
     resetChat,
-    // The turns of the conversation on screen.
-    thread: responses.slice(threadStart),
+    // The turns of the chat on screen, and every chat.
+    thread: responses.filter((turn) => turn.chatId === currentChatId),
+    chats: chatsOf(responses),
+    currentChatId,
+    newChat,
+    openChat,
     screen,
     setScreen,
     startNewQuestion,

@@ -179,29 +179,63 @@ test('a signed-in farmer who left the profile halfway is offered the rest', () =
 describe('a returning farmer\'s home screen', () => {
   const user = { user_id: '+919876543210', name: 'Ramesh Kumar', district: 'Karnal', crops: ['wheat'], total_area_text: '2 acre (0.81 ha)' };
   const turns = [
-    { id: 'history-0', prompt: 'Caterpillars in cotton', response: 'a', at: '2026-11-01T05:00:00Z' },
-    { id: 'history-2', prompt: 'Mandi price for wheat', response: 'b', at: '2026-11-03T05:00:00Z' },
+    { id: 'history-0', chatId: 'c1', prompt: 'Caterpillars in cotton', response: 'a', at: '2026-11-01T05:00:00Z' },
+    { id: 'history-2', chatId: 'c2', prompt: 'Mandi price for wheat', response: 'b', at: '2026-11-03T05:00:00Z' },
   ];
+  const chats = [
+    { id: 'c2', title: 'Mandi price for wheat', at: '2026-11-03T05:00:00Z', count: 1 },
+    { id: 'c1', title: 'Caterpillars in cotton', at: '2026-11-01T05:00:00Z', count: 2 },
+  ];
+  const showHome = () => render(
+    <Auth.Provider value={{ user, needsOnboarding: false }}>
+      <Context.Provider value={{ thread: [], responses: turns, chats, screen: 'home', input: '', setInput: jest.fn(), send, newChat, openChat, focusId: null, loading: false }}>
+        <Flow.Provider value={openFlow}>
+          <Main />
+        </Flow.Provider>
+      </Context.Provider>
+    </Auth.Provider>
+  );
+  const newChat = jest.fn();
+  const openChat = jest.fn();
 
   test('welcomes them by name and shows the farm answers are for', () => {
-    show(turns, { user, screen: 'home' });
+    showHome();
     expect(screen.getByRole('heading', { name: 'Welcome back, Ramesh' })).toBeInTheDocument();
     expect(screen.getByText('Karnal · Wheat · 2 acre (0.81 ha)')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     expect(openFlow).toHaveBeenCalledWith('profile');
   });
 
-  test('lists earlier questions newest first, and opens one', () => {
-    show(turns, { user, screen: 'home' });
+  test('lists their chats, newest first, and opens one', () => {
+    showHome();
     const items = screen.getAllByRole('button', { name: /Caterpillars|Mandi price/ });
     expect(items[0]).toHaveTextContent('Mandi price for wheat');
+    expect(items[1]).toHaveTextContent('2 questions');
     fireEvent.click(items[1]);
-    expect(openTurn).toHaveBeenCalledWith('history-0');
+    expect(openChat).toHaveBeenCalledWith('c1');
   });
 
-  test('can start a new question', () => {
-    show(turns, { user, screen: 'home' });
-    fireEvent.click(screen.getByRole('button', { name: 'Ask a new question' }));
-    expect(startNewQuestion).toHaveBeenCalled();
+  test('can start a new chat', () => {
+    showHome();
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    expect(newChat).toHaveBeenCalled();
+  });
+});
+
+describe('explore and news', () => {
+  const at = (view) => render(
+    <Auth.Provider value={{ user: null }}>
+      <Context.Provider value={{ thread: [], responses: [], chats: [], screen: view, input: '', setInput: jest.fn(), send, newChat: jest.fn(), focusId: null, loading: false }}>
+        <Flow.Provider value={openFlow}>
+          <Main />
+        </Flow.Provider>
+      </Context.Provider>
+    </Auth.Provider>
+  );
+
+  test('an explore topic starts a chat with its question', () => {
+    at('explore');
+    fireEvent.click(screen.getByRole('button', { name: /Mandi prices/ }));
+    expect(send).toHaveBeenCalledWith({ text: 'Aaj gehu ka mandi bhav kya hai?', image: undefined });
   });
 });

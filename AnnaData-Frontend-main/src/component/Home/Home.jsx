@@ -20,15 +20,9 @@ function when(at) {
   return date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
-function label(turn) {
-  const text = (turn.prompt || turn.transcript || "").trim();
-  if (text) return text;
-  return turn.mediaKind === "audio" ? "Voice question" : "Photo question";
-}
-
 function Home() {
   const { user } = useContext(Auth);
-  const { responses, startNewQuestion, openTurn } = useContext(Context);
+  const { chats = [], newChat, openChat } = useContext(Context);
   const openFlow = useContext(Flow);
 
   const farm = [
@@ -36,7 +30,7 @@ function Home() {
     (user?.crops || []).map(title).join(", "),
     user?.total_area_text,
   ].filter(Boolean);
-  const earlier = responses.slice(-5).reverse();
+  const recent = chats.slice(0, 6);
   const firstName = (user?.name || "").trim().split(/\s+/)[0];
 
   return (
@@ -45,7 +39,7 @@ function Home() {
         Welcome back{firstName ? `, ${firstName}` : ""}
       </h1>
 
-      <div className="flex items-center justify-between gap-3 rounded-xl border-[1.5px] border-soil-400 p-3.5">
+      <div className="card-read flex items-center justify-between gap-3 rounded-[20px] p-4">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="text-xs font-bold text-soil-700">Your farm</div>
           <div className="text-base font-semibold text-soil-900">
@@ -57,26 +51,31 @@ function Home() {
         </button>
       </div>
 
-      <button type="button" onClick={startNewQuestion} className={`${primaryButton} gap-2`}>
+      <button type="button" onClick={newChat} className={`${primaryButton} gap-2 !rounded-full shadow-lift`}>
         <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
           <path d="M12 5v14" />
           <path d="M5 12h14" />
         </svg>
-        Ask a new question
+        New chat
       </button>
 
-      {earlier.length > 0 && (
-        <section aria-label="Earlier questions" className="flex flex-col gap-2">
-          <h2 className="text-sm font-bold text-soil-900">Earlier questions</h2>
-          {earlier.map((turn) => (
+      {recent.length > 0 && (
+        <section aria-label="Recent chats" className="flex flex-col gap-2">
+          <h2 className="text-sm font-bold text-soil-900">Recent chats</h2>
+          {recent.map((chat) => (
             <button
-              key={turn.id}
+              key={chat.id}
               type="button"
-              onClick={() => openTurn(turn.id)}
-              className="flex min-h-touch-lg items-center justify-between gap-3 rounded-[10px] bg-soil-50 px-3.5 py-2.5 text-left transition-colors hover:bg-soil-100"
+              onClick={() => openChat(chat.id)}
+              className="glass-soft flex min-h-touch-lg items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-transform hover:-translate-y-0.5"
             >
-              <span className="line-clamp-2 text-sm text-soil-900">{label(turn)}</span>
-              <span className="shrink-0 text-xs text-soil-600">{when(turn.at)}</span>
+              <span className="flex min-w-0 flex-col">
+                <span className="line-clamp-2 text-sm font-medium text-soil-900">{chat.title}</span>
+                <span className="text-xs text-soil-600">
+                  {chat.count} {chat.count === 1 ? "question" : "questions"}
+                </span>
+              </span>
+              <span className="shrink-0 text-xs text-soil-600">{when(chat.at)}</span>
             </button>
           ))}
         </section>

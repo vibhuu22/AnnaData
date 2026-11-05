@@ -271,7 +271,7 @@ def history(user_id: str, limit: int = 50) -> list[dict]:
         with db.connection() as conn:
             rows = conn.execute(
                 """
-                SELECT direction, body, meta, created_at
+                SELECT direction, body, meta, created_at, session_id
                   FROM messages WHERE user_id = %s
                  ORDER BY created_at DESC, id DESC LIMIT %s
                 """,
@@ -283,6 +283,8 @@ def history(user_id: str, limit: int = 50) -> list[dict]:
                 "body": r[1],
                 "meta": r[2] or {},
                 "at": r[3].isoformat() if r[3] else None,
+                # Groups SMS messages, which carry no chat id, into chats.
+                "session": r[4],
             }
             for r in reversed(rows)
         ]
