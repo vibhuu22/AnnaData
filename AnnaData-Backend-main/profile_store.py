@@ -89,6 +89,27 @@ def _clean(value: str | None) -> str | None:
     return value
 
 
+def forget_location(user_id: str) -> None:
+    """Drop a stored place the farmer has said is wrong ("i am not in shimla").
+
+    The whole location group goes, state included: a state inferred from the
+    wrong place is wrong too. The next place they name - or the location ask -
+    fills it again.
+    """
+    if not db.is_available():
+        return
+    try:
+        with db.connection() as conn:
+            conn.execute(PRECISION_COLUMNS)
+            conn.execute(
+                """UPDATE farmers SET location_text = NULL, latitude = NULL, longitude = NULL,
+                          state = NULL, district = NULL, location_kind = NULL,
+                          location_rank = NULL, updated_at = now()
+                    WHERE user_id = %s""", (user_id,))
+    except Exception as e:
+        print(f"Forgetting location failed for {user_id}: {e}")
+
+
 def get_profile(user_id: str) -> dict | None:
     """Stored facts for a farmer, or None if unknown / no database."""
     if not user_id or not db.is_available():

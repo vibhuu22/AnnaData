@@ -269,14 +269,21 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
 
     needs_location = False
     if user_id:
+        if getattr(result, "forget_location", False):
+            profile_store.forget_location(user_id)
+        # Only a place the farmer named in this message is written back. The
+        # result's place may instead be the stored one, carried for answering,
+        # and its coordinates the browser's: saving those two together is how
+        # a farm came to be called Shimla while sitting at Kharagpur.
+        named = getattr(result, "location_named", False)
         profile_store.remember(
             user_id,
             channel=channel,
-            location_text=result.location,
-            latitude=result.latitude,
-            longitude=result.longitude,
+            location_text=result.location if named else None,
+            latitude=result.latitude if named else None,
+            longitude=result.longitude if named else None,
             state=result.state,
-            district=result.district,
+            district=result.district if named else None,
             location_kind=result.location_kind,
             crop=result.crop,
         )

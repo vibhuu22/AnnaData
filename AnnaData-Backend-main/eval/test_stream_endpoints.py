@@ -98,6 +98,27 @@ web.post("/agent", json={"query": "hii", "channel": "sms"}, headers=G)
 check("SMS, which has no chats, still goes by the session", seen.get("continuing_session"), True)
 appmod.run_agent = fake_agent
 
+print("\nWhat is written back to the profile")
+remembered, forgot = [], []
+real_remember, real_forget = appmod.profile_store.remember, appmod.profile_store.forget_location
+appmod.profile_store.remember = lambda user_id, **kw: remembered.append(kw)
+appmod.profile_store.forget_location = lambda user_id: forgot.append(user_id)
+# The stored name, carried for answering, with the browser's coordinates.
+appmod.run_agent = lambda query, **kw: AgentResult(
+    "Namaste", location="Shimla", latitude=22.34, longitude=87.30, state="Himachal Pradesh")
+web.post("/agent", json={"query": "hello", "latitude": 22.34, "longitude": 87.30}, headers=G)
+check("a place the farmer did not name is not saved with the browser's position",
+      (remembered[-1]["location_text"], remembered[-1]["latitude"]), (None, None))
+appmod.run_agent = lambda query, **kw: AgentResult(
+    "Theek hai", location="Kharagpur", latitude=22.34, longitude=87.30, location_named=True)
+web.post("/agent", json={"query": "main kharagpur me hoon"}, headers=G)
+check("a place they named is saved", remembered[-1]["location_text"], "Kharagpur")
+appmod.run_agent = lambda query, **kw: AgentResult("Theek hai", forget_location=True)
+web.post("/agent", json={"query": "i am not in shimla"}, headers=G)
+check("a place they deny is forgotten", forgot, ["guest:" + G["X-Guest-Id"]])
+appmod.profile_store.remember, appmod.profile_store.forget_location = real_remember, real_forget
+appmod.run_agent = fake_agent
+
 print("\nSMS never streams")
 web.post("/agent/stream", json={"query": "q", "channel": "sms"}, headers=G)
 check("channel sms: the agent is not asked to stream", calls[-1], False)

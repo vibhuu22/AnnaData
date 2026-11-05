@@ -20,6 +20,7 @@ import planner
 import output_guards
 import answer_stream
 import provenance
+import place_check
 import re
 
 
@@ -630,7 +631,7 @@ class AgentResult:
     """
 
     __slots__ = ("answer", "crop", "state", "location", "latitude", "longitude",
-                 "location_kind", "district",
+                 "location_kind", "district", "location_named", "forget_location",
                  "tools_used", "missing_slots", "intent", "message_type",
                  "dose_status", "source_evidence")
 
@@ -638,8 +639,15 @@ class AgentResult:
                  latitude=None, longitude=None, tools_used=None,
                  missing_slots=None, intent="general", message_type="question",
                  location_kind=None, district=None, dose_status="not_applicable",
-                 evidence=None):
+                 evidence=None, location_named=False, forget_location=False):
         self.answer = answer
+        # Whether the place came from what the farmer wrote, as opposed to the
+        # profile. Only such a place may be written back to the profile: the
+        # stored name saved again with the browser's coordinates is how a farm
+        # came to be called Shimla while sitting at Kharagpur.
+        self.location_named = location_named
+        # The farmer said they are not where we thought ("i am not in shimla").
+        self.forget_location = forget_location
         # Which sources the answer was built from, hashed, for the admin
         # dashboard's per-request record (metrics_store).
         from metrics_store import evidence_summary
@@ -677,6 +685,59 @@ def _known(value) -> str | None:
     if not value or str(value).strip().lower() == "unknown":
         return None
     return str(value).strip()
+
+
+# How far the request's own position may be from the stored farm before the
+# stored place name stops describing it. A farmer at the mandi in the next
+# town is still at their farm, as far as advice goes; one 1,400 km away is not.
+STORED_PLACE_KM = 50
+
+
+def _check_place(query, history, location, state, profile, latitude, longitude):
+    """Keep only a place the farmer actually said, and notice one they deny.
+
+    Returns (location, state, forget_location, profile). The profile returned
+    may have its place removed for this answer: when the request comes from a
+    position far from the stored farm, the stored name would contradict the
+    weather and soil sampled at the request's coordinates.
+    """
+    said_by_farmer = [query] + [h.get("content", "") for h in (history or [])
+                                if h.get("role", "user") == "user"]
+    forget = False
+    stored = (profile or {}).get("location_text")
+
+    # "i am not in shimla": the place is named, and it is the one to drop.
+    for place in {p for p in (_known(location), stored) if p}:
+        if place_check.denied(place, query):
+            print(f"Place {place!r} denied by the farmer")
+            if stored and place_check.same_place(place, stored):
+                forget = True
+            if _known(location) and place_check.same_place(place, location):
+                location = "unknown"
+                state = "unknown"
+
+    if _known(location) and not place_check.said(location, said_by_farmer):
+        print(f"Place {location!r} was not in the farmer's words; dropped")
+        location = "unknown"
+        if _known(state) and not place_check.said(state, said_by_farmer):
+            state = "unknown"
+    elif not _known(location) and _known(state) and not place_check.said(state, said_by_farmer):
+        print(f"State {state!r} was not in the farmer's words; dropped")
+        state = "unknown"
+
+    if profile and (forget or _stored_place_is_elsewhere(profile, latitude, longitude)):
+        profile = {k: v for k, v in profile.items()
+                   if k not in ("location_text", "district", "state", "latitude", "longitude")}
+    return location, state, forget, profile
+
+
+def _stored_place_is_elsewhere(profile, latitude, longitude) -> bool:
+    apart = place_check.km_apart(profile.get("latitude"), profile.get("longitude"),
+                                 latitude, longitude)
+    if apart is not None and apart > STORED_PLACE_KM:
+        print(f"Request is {apart:.0f} km from the stored farm; not using its name")
+        return True
+    return False
 
 
 def run_agent(
@@ -805,10 +866,16 @@ def run_agent(
           f"pest: {structured_input.get('pest')}, "
           f"intent: {intent}, type: {message_type}, answer: {answer}")
 
+    location, state, forget_location, profile = _check_place(
+        query, history, location, state, profile, latitude, longitude)
+
     facts = {
         "crop": _known(crop),
         "state": _known(state),
         "location": _known(location),
+        # Only a place from this message may be stored - see app._answer.
+        "location_named": bool(_known(location)),
+        "forget_location": forget_location,
     }
 
     # What this message did not say, the profile may already know. Without this
