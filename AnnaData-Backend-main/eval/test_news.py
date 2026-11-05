@@ -7,6 +7,7 @@ ever put in the query. Checked against a saved feed - no network.
 
 Run: python eval/test_news.py
 """
+import os
 import sys
 from pathlib import Path
 
@@ -66,6 +67,33 @@ check("the same story twice is shown once", len(first["items"]), 2)
 check("newest first", first["items"][0]["published"] > first["items"][1]["published"], True)
 second = news.headlines("haryana")
 check("asked again within the half hour: from the cache", (second["cached"], len(calls)), (True, 2))
+
+print("\nThe state the phone is in")
+try:
+    os.environ.setdefault("GEMINI_API_KEY", "x")
+    from fastapi.testclient import TestClient
+    import app as appmod
+    from Address_Convertor import Place
+except Exception as e:
+    print(f"  FastAPI not installed here ({type(e).__name__}); skipping")
+    appmod = None
+if appmod:
+    asked = []
+    appmod.news.headlines = lambda state: asked.append(state) or {
+        "place": news.place(state), "items": [], "cached": False}
+    appmod.reverse = lambda lat, lon: (Place(lat, lon, state="West Bengal") if lat > 0
+                                       else Place(lat, lon))
+    web = TestClient(appmod.app)
+    r = web.get("/news", params={"state": "Haryana", "latitude": 22.34, "longitude": 87.30}).json()
+    check("coordinates in West Bengal win over the state sent", (asked[-1], r["state"], r["from"]),
+          ("West Bengal", "West Bengal", "location"))
+    r = web.get("/news", params={"state": "Haryana", "latitude": -1, "longitude": -1}).json()
+    check("a position with no known state falls back to the state sent", (asked[-1], r["from"]),
+          ("Haryana", "chosen"))
+    r = web.get("/news", params={"state": "Punjab"}).json()
+    check("a chosen state, with no position, is used", (r["state"], r["from"]), ("Punjab", "chosen"))
+    r = web.get("/news").json()
+    check("nothing at all: all India", (r["place"], r["state"], r["from"]), ("India", "", None))
 
 print(f"\n{len(failures)} failure(s)" if failures else "\nAll checks passed")
 sys.exit(1 if failures else 0)

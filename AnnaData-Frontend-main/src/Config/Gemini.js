@@ -15,7 +15,7 @@ const GEOLOCATION_TIMEOUT_MS = 3000;
  * permission is already granted the position comes back at once from the
  * browser's cache.
  */
-async function getCoordinates() {
+export async function getCoordinates() {
   if (!("geolocation" in navigator)) return null;
   try {
     if (navigator.permissions?.query) {

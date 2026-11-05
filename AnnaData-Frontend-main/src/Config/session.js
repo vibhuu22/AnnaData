@@ -241,8 +241,18 @@ export async function rateAnswer(up, note = "") {
 }
 
 /** The week's farming headlines for a state; the farmer's own when none is named. */
-export async function fetchNews(state = "") {
-  const query = state ? `?state=${encodeURIComponent(state)}` : "";
+/**
+ * News for a state. With `coords`, the state the phone is in wins whenever it
+ * can be found; `state` is then only the fallback.
+ */
+export async function fetchNews(state = "", coords = null) {
+  const params = new URLSearchParams();
+  if (state) params.set("state", state);
+  if (coords) {
+    params.set("latitude", coords.latitude);
+    params.set("longitude", coords.longitude);
+  }
+  const query = params.toString() ? `?${params}` : "";
   const response = await fetch(`${getApiUrl()}/news${query}`, { headers: authHeaders() });
   if (!response.ok) throw new Error(`news ${response.status}`);
   return response.json();

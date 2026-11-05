@@ -1,10 +1,16 @@
 import React, { useContext, useEffect, useState } from "react";
 import { Auth } from "../../Context/AuthProvider";
 import { fetchNews } from "../../Config/session";
+import { getCoordinates } from "../../Config/Gemini";
 
 /**
  * Farming news for the farmer's own state: the week's headlines from Google
  * News, each opening the publisher's article.
+ *
+ * Which state: the one the phone is in, when location is already allowed -
+ * news is about where the farmer is now. Otherwise their profile's state, then
+ * the one they last chose here. Choosing a state in the list overrides it for
+ * this visit.
  *
  * Headlines only, and said plainly: AnnaData does not check them. A news story
  * about a price or a pest is not advice, and the system's rules for advice -
@@ -30,30 +36,43 @@ function ago(iso) {
 
 function News() {
   const { user } = useContext(Auth);
-  const [state, setState] = useState(() => {
-    try {
-      return user?.state || window.localStorage.getItem(KEY) || "";
-    } catch (e) {
-      return user?.state || "";
-    }
-  });
+  // null until the farmer picks one: until then the state is found for them.
+  const [chosen, setChosen] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const userState = user?.state || "";
 
   useEffect(() => {
     let cancelled = false;
     setData(null);
     setError("");
-    fetchNews(state)
+    const load = async () => {
+      if (chosen !== null) return fetchNews(chosen);
+      let fallback = userState;
+      try {
+        fallback = fallback || window.localStorage.getItem(KEY) || "";
+      } catch (e) {
+        /* nothing remembered */
+      }
+      // Only if location is already allowed: News never asks for it.
+      const coords = await getCoordinates();
+      return coords ? fetchNews(fallback, coords) : fetchNews(fallback);
+    };
+    load()
       .then((result) => !cancelled && setData(result))
       .catch(() => !cancelled && setError("News could not be loaded just now. Please try again in a little while."));
     return () => {
       cancelled = true;
     };
-  }, [state]);
+  }, [chosen, userState]);
+
+  // `place` alone from a backend older than `state`.
+  const found = data?.state ?? (data?.place && data.place !== "India" ? data.place : "");
+  const state = chosen !== null ? chosen : found;
+  const nearYou = chosen === null && data?.from === "location";
 
   const choose = (value) => {
-    setState(value);
+    setChosen(value);
     try {
       window.localStorage.setItem(KEY, value);
     } catch (e) {
@@ -67,7 +86,8 @@ function News() {
         <div>
           <h1 className="text-2xl font-bold leading-tight text-soil-900">News</h1>
           <p className="mt-1 text-base text-soil-700">
-            Farming news from the past week{data?.place && data.place !== "India" ? ` in ${data.place}` : " across India"}.
+            Farming news from the past week{data?.place && data.place !== "India" ? ` in ${data.place}` : " across India"}
+            {nearYou ? ", where you are now" : ""}.
           </p>
         </div>
         <label className="flex flex-col gap-1 text-xs font-semibold text-soil-700">

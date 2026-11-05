@@ -36,6 +36,7 @@ import weather_tool
 import metrics_store
 import admin_api
 from Agent import AgentResult, run_agent, speech_language
+from Address_Convertor import reverse
 from process_media import process_media, understand_media
 
 app = FastAPI(title="Annadata Agent API")
@@ -1066,17 +1067,32 @@ def rate_answer(request: AnswerRating,
 
 
 @app.get("/news")
-def read_news(state: Optional[str] = None, authorization: Optional[str] = Header(None)):
-    """Farming headlines for a state: the signed-in farmer's own if none is named.
+def read_news(state: Optional[str] = None, latitude: Optional[float] = None,
+              longitude: Optional[float] = None, authorization: Optional[str] = Header(None)):
+    """Farming headlines for a state.
+
+    The state the phone is in, when the browser sends its position - news is
+    about where the farmer is now. Otherwise the state named, then the
+    signed-in farmer's own. The position is turned into a state with the same
+    cached lookup the answers use, and is not stored.
 
     Open to guests, because it spends no model quota and fetches only Google
     News searches built here from a known state name.
     """
+    source = "chosen" if state else None
+    if latitude is not None and longitude is not None:
+        near = reverse(latitude, longitude).state
+        if news.place(near) != "India":
+            state, source = near, "location"
     if not state:
         user_id = auth.read_token(_bearer(authorization))
         if user_id:
             state = (farmer_account.account(user_id) or {}).get("state")
-    return news.headlines(state)
+            source = "profile" if state else None
+    result = news.headlines(state)
+    known = result.get("place")
+    return {**result, "state": "" if known == "India" else known,
+            "from": source if known != "India" else None}
 
 
 @app.get("/feedback/due")
