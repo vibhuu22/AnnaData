@@ -623,13 +623,18 @@ class AgentResult:
     __slots__ = ("answer", "crop", "state", "location", "latitude", "longitude",
                  "location_kind", "district",
                  "tools_used", "missing_slots", "intent", "message_type",
-                 "dose_status")
+                 "dose_status", "source_evidence")
 
     def __init__(self, answer, crop=None, state=None, location=None,
                  latitude=None, longitude=None, tools_used=None,
                  missing_slots=None, intent="general", message_type="question",
-                 location_kind=None, district=None, dose_status="not_applicable"):
+                 location_kind=None, district=None, dose_status="not_applicable",
+                 evidence=None):
         self.answer = answer
+        # Which sources the answer was built from, hashed, for the admin
+        # dashboard's per-request record (metrics_store).
+        from metrics_store import evidence_summary
+        self.source_evidence = evidence_summary(evidence)
         self.crop = crop
         self.state = state
         self.location = location
@@ -935,7 +940,8 @@ def run_agent(
 
     return AgentResult(
         final_response, tools_used=sorted(gathered.keys()),
-        missing_slots=missing, intent=intent, dose_status=dose_status, **facts
+        missing_slots=missing, intent=intent, dose_status=dose_status,
+        evidence=gathered, **facts
     )
 
 

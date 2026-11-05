@@ -206,6 +206,7 @@ crop is theirs to state, and a picture of one leaf does not get to correct them.
 | `POST /speak/stream` | The same, streamed as raw 16-bit PCM while Gemini makes it (sample rate in `X-Sample-Rate`), so speech starts before the piece is finished |
 | `POST /forget` | The bridge relaying STOP, or a farmer naming their own id |
 | `GET /feedback/due`, `POST /feedback/asked`, `POST /feedback/rating`, `GET /feedback/summary` | The bridge |
+| `GET /admin`, `/admin/api/*` | The page, anyone; its data, only with `X-Admin-Token` = `ADMIN_API_TOKEN` (32+ characters). Unset, every data call refuses |
 | `GET /health`, `GET /` | Anyone. No model calls, so it is safe to ping |
 
 ---
@@ -503,6 +504,7 @@ deterministic tests:
 | `eval/test_answer_stream.py` | That a streamed answer says nothing the whole-answer guards would remove - once a sentence is sent it cannot be taken back. Also layout, decimals and fences |
 | `eval/test_stream_endpoints.py` | Who may use the streaming endpoints and `/feedback/answer`, the event order, and that `done` carries the authoritative answer |
 | `eval/test_news.py` | That `/news` only ever searches a known state, parses headlines cleanly (https links only, publisher split from the title) and caches |
+| `eval/test_pseudonym.py` | That a participant id on the admin dashboard is keyed (HMAC), so it cannot be recomputed from a phone number |
 | `eval/test_greeting.py` | Whether a short message is an arrival or someone closing a conversation. Decided before any model is called, and what it picks is which instruction the model is then given |
 
 A suite that can only express "ask the model and look at the answer" quietly

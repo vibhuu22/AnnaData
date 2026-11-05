@@ -3,6 +3,7 @@
 .env.local
 */.env
 */.env.local
+*/.env.admin
 
 # Python
 .venv/

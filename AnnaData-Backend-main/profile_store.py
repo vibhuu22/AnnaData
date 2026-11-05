@@ -399,6 +399,15 @@ def forget(user_id: str) -> bool:
         with db.connection() as conn:
             conn.execute("DELETE FROM messages WHERE user_id = %s", (user_id,))
             conn.execute("DELETE FROM farmers  WHERE user_id = %s", (user_id,))
+            from metrics_store import normal_user, participant_id
+            # Analytics tables may not exist yet during a rolling deployment.
+            for table, column, value in (
+                ('analytics_requests', 'user_id', normal_user(user_id)),
+                ('analytics_reviews', 'participant_id', participant_id(user_id)),
+                ('analytics_audience', 'participant_id', participant_id(user_id)),
+            ):
+                if conn.execute('SELECT to_regclass(%s)', (table,)).fetchone()[0]:
+                    conn.execute(f'DELETE FROM {table} WHERE {column} = %s', (value,))
         print(f"Erased profile and history for {user_id}")
         return True
     except Exception as e:

@@ -6,11 +6,15 @@ import queue
 import re
 import threading
 import secrets
+import time
+from uuid import UUID
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -28,10 +32,24 @@ import sms_out
 import startup
 import tts
 import weather_tool
+import metrics_store
+import admin_api
 from Agent import run_agent, speech_language
 from process_media import process_media, understand_media
 
 app = FastAPI(title="Annadata Agent API")
+app.include_router(admin_api.router)
+app.mount('/admin/assets', StaticFiles(directory=Path(__file__).parent/'admin_web'), name='admin-assets')
+
+
+@app.middleware('http')
+async def protect_admin_responses(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith('/admin'):
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+    return response
 
 
 def _build_origins() -> list[str]:
@@ -67,10 +85,29 @@ def on_startup():
     startup.init_earth_engine()
     db.init()
     feedback.init()
+    metrics_store.init()
     lesion_bank.init()
     msp.init()
     print(f"CORS origins: {_build_origins()}")
     print(f"Features: {config.feature_status()}")
+
+
+class DeliveryEvent(BaseModel):
+    request_id: UUID
+    status: str
+    sms_segments: Optional[int] = None
+
+
+@app.post('/telemetry/delivery')
+def record_delivery(event: DeliveryEvent, x_bridge_token: Optional[str] = Header(None)):
+    _require_bridge(x_bridge_token, 'delivery telemetry')
+    if event.status not in {'gateway_accepted', 'send_failed'}:
+        raise HTTPException(422, 'Unsupported delivery status')
+    if event.sms_segments is not None and not 0 <= event.sms_segments <= 100:
+        raise HTTPException(422, 'Invalid segment count')
+    if not metrics_store.delivery(str(event.request_id), event.status, event.sms_segments):
+        raise HTTPException(503, 'Telemetry unavailable')
+    return {'recorded': True}
 
 
 class QueryRequest(BaseModel):
@@ -90,6 +127,7 @@ class QueryRequest(BaseModel):
     # with both messages so the web app can show conversations as separate
     # chats; SMS has none, and its messages are grouped by session instead.
     chat_id: Optional[str] = None
+    request_id: Optional[UUID] = None
 
 
 @app.on_event("shutdown")
@@ -154,7 +192,7 @@ def _chat(chat_id):
 
 
 def _answer(query, *, user_id, channel, latitude, longitude, history,
-            message_id=None, vision=None, on_text=None, chat_id=None):
+            message_id=None, vision=None, on_text=None, chat_id=None, request_id=None):
     """Answer one message and record what it taught us about the farmer.
 
     Shared by the text and the media endpoints, so a voice note or a photo gets
@@ -162,6 +200,7 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
     typed question does. When these were separate, media went through a path
     that remembered nothing.
     """
+    started = time.monotonic()
     profile = profile_store.get_profile(user_id) if user_id else None
 
     # An explicit position in the request wins; otherwise fall back to what we
@@ -182,6 +221,7 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         history = profile_store.recent_history(user_id)
 
     session_id = feedback.current_session(user_id) if user_id else None
+    request_id = metrics_store.begin(user_id, session_id, channel, str(request_id) if request_id else None)
     # Asked before the inbound message is logged, so the newest row is still
     # the previous turn. A greeting belongs at the start of a conversation and
     # nowhere else; inside one it reads as the service having forgotten you.
@@ -191,7 +231,8 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         profile_store.log_message(user_id, "inbound", query,
                                   gateway_message_id=message_id,
                                   session_id=session_id,
-                                  meta={"chat": chat} if chat else None)
+                                  meta={"request_id": request_id, "channel": channel,
+                                        **({"chat": chat} if chat else {})})
 
     try:
         result = run_agent(
@@ -211,6 +252,7 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         # Previously this returned 200 with an {"error": ...} body, so callers
         # (the SMS bridge especially) treated failures as successful replies.
         print(f"Error in agent function: {e}")
+        metrics_store.fail(request_id, user_id, type(e).__name__)
         raise HTTPException(status_code=502, detail=f"Agent failed: {e}")
 
     needs_location = False
@@ -236,7 +278,9 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
             meta={"tools": result.tools_used, "channel": channel,
                   "intent": result.intent,
                   "message_type": result.message_type, "missing": result.missing_slots,
-                  "dose_status": result.dose_status, "chat": _chat(chat_id)},
+                  "dose_status": result.dose_status, "chat": _chat(chat_id),
+                  "request_id": request_id},
+            session_id=session_id,
         )
         # Re-read so the decision reflects anything just learned.
         needs_location = profile_store.should_ask_location(
@@ -245,11 +289,14 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         if needs_location:
             profile_store.mark_location_asked(user_id)
 
+    reply_language = speech_language(result.answer)
+    metrics_store.finish(request_id, user_id, result, (time.monotonic()-started)*1000, reply_language)
     return {
+        "request_id": request_id,
         "answer": result.answer,
         # Which voice should read this aloud. Decided here from the script the
         # answer is actually in, so the browser never has to guess.
-        "reply_language": speech_language(result.answer),
+        "reply_language": reply_language,
         "needs_location": needs_location,
         "tools_used": result.tools_used,
         "intent": result.intent,
@@ -610,6 +657,7 @@ def run_agent_endpoint(request: QueryRequest,
         history=request.history,
         message_id=request.message_id,
         chat_id=request.chat_id,
+        request_id=request.request_id,
     )
 
 
