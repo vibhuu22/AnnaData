@@ -103,7 +103,9 @@ def check_audience(audience):
 
 
 @router.get('/admin/api/dashboard',dependencies=[Depends(require_admin)])
-def dashboard(days: int=Query(30,ge=1,le=180),audience: str='farmer'):
+# 'all' by default: until accounts are classified, a farmers-only view is
+# empty, and an empty dashboard on the first day reads as a broken one.
+def dashboard(days: int=Query(30,ge=1,le=180),audience: str='all'):
     check_audience(audience)
     groups,requests,audiences,caches,since=dataset(days)
     selected=[g for g in groups if audience_matches(g['audience'],audience)]
