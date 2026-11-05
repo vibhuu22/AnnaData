@@ -354,6 +354,9 @@ def claim_guest(guest_user_id: str, phone: str) -> int:
         return 0
     try:
         with db.connection() as conn:
+            # Added lazily by remember(); a database that has never stored a
+            # location precision would otherwise fail this whole move.
+            conn.execute(PRECISION_COLUMNS)
             moved = conn.execute(
                 "UPDATE messages SET user_id = %s WHERE user_id = %s",
                 (phone, guest_user_id),
@@ -365,6 +368,7 @@ def claim_guest(guest_user_id: str, phone: str) -> int:
                     latitude      = CASE WHEN f.latitude IS NULL THEN g.latitude      ELSE f.latitude      END,
                     longitude     = CASE WHEN f.latitude IS NULL THEN g.longitude     ELSE f.longitude     END,
                     location_kind = CASE WHEN f.latitude IS NULL THEN g.location_kind ELSE f.location_kind END,
+                    location_rank = CASE WHEN f.latitude IS NULL THEN g.location_rank ELSE f.location_rank END,
                     state    = COALESCE(f.state, g.state),
                     district = COALESCE(f.district, g.district),
                     language = COALESCE(f.language, g.language),
