@@ -369,9 +369,24 @@ function Main() {
   };
 
   /** Voice is a conversation, not a voice note: it opens voice mode. */
+  const [micContext, setMicContext] = useState(null);
   const openVoice = () => {
     // From the tap itself, so an iPhone will play the spoken answers later.
     unlockAudio();
+    // And the microphone's own audio context, created in the same tap so an
+    // iPhone lets it run. Its own, not the one speech plays through: turning
+    // the microphone on can freeze a context that already exists on an
+    // iPhone, which left the level meter reading silence while the farmer
+    // spoke - voice mode listened for ever and never sent.
+    let context = null;
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      context = AudioContextClass ? new AudioContextClass() : null;
+      context?.resume?.();
+    } catch (e) {
+      context = null;
+    }
+    setMicContext(context);
     stopSpeaking();
     setSpeakingId(null);
     setVoiceOpen(true);
@@ -385,7 +400,7 @@ function Main() {
   };
 
   const canSend = Boolean(input.trim() || selectedImage);
-  const voice = voiceOpen && <VoiceMode onClose={() => setVoiceOpen(false)} />;
+  const voice = voiceOpen && <VoiceMode micContext={micContext} onClose={() => setVoiceOpen(false)} />;
 
   if (screen === "home" && user && responses.length > 0) {
     return (

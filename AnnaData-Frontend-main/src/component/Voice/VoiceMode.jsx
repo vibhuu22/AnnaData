@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
-import { createSpeaker, stopSpeaking, unlockAudio, speechProgress, sharedAudioContext } from "../../Config/speech";
+import { createSpeaker, stopSpeaking, unlockAudio, speechProgress } from "../../Config/speech";
 import { followUpAsk } from "../../Config/asks";
 import { primaryButton } from "../Flow/ui";
 
@@ -127,7 +127,7 @@ function Subtitles() {
   );
 }
 
-function VoiceMode({ onClose }) {
+function VoiceMode({ onClose, micContext = null }) {
   const { send } = useContext(Context);
   const openFlow = useContext(Flow);
 
@@ -154,6 +154,8 @@ function VoiceMode({ onClose }) {
   const floorRef = useRef(0.005);
   const thresholdRef = useRef(0.02);
   const sourceRef = useRef(null);
+  // Read once, when voice mode opens: the microphone is set up a single time.
+  const micContextRef = useRef(micContext);
   sendRef.current = send;
 
   // The phase is read inside the audio loop and after awaits, which run before
@@ -309,6 +311,7 @@ function VoiceMode({ onClose }) {
     let speechMs = 0;
     let lastVoice = 0;
     let last = started;
+    let peak = 0;
 
     const tick = (now) => {
       if (closedRef.current || phaseRef.current !== "listening") return;
@@ -316,6 +319,16 @@ function VoiceMode({ onClose }) {
       const level = rms(buffer);
       const dt = now - last;
       last = now;
+      peak = Math.max(peak, level);
+
+      // Two and a half seconds of exact silence is not a quiet room - a real
+      // microphone always picks up something. The meter is dead; recording
+      // goes on, and Done sends it.
+      if (now - started > 2500 && peak < 1e-5) {
+        setLevel(0);
+        setNotice("Speak, then tap Done to send.");
+        return;
+      }
 
       if (now - started < CALIBRATE_MS) {
         floorSum += level;
@@ -358,10 +371,12 @@ function VoiceMode({ onClose }) {
           return;
         }
         streamRef.current = stream;
-        // The context the opening tap unlocked (see sharedAudioContext). The
-        // analyser only measures the level; it is not connected to the
-        // speaker, so the microphone is never played back.
-        const ctx = sharedAudioContext();
+        // The microphone's own context, made in the opening tap (see
+        // Main's openVoice). The analyser only measures the level; it is not
+        // connected to the speaker, so the microphone is never played back.
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        const given = micContextRef.current;
+        const ctx = given && given.state !== "closed" ? given : new AudioContextClass();
         const source = ctx.createMediaStreamSource(stream);
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 1024;
@@ -369,11 +384,11 @@ function VoiceMode({ onClose }) {
         sourceRef.current = source;
         audioCtxRef.current = ctx;
         analyserRef.current = analyser;
-        if (ctx.state === "suspended") {
+        if (ctx.state !== "running") {
           await Promise.race([ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
         }
-        if (ctx.state === "suspended") {
-          // Rare now the context is shared; a second tap starts it.
+        if (ctx.state !== "running") {
+          // Rare, since the opening tap created it; a second tap starts it.
           go("paused");
           setNotice("Tap the circle to start talking.");
           return;
@@ -394,9 +409,9 @@ function VoiceMode({ onClose }) {
         recorder.stop();
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
-      // Shared with playback, so it is disconnected, not closed.
       try {
         sourceRef.current?.disconnect();
+        audioCtxRef.current?.close?.();
       } catch (e) {
         /* already gone */
       }
@@ -425,7 +440,7 @@ function VoiceMode({ onClose }) {
   };
 
   const hint = {
-    listening: "Tap to send now",
+    listening: "Tap Done when you have finished",
     speaking: "Tap Talk to interrupt",
     paused: needsSignIn ? "" : "Tap to talk",
     thinking: "",
@@ -496,22 +511,23 @@ function VoiceMode({ onClose }) {
             Talk again. */}
         <button
           type="button"
-          onClick={() => (phase === "listening" ? pause() : tapOrb())}
+          onClick={tapOrb}
           disabled={phase === "thinking" || phase === "starting" || needsSignIn}
-          aria-label={phase === "listening" ? "Pause listening" : phase === "speaking" ? "Interrupt and talk" : "Talk"}
-          className={`flex h-16 items-center justify-center gap-2 rounded-full px-6 text-base font-semibold shadow-card disabled:opacity-40 ${
-            phase === "listening"
-              ? "border-[1.5px] border-soil-300 bg-white text-soil-900"
-              : "bg-leaf-600 text-white hover:bg-leaf-700"
-          }`}
+          aria-label={phase === "listening" ? "Done, send it" : phase === "speaking" ? "Interrupt and talk" : "Talk"}
+          className="flex h-16 items-center justify-center gap-2 rounded-full bg-leaf-600 px-6 text-base font-semibold text-white shadow-card hover:bg-leaf-700 disabled:opacity-40"
         >
-          <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="9" y="2" width="6" height="12" rx="3" />
-            <path d="M5 10a7 7 0 0 0 14 0" />
-            <path d="M12 17v5" />
-            {phase === "listening" && <path d="M3 3l18 18" />}
-          </svg>
-          {phase === "listening" ? "Pause" : "Talk"}
+          {phase === "listening" ? (
+            <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12l5 5 9-10" />
+            </svg>
+          ) : (
+            <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10a7 7 0 0 0 14 0" />
+              <path d="M12 17v5" />
+            </svg>
+          )}
+          {phase === "listening" ? "Done" : "Talk"}
         </button>
         <button
           type="button"
