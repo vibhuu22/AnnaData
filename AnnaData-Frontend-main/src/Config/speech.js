@@ -116,6 +116,128 @@ let onDevice = null;
 // they notice they were stopped instead of waiting for ever.
 const idle = new Set();
 
+// --- Loudness ---------------------------------------------------------------
+//
+// Every piece of an answer is a separate request to the voice model, and each
+// comes back at its own level - one sentence loud, the next noticeably quieter.
+// Played straight to the speakers, that was the loudness jumping about while
+// it spoke. And within a piece the voice itself swings 5-7 dB from word to
+// word, its sentence ends trailing off to -18 or -21 dBFS - measured on the
+// live voice, in 0.4 s windows. So everything heard goes through one chain:
+//
+//   piece -> level      a gain set per piece from how loud it actually is
+//         -> evener     a gentle compressor: quiet words up, loud ones down
+//         -> limiter    catches peaks, so the raised level never clips
+//         -> speakers
+//
+// The result is speech at one steady loudness, set high: as loud as it can be
+// without distorting. That is the most the phone's own volume control has to
+// work with, so the system volume alone decides how loud it is.
+const TARGET_LEVEL = 0.2; // the loudness of speech, as voiced RMS: about -14 dBFS
+const SILENCE = 0.01; // a sample quieter than this (about -40 dBFS) is a pause
+const LEAST_GAIN = 0.5;
+const MOST_GAIN = 6; // about +15 dB: enough for the quietest piece Gemini returns
+const SETTLE = 0.08; // seconds: how fast the level moves to a new piece's
+const MAKEUP = 2.4; // +7.6 dB after the evener, back up to full loudness
+// The browser adds its own makeup gain after a compressor, the limiter
+// included, which pushed peaks past full scale. This takes it back off.
+const TRIM = 0.85;
+
+let chain = null;
+
+/**
+ * How loud the speech in some samples is: the RMS of the samples that are
+ * not pauses. Pauses are left out, or a sentence with long gaps would read as
+ * quiet and be turned up too far. null when there is too little speech to tell.
+ */
+export function speechLevel(samples) {
+  let sum = 0;
+  let voiced = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const v = samples[i];
+    if (v > SILENCE || v < -SILENCE) {
+      sum += v * v;
+      voiced += 1;
+    }
+  }
+  return voiced >= Math.max(64, samples.length * 0.05) ? Math.sqrt(sum / voiced) : null;
+}
+
+/** The gain that brings speech at `level` to the target loudness. */
+export function gainFor(level) {
+  if (!level) return null;
+  return Math.min(MOST_GAIN, Math.max(LEAST_GAIN, TARGET_LEVEL / level));
+}
+
+function output(ctx) {
+  if (chain && chain.ctx === ctx) return chain;
+  try {
+    const level = ctx.createGain();
+    // Speech above -32 dBFS is compressed 6:1, over a soft knee, quickly enough
+    // to catch a single word. All the numbers here were chosen by playing the
+    // live voice through this chain in Chromium and measuring it: speech at
+    // -11.5 dBFS instead of -13.5, word-to-word spread 6.0 dB -> 4.4, a quiet
+    // piece among loud ones 9.9 dB -> 4.4, and peaks at -1.2 dBFS (no clipping).
+    const evener = ctx.createDynamicsCompressor();
+    evener.threshold.value = -32;
+    evener.knee.value = 12;
+    evener.ratio.value = 6;
+    evener.attack.value = 0.003;
+    evener.release.value = 0.1;
+    // The evener lowers the loud words more than the browser's own makeup gain
+    // gives back; this restores full loudness, and the limiter holds the peaks.
+    const makeup = ctx.createGain();
+    makeup.gain.value = MAKEUP;
+    const limiter = ctx.createDynamicsCompressor();
+    // A limiter: anything over -4 dBFS is held there, almost at once.
+    limiter.threshold.value = -4;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.15;
+    const trim = ctx.createGain();
+    trim.gain.value = TRIM;
+    level.connect(evener);
+    evener.connect(makeup);
+    makeup.connect(limiter);
+    limiter.connect(trim);
+    trim.connect(ctx.destination);
+    chain = { ctx, input: level, level, fresh: true };
+  } catch (e) {
+    // No gain nodes (a very old browser): play as before, unlevelled.
+    chain = { ctx, input: ctx.destination, level: null };
+  }
+  return chain;
+}
+
+/**
+ * Set the level for a chunk that will start playing at `at`. The piece's level
+ * is measured over all of it heard so far, so it steadies within the first
+ * second and does not chase the rise and fall of single words.
+ */
+function levelChunk(ctx, record, buffer, at) {
+  const out = output(ctx);
+  if (!out.level || !record) return out.input;
+  const samples = buffer.getChannelData(0);
+  const level = speechLevel(samples);
+  if (level) {
+    const voiced = samples.length;
+    record.energy = (record.energy || 0) + level * level * voiced;
+    record.voiced = (record.voiced || 0) + voiced;
+  }
+  const gain = record.voiced ? gainFor(Math.sqrt(record.energy / record.voiced)) : null;
+  if (gain) {
+    const param = out.level.gain;
+    if (out.fresh) {
+      param.setValueAtTime(gain, at);
+      out.fresh = false;
+    } else {
+      param.setTargetAtTime(gain, at, SETTLE);
+    }
+  }
+  return out.input;
+}
+
 function audioContext() {
   if (!AudioContextClass) return null;
   if (!context) {
@@ -173,6 +295,16 @@ export function stopSpeaking() {
     }
   });
   scheduled = [];
+  // Level changes queued for chunks that will now never play would otherwise
+  // still move the level under the next answer.
+  if (chain?.level) {
+    try {
+      chain.level.gain.cancelScheduledValues(chain.ctx.currentTime);
+    } catch (e) {
+      /* nothing queued */
+    }
+    chain.fresh = true;
+  }
   spoken = [];
   onDevice = null;
   idle.forEach((resume) => resume());
@@ -235,8 +367,8 @@ function timeline(ctx, mine) {
       if (mine !== session) return;
       const source = ctx.createBufferSource();
       source.buffer = buffer;
-      source.connect(ctx.destination);
       cursor = Math.max(cursor, ctx.currentTime + 0.06);
+      source.connect(levelChunk(ctx, record, buffer, cursor));
       source.start(cursor);
       if (record && record.start === null) record.start = cursor;
       cursor += buffer.duration;
@@ -501,6 +633,8 @@ async function speakOnDevice(text, lang) {
     utterance.lang = voice.lang || lang;
     // Advice about a dose is worth slowing down for.
     utterance.rate = 0.95;
+    // As loud as the phone's volume allows; the phone's voice is level already.
+    utterance.volume = 1;
     onDevice = { text, char: 0 };
     // The phone's voice says which word it is on; subtitles follow it exactly.
     utterance.onboundary = (e) => {

@@ -1,4 +1,4 @@
-import { piecesOf, speakableText } from './speech';
+import { piecesOf, speakableText, speechLevel, gainFor } from './speech';
 
 test('the first piece is short, so speech starts quickly', () => {
   const text = 'Gehu ki buwai 1 se 25 November ke beech karein. HD 2967 achhi kism hai. ' +
@@ -26,4 +26,30 @@ test('a sentence longer than a piece is cut at a space, not mid-word', () => {
 
 test('markdown is not read out', () => {
   expect(speakableText('### Upchar\n*   **Acephate 75% SP:** 780 g/ha')).toBe('Upchar. Acephate 75% SP: 780 g/ha');
+});
+
+describe('every piece is played at one loudness', () => {
+  const tone = (amplitude, n = 6000, pauseEvery = 0) =>
+    Float32Array.from({ length: n }, (_, i) =>
+      pauseEvery && Math.floor(i / pauseEvery) % 2 ? 0 : amplitude * Math.sin(i / 3));
+
+  test('a quiet piece is turned up and a loud one down, to the same level', () => {
+    const quiet = speechLevel(tone(0.05));
+    const loud = speechLevel(tone(0.4));
+    expect(quiet * gainFor(quiet)).toBeCloseTo(loud * gainFor(loud), 5);
+  });
+
+  test('pauses do not count as quiet speech', () => {
+    expect(speechLevel(tone(0.2, 6000, 500))).toBeCloseTo(speechLevel(tone(0.2)), 2);
+  });
+
+  test('silence is not measured, so it is never turned up', () => {
+    expect(speechLevel(new Float32Array(6000))).toBeNull();
+    expect(gainFor(null)).toBeNull();
+  });
+
+  test('the gain stays within bounds, so a near-silent piece is not blown up', () => {
+    expect(gainFor(0.001)).toBe(6);
+    expect(gainFor(0.99)).toBe(0.5);
+  });
 });
