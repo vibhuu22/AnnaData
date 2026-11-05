@@ -100,6 +100,9 @@ export async function ask({ text = "", history = [], image = null, audio = null 
     if (!response.ok) throw await errorFrom(response);
 
     const data = await response.json();
+    if (typeof data.answer !== "string" || !data.answer.trim()) {
+      throw new Error("The service returned an empty answer. Please try again.");
+    }
     return {
       answer: data.answer || "No response from agent.",
       transcript: data.transcript || "",

@@ -26,7 +26,7 @@ export const Auth = createContext();
  * Three states the app routes on:
  *   checking          - a token exists and is being verified. Show nothing.
  *   no user           - the sign-in screen.
- *   user, not onboarded - the sign-up questions, which are skippable.
+ *   user, not onboarded - chat first; optional profile after a successful answer.
  */
 const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);

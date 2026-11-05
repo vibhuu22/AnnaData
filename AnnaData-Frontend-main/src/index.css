@@ -37,6 +37,18 @@ body {
   font-family: var(--font-app);
 }
 
+.app-viewport { height: 100vh; height: 100dvh; }
+.chat-composer { padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; padding-top: env(safe-area-inset-top, 0px); }
+.response-item { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .chat-composer form { gap: 0.25rem; }
+  .chat-composer input[type="text"] { padding-left: 0.5rem; padding-right: 0.25rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
 /*
  * Scrollbar hiding. Declared once.
  *

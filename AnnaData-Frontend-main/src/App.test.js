@@ -49,6 +49,12 @@ test('onboarded farmers can see the conversation', () => {
   expect(screen.getByText('Farmer conversation')).toBeInTheDocument();
 });
 
+test('new farmers reach chat before completing their profile', () => {
+  show({ user: { user_id: '+919999000099' }, needsOnboarding: true });
+  expect(screen.getByText('Farmer conversation')).toBeInTheDocument();
+  expect(screen.queryByText('Tell us about your farm')).not.toBeInTheDocument();
+});
+
 test('session verification does not expose a conversation prematurely', () => {
   show({ checking: true });
   expect(screen.queryByText('Farmer conversation')).not.toBeInTheDocument();

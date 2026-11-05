@@ -6,6 +6,8 @@ import { Context } from "../../Context/ContextProvider";
 import MediaPreview from "../MediaPreview/MediaPreview";
 import Sources from "../Sources/Sources";
 import Answer from "../Answer/Answer";
+import Onboarding from "../Onboarding/Onboarding";
+import { Auth } from "../../Context/AuthProvider";
 import { speak, stopSpeaking, isSpeechSupported } from "../../Config/speech";
 
 // Deliberately not all English. The system answers in the script it is asked
@@ -51,6 +53,10 @@ function SentMedia({ file, kind }) {
 
 function Main() {
   const { send, responses, loading, setInput, input, dataSent } = useContext(Context);
+  const { user, needsOnboarding } = useContext(Auth);
+  const firstAnsweredTurn = responses.find(
+    (turn) => !turn.pending && !turn.failed && turn.response?.trim()
+  );
 
   const [selectedImage, setSelectedImage] = useState(null);
   const [selectedAudio, setSelectedAudio] = useState(null);
@@ -325,6 +331,9 @@ function Main() {
                       )}
                       </div>
                   </div>
+                  {needsOnboarding && turn.id === firstAnsweredTurn?.id && (
+                    <Onboarding key={user?.user_id} embedded />
+                  )}
                 </div>
               ))}
               <div ref={bottomRef} />
@@ -334,7 +343,7 @@ function Main() {
       </div>
 
       {/* Input area */}
-      <div className="sticky bottom-0 border-t border-soil-200 bg-white px-4 pt-2">
+      <div className="chat-composer shrink-0 border-t border-soil-200 bg-white px-3 pt-2 sm:px-4">
         <MediaPreview
           selectedImage={selectedImage}
           selectedAudio={selectedAudio}
