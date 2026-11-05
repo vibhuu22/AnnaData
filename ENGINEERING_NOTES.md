@@ -1275,8 +1275,8 @@ network wait but keeps playing through an AudioContext a tap has unlocked. If
 `/speak` fails, whatever has not yet been heard is read in the phone's voice.
 
 What this is not: a persistent connection. The reply cannot start until the
-whole answer has been written, and the voice is whatever the phone has
-generated a piece at a time rather than streamed.
+whole answer has been written, and the speech is generated a piece at a time
+rather than streamed.
 
 The next step, and the choice it turns on:
 
