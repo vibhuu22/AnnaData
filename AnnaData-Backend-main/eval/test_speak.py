@@ -32,14 +32,20 @@ def check(name, got, want):
 
 
 class FakeModels:
-    def __init__(self, fail=()):
+    def __init__(self, fail=(), refuse_language=False):
         self.fail = set(fail)
+        self.refuse_language = refuse_language
         self.calls = []
+
+    def _language_check(self, config):
+        if self.refuse_language and config.speech_config.language_code:
+            raise RuntimeError("400 INVALID_ARGUMENT: language_code is not supported for this model")
 
     def generate_content_stream(self, model, contents, config):
         self.calls.append((model, contents, config))
         if model in self.fail:
             raise RuntimeError("429 quota")
+        self._language_check(config)
         for i in range(3):
             part = NS(inline_data=NS(data=bytes([i, 0]) * 1200, mime_type="audio/L16;codec=pcm;rate=24000"))
             yield NS(candidates=[NS(content=NS(parts=[part]))])
@@ -48,13 +54,14 @@ class FakeModels:
         self.calls.append((model, contents, config))
         if model in self.fail:
             raise RuntimeError("429 quota")
+        self._language_check(config)
         pcm = b"\x01\x00" * 2400  # 0.1 s of near-silence at 24 kHz
         part = NS(inline_data=NS(data=pcm, mime_type="audio/L16;codec=pcm;rate=24000"))
         return NS(candidates=[NS(content=NS(parts=[part]))])
 
 
-def fake(fail=()):
-    return NS(models=FakeModels(fail))
+def fake(fail=(), refuse_language=False):
+    return NS(models=FakeModels(fail, refuse_language))
 
 
 print("What is said")
@@ -79,6 +86,25 @@ check("in the configured voice", cfg.speech_config.voice_config.prebuilt_voice_c
 # The model read any direction aloud, so by default only the answer is sent.
 check("only the answer's own words are sent", contents, "Gehu ki buwai November mein karein.")
 check("the call has a time limit", cfg.http_options.timeout, int(config.TTS_TIMEOUT * 1000))
+
+print("\nOne voice across Hindi, Hinglish and English")
+check("Hinglish is spoken as Indian Hindi", tts.language_for("Gehu ki buwai November mein karein."), "hi-IN")
+check("English is spoken as Indian Hindi too", tts.language_for("Sow wheat in November."), "hi-IN")
+check("Devanagari is Hindi", tts.language_for("गेहूं की बुवाई"), "hi-IN")
+check("Bengali stays Bengali", tts.language_for("গমের বীজ বপন"), "bn-IN")
+check("Punjabi stays Punjabi", tts.language_for("ਕਣਕ ਦੀ ਬਿਜਾਈ"), "pa-IN")
+check("the stated language reaches the model", cfg.speech_config.language_code, "hi-IN")
+tts._cache.clear()
+tts._language_refused = False
+client = fake(refuse_language=True)
+audio = tts.speak("Ek vakya.", client=client)
+check("a model that refuses a language is asked again without one", len(client.models.calls), 2)
+check("and the answer is still spoken", audio[:4], b"RIFF")
+check("later pieces stop asking", tts._language_refused, True)
+tts._language_refused = False
+rate, chunks = tts.stream("Doosra vakya.", client=fake(refuse_language=True))
+check("streaming recovers from a refused language too", len(list(chunks)), 3)
+tts._language_refused = False
 
 print("\nWhen a model fails")
 tts._cache.clear()

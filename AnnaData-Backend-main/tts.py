@@ -86,18 +86,52 @@ def _prompt(text: str) -> str:
     return f"{style} {text}" if style else text
 
 
-def _config():
+# Set when a model refuses a stated language, so later pieces stop asking.
+_language_refused = False
+
+
+def language_for(text: str) -> str | None:
+    """The language to speak this piece in: its own script decides Bengali and
+    Punjabi; everything else is TTS_LANGUAGE (Indian Hindi by default)."""
+    if re.search(r"[\u0980-\u09FF]", text):
+        return "bn-IN"
+    if re.search(r"[\u0A00-\u0A7F]", text):
+        return "pa-IN"
+    return (config.TTS_LANGUAGE or "").strip() or None
+
+
+def _config(language: str | None = None):
     from google.genai import types
 
+    speech = {"voice_config": types.VoiceConfig(
+        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=config.TTS_VOICE))}
+    if language and not _language_refused:
+        speech["language_code"] = language
     return types.GenerateContentConfig(
         response_modalities=["AUDIO"],
-        speech_config=types.SpeechConfig(
-            voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=config.TTS_VOICE)
-            )
-        ),
+        speech_config=types.SpeechConfig(**speech),
         http_options=types.HttpOptions(timeout=int(config.TTS_TIMEOUT * 1000)),
     )
+
+
+def _refuses_language(error: Exception) -> bool:
+    """A 400 about the language code: that model will not take one."""
+    message = str(error).lower()
+    return ("language" in message) and ("400" in message or "invalid" in message or "not supported" in message)
+
+
+def _with_language(call, text: str):
+    """Make the call with the stated language, once without it if refused."""
+    global _language_refused
+    language = language_for(text)
+    try:
+        return call(_config(language))
+    except Exception as e:  # noqa: BLE001
+        if language and not _language_refused and _refuses_language(e):
+            print(f"Speech model refused language {language!r}; speaking without one from now on")
+            _language_refused = True
+            return call(_config(None))
+        raise
 
 
 def _audio_parts(response):
@@ -110,7 +144,8 @@ def _audio_parts(response):
 
 
 def _synthesise(client, model: str, text: str) -> tuple[bytes, str | None]:
-    response = client.models.generate_content(model=model, contents=_prompt(text), config=_config())
+    response = _with_language(
+        lambda cfg: client.models.generate_content(model=model, contents=_prompt(text), config=cfg), text)
     for data, mime in _audio_parts(response):
         return data, mime
     raise SpeechUnavailable(f"{model} returned no audio")
@@ -134,18 +169,17 @@ def stream(text: str | None, client=None):
     failures = []
     for model in config.TTS_MODELS:
         try:
-            chunks = client.models.generate_content_stream(
-                model=model, contents=_prompt(said), config=_config())
-            iterator = iter(chunks)
-            first = None
-            for chunk in iterator:
-                for data, mime in _audio_parts(chunk):
-                    first = (data, mime)
-                    break
-                if first:
-                    break
-            if not first:
+            def opened(cfg, model=model):
+                # Read up to the first audio here, because a refused setting
+                # is only reported once the stream is read, not when it opens.
+                iterator = iter(client.models.generate_content_stream(
+                    model=model, contents=_prompt(said), config=cfg))
+                for chunk in iterator:
+                    for data, mime in _audio_parts(chunk):
+                        return (data, mime), iterator
                 raise SpeechUnavailable(f"{model} streamed no audio")
+
+            first, iterator = _with_language(opened, said)
 
             def rest(first=first, iterator=iterator, model=model):
                 yield first[0]

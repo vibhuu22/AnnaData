@@ -186,6 +186,13 @@ TTS_MODELS = [
     if m.strip()
 ]
 TTS_VOICE = _get("TTS_VOICE", "Kore")
+# The language every Latin- or Devanagari-script piece is spoken in. Left to
+# itself the model picked a language per piece, so a sentence heavy with
+# English words came out in a different delivery from the Hindi around it - the
+# farmer heard the voice change mid-answer. Fixed to Indian Hindi, which is
+# also how it reads English: as an Indian speaker would. Bengali and Gurmukhi
+# text is always spoken as Bengali and Punjabi. Empty lets the model choose.
+TTS_LANGUAGE = _get("TTS_LANGUAGE", "hi-IN")
 # An optional direction said to the model before the text. EMPTY BY DEFAULT,
 # because the model read it out: every piece of every answer began with "Read
 # this aloud slowly and clearly...", which a farmer heard and which roughly

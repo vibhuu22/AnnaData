@@ -1285,13 +1285,24 @@ still goes through `scrub` and `ensure_registered_doses` afterwards; that
 result is sent last and is the one stored. A registered dose added at the end
 is therefore still spoken.
 
-The farmer can talk over an answer: a voice several times the measured noise
-floor, held for 350 ms after the first 700 ms of the answer, stops it and starts
-the next turn at once. The answer still arriving for the old turn finishes on
-screen but is never spoken over the new one. Echo cancellation keeps the
-answer's own sound out of the microphone on most phones; on a phone where it
-does not, the thresholds are what stop an answer interrupting itself, and they
-are the first thing to tune from real use.
+Talking over an answer was built and then taken out on the founder's first
+use: a phone speaker's own voice reaching the microphone is not reliably
+removed by echo cancellation, and an answer that hears itself interrupts
+itself. The microphone is now ignored while an answer is spoken; the Talk
+button (or a tap on the circle) interrupts, listens, and the conversation
+carries on. An answer still arriving for an interrupted turn finishes on screen
+but is never spoken over the new one.
+
+Voice mode asks for its own answer style (`channel: "voice"`): three to five
+spoken sentences, no markdown, the most useful action first. A web answer read
+aloud was measured at 34 sentences. Subtitles follow the speech word by word -
+estimated from each word's share of its piece's audio, since Gemini returns no
+word timings, and exact with the phone's own voice, which reports its word.
+
+The voice changed between pieces because the model picked a language per
+piece; `TTS_LANGUAGE` (hi-IN) now fixes it for Latin and Devanagari text. If a
+model refuses a stated language, the backend asks again without one and stops
+stating it.
 
 What is still not streamed: understanding the question, choosing tools and
 fetching their data, about four seconds before the first sentence can be

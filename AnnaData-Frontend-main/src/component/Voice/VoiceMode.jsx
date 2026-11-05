@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
-import { createSpeaker, stopSpeaking, unlockAudio } from "../../Config/speech";
+import { createSpeaker, stopSpeaking, unlockAudio, speechProgress, sharedAudioContext } from "../../Config/speech";
 import { followUpAsk } from "../../Config/asks";
 import { primaryButton } from "../Flow/ui";
 
@@ -20,13 +20,17 @@ import { primaryButton } from "../Flow/ui";
  * rest of the answer is still being written. What the farmer is heard to have
  * said comes back first, before any of the answer.
  *
- * TALKING OVER IT. While an answer is spoken the microphone stays live. A voice
- * well above the room's noise, held for BARGE_MS, stops the answer and starts
- * the next turn at once - as in ChatGPT's and Claude's voice modes. The
- * threshold is several times the noise floor measured while listening, and the
- * first BARGE_GRACE_MS of each answer are ignored, so the answer's own sound
- * from the speaker - which the browser's echo cancellation removes from the
- * microphone, but not perfectly on every phone - does not interrupt itself.
+ * NOT LISTENING WHILE IT SPEAKS. An earlier version let the farmer talk over
+ * an answer, as ChatGPT's and Claude's voice modes do. On a phone speaker in a
+ * field that cannot be trusted: echo cancellation does not keep the answer's
+ * own voice out of the microphone on every phone, and an answer that hears
+ * itself interrupts itself. So the microphone is ignored while an answer is
+ * spoken, and the farmer interrupts with the Talk button (or by tapping the
+ * circle): it stops, listens, answers, listens again.
+ *
+ * SUBTITLES. What is being said is shown as it is said, the current word
+ * marked - for a farmer who half-hears a word in a field, and so the screen is
+ * not a static block of text while the voice runs on.
  *
  * Turn-taking is a level detector, not speech recognition: the noise floor is
  * measured for the first moment of each turn, speech is anything well above
@@ -39,10 +43,6 @@ const CALIBRATE_MS = 350; // measuring the room before trusting the threshold
 const MIN_SPEECH_MS = 250; // shorter than this is a cough, not a question
 const MAX_TURN_MS = 45000; // a question, not a speech
 const IDLE_MS = 15000; // nothing said: pause rather than listen forever
-const BARGE_GRACE_MS = 700; // the start of an answer cannot be talked over
-const BARGE_MS = 350; // held this long, a voice is an interruption, not a cough
-const BARGE_FLOOR = 0.05; // never more sensitive than this while speaking
-const BARGE_FACTOR = 6; // times the noise floor measured while listening
 const DOSE_HEADING = "Registered for this pest (CIB&RC):";
 
 const LABELS = {
@@ -57,6 +57,74 @@ function rms(buffer) {
   let sum = 0;
   for (let i = 0; i < buffer.length; i += 1) sum += buffer[i] * buffer[i];
   return Math.sqrt(sum / buffer.length);
+}
+
+/**
+ * Which word of `words` is being said, `fraction` of the way through the
+ * piece's audio. Weighted by length, with extra for the pause a comma or a
+ * full stop makes, because Gemini's audio does not say where its words fall.
+ */
+export function wordAtFraction(words, fraction) {
+  const weights = words.map((w) => w.length + 1 + (/[.!?।॥]$/.test(w) ? 5 : /[,;:]$/.test(w) ? 3 : 0));
+  const total = weights.reduce((a, b) => a + b, 0);
+  let reached = 0;
+  const target = fraction * total;
+  for (let i = 0; i < weights.length; i += 1) {
+    reached += weights[i];
+    if (reached >= target) return i;
+  }
+  return words.length - 1;
+}
+
+/** Which word contains character `char` - the phone's own voice reports it. */
+export function wordAtChar(text, char) {
+  return Math.max(0, text.slice(0, char).split(/\s+/).filter(Boolean).length - (/\s$/.test(text.slice(0, char)) ? 0 : 1));
+}
+
+/** What is being said, as it is said, with the current word marked. */
+function Subtitles() {
+  const [view, setView] = useState(null);
+  useEffect(() => {
+    let frame = 0;
+    let last = "";
+    const tick = () => {
+      const progress = speechProgress();
+      if (progress && progress.text) {
+        const words = progress.text.split(/\s+/).filter(Boolean);
+        const index =
+          typeof progress.char === "number" ? wordAtChar(progress.text, progress.char) : wordAtFraction(words, progress.fraction);
+        const key = `${progress.text}|${index}`;
+        if (key !== last) {
+          last = key;
+          setView({ words, index });
+        }
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  if (!view) return null;
+  return (
+    // aria-hidden: it is being spoken already, and announcing every word
+    // change would talk over it.
+    <p aria-hidden="true" className="text-center text-xl leading-relaxed">
+      {view.words.map((word, i) => (
+        <span
+          key={`${i}-${word}`}
+          className={
+            i < view.index
+              ? "text-soil-900"
+              : i === view.index
+                ? "rounded-md bg-leaf-100 px-1 font-semibold text-leaf-900"
+                : "text-soil-400"
+          }
+        >
+          {word}{" "}
+        </span>
+      ))}
+    </p>
+  );
 }
 
 function VoiceMode({ onClose }) {
@@ -85,7 +153,7 @@ function VoiceMode({ onClose }) {
   const turnIdRef = useRef(0);
   const floorRef = useRef(0.005);
   const thresholdRef = useRef(0.02);
-  const bargedRef = useRef(false);
+  const sourceRef = useRef(null);
   sendRef.current = send;
 
   // The phase is read inside the audio loop and after awaits, which run before
@@ -125,44 +193,12 @@ function VoiceMode({ onClose }) {
     setNotice(message);
   }, []);
 
-  /**
-   * While an answer is spoken: a sustained voice over it is the farmer
-   * interrupting. Stop speaking and start listening to them at once.
-   */
-  const watchForBargeIn = useCallback(() => {
-    const analyser = analyserRef.current;
-    if (!analyser) return;
-    stopLoop();
-    const buffer = new Float32Array(analyser.fftSize);
-    const started = performance.now();
-    const limit = Math.max(BARGE_FLOOR, floorRef.current * BARGE_FACTOR);
-    let loud = 0;
-    let last = started;
-    const tick = (now) => {
-      if (closedRef.current || phaseRef.current !== "speaking") return;
-      analyser.getFloatTimeDomainData(buffer);
-      const level = rms(buffer);
-      const dt = now - last;
-      last = now;
-      if (now - started > BARGE_GRACE_MS) {
-        loud = level > limit ? loud + dt : Math.max(0, loud - dt);
-        if (loud >= BARGE_MS) {
-          bargedRef.current = true;
-          stopSpeaking();
-          turnRef.current();
-          return;
-        }
-      }
-      frameRef.current = requestAnimationFrame(tick);
-    };
-    frameRef.current = requestAnimationFrame(tick);
-  }, []);
-
   const startSpeaking = useCallback(() => {
     if (phaseRef.current === "speaking") return;
+    stopLoop();
+    setLevel(0);
     go("speaking");
-    watchForBargeIn();
-  }, [watchForBargeIn]);
+  }, []);
 
   /** After the whole answer is in: say what is left, then listen again. */
   const respond = useCallback(async (result, speaker, streamed, turn) => {
@@ -215,10 +251,6 @@ function VoiceMode({ onClose }) {
     const analyser = analyserRef.current;
     const stream = streamRef.current;
     const turn = ++turnIdRef.current;
-    // Talked over the last answer: they are already speaking, so this turn
-    // starts as speech, with the threshold the room was last measured at.
-    const barged = bargedRef.current;
-    bargedRef.current = false;
 
     setNotice("");
     go("listening");
@@ -252,6 +284,8 @@ function VoiceMode({ onClose }) {
       const result = await sendRef.current({
         audio,
         quiet: true,
+        // Three to five spoken sentences, not a page of markdown read aloud.
+        channel: "voice",
         onHeard: (transcript) => {
           if (transcript && turn === turnIdRef.current) setHeard(transcript);
         },
@@ -271,9 +305,9 @@ function VoiceMode({ onClose }) {
     const started = performance.now();
     let floorSum = 0;
     let floorCount = 0;
-    let threshold = barged ? thresholdRef.current : 0.02;
-    let speechMs = barged ? MIN_SPEECH_MS : 0;
-    let lastVoice = barged ? started : 0;
+    let threshold = 0.02;
+    let speechMs = 0;
+    let lastVoice = 0;
     let last = started;
 
     const tick = (now) => {
@@ -283,7 +317,7 @@ function VoiceMode({ onClose }) {
       const dt = now - last;
       last = now;
 
-      if (!barged && now - started < CALIBRATE_MS) {
+      if (now - started < CALIBRATE_MS) {
         floorSum += level;
         floorCount += 1;
       } else {
@@ -324,16 +358,22 @@ function VoiceMode({ onClose }) {
           return;
         }
         streamRef.current = stream;
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        const ctx = new AudioContextClass();
+        // The context the opening tap unlocked (see sharedAudioContext). The
+        // analyser only measures the level; it is not connected to the
+        // speaker, so the microphone is never played back.
+        const ctx = sharedAudioContext();
         const source = ctx.createMediaStreamSource(stream);
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 1024;
         source.connect(analyser);
+        sourceRef.current = source;
         audioCtxRef.current = ctx;
         analyserRef.current = analyser;
         if (ctx.state === "suspended") {
-          // Some phones will not start audio without a second tap.
+          await Promise.race([ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
+        }
+        if (ctx.state === "suspended") {
+          // Rare now the context is shared; a second tap starts it.
           go("paused");
           setNotice("Tap the circle to start talking.");
           return;
@@ -354,7 +394,12 @@ function VoiceMode({ onClose }) {
         recorder.stop();
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
-      audioCtxRef.current?.close?.();
+      // Shared with playback, so it is disconnected, not closed.
+      try {
+        sourceRef.current?.disconnect();
+      } catch (e) {
+        /* already gone */
+      }
     };
   }, []);
 
@@ -381,7 +426,7 @@ function VoiceMode({ onClose }) {
 
   const hint = {
     listening: "Tap to send now",
-    speaking: "Tap to interrupt",
+    speaking: "Tap Talk to interrupt",
     paused: needsSignIn ? "" : "Tap to talk",
     thinking: "",
     starting: "",
@@ -436,7 +481,8 @@ function VoiceMode({ onClose }) {
               </button>
             </div>
           )}
-          {reply && !needsSignIn && phase !== "thinking" && (
+          {phase === "speaking" && <Subtitles />}
+          {reply && !needsSignIn && phase !== "thinking" && phase !== "speaking" && (
             <div className="max-h-[22vh] overflow-y-auto rounded-xl bg-white/90 px-4 py-3 text-sm text-soil-800 shadow-card">
               {reply.replace(/[*#_`>|]/g, "").slice(0, 900)}
             </div>
@@ -445,19 +491,27 @@ function VoiceMode({ onClose }) {
       </div>
 
       <div className="flex items-center justify-center gap-6 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2">
+        {/* One button whose job follows the moment: while it speaks, Talk
+            interrupts it and listens; while it listens, Pause; when paused,
+            Talk again. */}
         <button
           type="button"
-          onClick={() => (phase === "paused" ? tapOrb() : pause())}
+          onClick={() => (phase === "listening" ? pause() : tapOrb())}
           disabled={phase === "thinking" || phase === "starting" || needsSignIn}
-          aria-label={phase === "paused" ? "Start listening" : "Pause listening"}
-          className="grid h-16 w-16 place-items-center rounded-full border-[1.5px] border-soil-300 bg-white text-soil-900 shadow-card disabled:opacity-40"
+          aria-label={phase === "listening" ? "Pause listening" : phase === "speaking" ? "Interrupt and talk" : "Talk"}
+          className={`flex h-16 items-center justify-center gap-2 rounded-full px-6 text-base font-semibold shadow-card disabled:opacity-40 ${
+            phase === "listening"
+              ? "border-[1.5px] border-soil-300 bg-white text-soil-900"
+              : "bg-leaf-600 text-white hover:bg-leaf-700"
+          }`}
         >
-          <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="9" y="2" width="6" height="12" rx="3" />
             <path d="M5 10a7 7 0 0 0 14 0" />
             <path d="M12 17v5" />
-            {phase !== "paused" && <path d="M3 3l18 18" />}
+            {phase === "listening" && <path d="M3 3l18 18" />}
           </svg>
+          {phase === "listening" ? "Pause" : "Talk"}
         </button>
         <button
           type="button"

@@ -77,6 +77,22 @@ CHANNEL_STYLE = {
         "Give the most useful, actionable steps in under 90 words, always with "
         "specific quantities. Finish every sentence you begin."
     ),
+    # Voice mode: the answer is heard, not read. A web answer of thirty-odd
+    # sentences with headings and bullet lists was a minute and a half of
+    # listening, and a spoken "asterisk" or heading helps nobody. No length
+    # budget in characters, as SMS has, because nothing here is billed by the
+    # segment - only the farmer's patience.
+    "voice": (
+        "This answer will be SPOKEN ALOUD to the farmer, who is listening, not "
+        "reading. Write it the way a helpful agronomist would say it on the "
+        "phone: three to five short, complete sentences of plain speech. No "
+        "markdown at all - no headings, no bullet points, no numbered lists, no "
+        "asterisks, no tables, no links. Lead with the single most useful thing "
+        "to do, with its specific quantity, and leave out background the farmer "
+        "did not ask for. If a registered product and dose apply, say the "
+        "product's name and the dose in words a listener can follow. Finish "
+        "every sentence you begin."
+    ),
     "sms": (
         "This answer is delivered as an SMS to a basic phone. "
         "Use plain text ONLY: no markdown, no asterisks, no hash headers, "

@@ -201,7 +201,7 @@ const ContextProvider = (props) => {
    * got an answer are included - a failed request must not teach the agent that
    * it said "could not reach the service".
    */
-  const send = useCallback(async ({ text = "", image = null, audio = null, quiet = false, onHeard, onText }) => {
+  const send = useCallback(async ({ text = "", image = null, audio = null, quiet = false, channel = "web", onHeard, onText }) => {
     const trimmed = text.trim();
     if (!trimmed && !image && !audio) return null;
 
@@ -237,6 +237,7 @@ const ContextProvider = (props) => {
       history,
       image,
       audio,
+      channel,
       onHeard: (transcript, vision) => {
         update(() => ({ transcript, vision }));
         onHeard?.(transcript, vision);

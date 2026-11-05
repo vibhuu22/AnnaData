@@ -104,6 +104,13 @@ let context = null;
 let session = 0;
 let scheduled = [];
 let aborter = null;
+// What is being said, for subtitles: each piece with where its audio starts and
+// ends on the AudioContext clock. Gemini's audio carries no word timings, so a
+// word's place is estimated from its share of the piece's length; the phone's
+// own voice reports the word it is on, which `onDevice` holds.
+let spoken = [];
+let onDevice = null;
+
 // Speakers idle-waiting for their next sentence. stopSpeaking() wakes them so
 // they notice they were stopped instead of waiting for ever.
 const idle = new Set();
@@ -118,6 +125,16 @@ function audioContext() {
     }
   }
   return context;
+}
+
+/**
+ * The page's one AudioContext, for voice mode's microphone level too. Shared
+ * because it is the one a tap has unlocked: a second one, created after the
+ * microphone permission prompt rather than in the tap, starts suspended on an
+ * iPhone - which is why voice mode opened "Paused" instead of listening.
+ */
+export function sharedAudioContext() {
+  return audioContext();
 }
 
 /**
@@ -155,6 +172,8 @@ export function stopSpeaking() {
     }
   });
   scheduled = [];
+  spoken = [];
+  onDevice = null;
   idle.forEach((resume) => resume());
   idle.clear();
   if (SUPPORTED) window.speechSynthesis.cancel();
@@ -201,14 +220,22 @@ function timeline(ctx, mine) {
   let cursor = 0;
   let lastEnd = Promise.resolve();
   return {
-    add(buffer) {
+    /** A piece about to be heard, for subtitles. */
+    begin(text) {
+      const record = { text, start: null, end: null };
+      if (mine === session) spoken.push(record);
+      return record;
+    },
+    add(buffer, record) {
       if (mine !== session) return;
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(ctx.destination);
       cursor = Math.max(cursor, ctx.currentTime + 0.06);
       source.start(cursor);
+      if (record && record.start === null) record.start = cursor;
       cursor += buffer.duration;
+      if (record) record.end = cursor;
       scheduled.push(source);
       lastEnd = new Promise((resolve) => {
         source.onended = resolve;
@@ -251,6 +278,7 @@ async function streamPiece(ctx, line, text, lang, signal, mine) {
   if (!response.ok || !response.body) throw new Error(`speak/stream ${response.status}`);
   const rate = parseInt(response.headers.get("X-Sample-Rate") || "24000", 10);
   const reader = response.body.getReader();
+  const record = line.begin(text);
   // About a quarter of a second per buffer: small enough to start at once,
   // large enough that a slow phone is not scheduling hundreds of slivers.
   const batch = Math.round(rate * 0.25) * 2;
@@ -270,7 +298,7 @@ async function streamPiece(ctx, line, text, lang, signal, mine) {
     }
     while (pending.length >= batch || (done && pending.length >= 2)) {
       const take = done ? pending.length - (pending.length % 2) : batch;
-      line.add(pcmBuffer(ctx, pending.subarray(0, take), rate));
+      line.add(pcmBuffer(ctx, pending.subarray(0, take), rate), record);
       heard += take;
       pending = pending.slice(take);
     }
@@ -286,7 +314,26 @@ async function wholePiece(ctx, line, text, lang, signal) {
   const bytes = await response.arrayBuffer();
   // The callback form, because older Safari does not return a promise.
   const buffer = await new Promise((resolve, reject) => ctx.decodeAudioData(bytes, resolve, reject));
-  line.add(buffer);
+  line.add(buffer, line.begin(text));
+}
+
+/**
+ * What is being said right now, for subtitles: { text, fraction } through a
+ * piece of Gemini's audio, { text, char } with the phone's own voice, or null
+ * when nothing is playing.
+ */
+export function speechProgress() {
+  if (onDevice) return onDevice;
+  if (!context || !spoken.length) return null;
+  const now = context.currentTime;
+  let current = null;
+  for (const record of spoken) {
+    if (record.start !== null && record.start <= now) current = record;
+  }
+  if (!current) return { text: spoken[0].text, fraction: 0 };
+  const span = current.end - current.start;
+  const fraction = span > 0 ? Math.min(1, Math.max(0, (now - current.start) / span)) : 0;
+  return { text: current.text, fraction };
 }
 
 /**
@@ -447,7 +494,15 @@ async function speakOnDevice(text, lang) {
     utterance.lang = voice.lang || lang;
     // Advice about a dose is worth slowing down for.
     utterance.rate = 0.95;
-    utterance.onend = () => resolve({ ok: true });
+    onDevice = { text, char: 0 };
+    // The phone's voice says which word it is on; subtitles follow it exactly.
+    utterance.onboundary = (e) => {
+      if (onDevice && typeof e.charIndex === "number") onDevice = { text, char: e.charIndex };
+    };
+    utterance.onend = () => {
+      onDevice = null;
+      resolve({ ok: true });
+    };
     utterance.onerror = (e) => {
       // "interrupted" is what cancel() raises when the farmer presses stop, or
       // starts a second answer playing. That is not a failure to report.

@@ -119,7 +119,7 @@ async function readEvents(response, { onHeard, onText }) {
  * Always resolves. A failure comes back as { answer, error } so the caller can
  * render it as a message rather than having to catch.
  */
-export async function ask({ text = "", history = [], image = null, audio = null, onHeard, onText }) {
+export async function ask({ text = "", history = [], image = null, audio = null, channel = "web", onHeard, onText }) {
   const coords = await getCoordinates();
   const hasMedia = Boolean(image || audio);
   const canStream = Boolean(onText) && typeof ReadableStream !== "undefined" && typeof TextDecoder !== "undefined";
@@ -134,6 +134,8 @@ export async function ask({ text = "", history = [], image = null, audio = null,
       if (audio) form.append("audio", audio, audio.name || `voice${audioExtension(audio.type)}`);
       form.append("query", text);
       form.append("history", JSON.stringify(history));
+      // "voice": a short spoken answer for voice mode, not a page of markdown.
+      form.append("channel", channel);
       if (coords) {
         form.append("latitude", String(coords.latitude));
         form.append("longitude", String(coords.longitude));
@@ -141,7 +143,7 @@ export async function ask({ text = "", history = [], image = null, audio = null,
       // No Content-Type header: the browser sets it with the multipart boundary.
       return fetch(`${getApiUrl()}/agent/media${suffix}`, { method: "POST", headers: askHeaders(), body: form });
     }
-    const body = { query: text, history };
+    const body = { query: text, history, channel };
     if (coords) {
       body.latitude = coords.latitude;
       body.longitude = coords.longitude;

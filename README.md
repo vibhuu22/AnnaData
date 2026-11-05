@@ -298,6 +298,7 @@ the advisory still goes out. `GET /health` reports exactly what is live.
 | `AUTH_SECRET` | Sessions that survive a restart | Regenerated per process; everyone signed out on restart |
 | `BRIDGE_TOKEN` | Proof the SMS bridge is the SMS bridge | `/feedback/*` stay open, reported on `/health` |
 | `SMS_GATEWAY_USER` / `SMS_GATEWAY_PASSWORD` | Sending sign-in codes | Nobody can sign in on the web |
+| `TTS_LANGUAGE` | The language Latin- and Devanagari-script answers are spoken in (default `hi-IN`), so Hindi, Hinglish and English keep one voice; Bengali and Punjabi always use their own | Each piece's language is left to the model, and the voice can change mid-answer |
 | `TTS_MODELS` / `TTS_VOICE` / `TTS_STYLE` | Spoken answers via Gemini TTS (defaults: 3.8 Flash-Lite TTS, then 3.8 Flash TTS, then 2.5 Flash TTS; voice `Kore`; no style direction, because the model read it aloud) | Listen and voice mode fall back to the phone's own voice |
 | `SPEAK_GUEST_PER_HOUR` / `SPEAK_IP_PER_HOUR` / `SPEAK_DAILY_CAP` | Guest limits for `/speak`, counted in pieces of an answer (defaults 200 / 1000 / 5000) | — |
 | `GUEST_ASK_ENABLED` | Questions before sign-in (default `true`) | `false` makes the web app's guests get 401, as before |
