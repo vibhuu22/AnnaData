@@ -1,59 +1,53 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useState } from "react";
 import Main from "./component/Main/Main";
 import Sidebar from "./component/Sidebar/Sidebar";
 import Header from "./component/Header/Header";
-import SignIn from "./component/SignIn/SignIn";
+import SaveFlow from "./component/Flow/SaveFlow";
 import AppStatus from "./component/AppStatus";
 import { Auth } from "./Context/AuthProvider";
+import { Flow } from "./Context/Flow";
 
 /**
- * The chat, for everybody.
+ * The chat, for everybody, and the full-screen steps on top of it.
  *
- * This used to put the sign-in screen in front of the chat, so a farmer had to
- * give a phone number and wait for an SMS before seeing a single answer. Now
- * they ask first. A phone number is asked for only when they choose to save
- * their farm (the card under an answer), or when a returning farmer taps
- * "Sign in" in the header - the one case that opens the full sign-in screen.
+ * A farmer asks first. A phone number is asked for only when they choose to
+ * save their farm ("Add farm details" under an answer) or tap "Sign in" in the
+ * header. Those steps take the whole screen, as in the wireframes, but the
+ * conversation is only hidden behind them, never unmounted - so coming back
+ * from "Not now" or from a finished profile lands exactly where they were.
  */
 function App() {
-  const { user, checking } = useContext(Auth);
-  const [signingIn, setSigningIn] = useState(false);
-
-  // Once somebody is signed in there is nothing left to sign in to.
-  useEffect(() => {
-    if (user) setSigningIn(false);
-  }, [user]);
+  const { checking } = useContext(Auth);
+  const [flow, setFlow] = useState(null);
 
   // A stored token is being checked against the server. Deliberately blank
   // rather than a spinner: it is one request, and a spinner that flashes for
   // 200ms reads as breakage rather than as progress.
   if (checking) {
-    return <div className="body min-h-screen bg-soil-50" />;
-  }
-
-  if (signingIn && !user) {
-    return (
-      <div className="body">
-        <AppStatus />
-        <SignIn onCancel={() => setSigningIn(false)} />
-      </div>
-    );
+    return <div className="body min-h-screen bg-white" />;
   }
 
   return (
-    // "body" is not decorative: index.css hangs the app font off it.
-    <div className="body bg-white">
-      <div className="flex">
-        <Sidebar />
-        {/* min-w-0 so the chat column may shrink; without it a long unbroken
-            string in an answer widens the flex child and scrolls the page. */}
-        <div className="app-viewport flex flex-col flex-grow min-w-0">
-          <Header onSignIn={() => setSigningIn(true)} />
-          <AppStatus />
-          <Main />
+    <Flow.Provider value={setFlow}>
+      {flow && (
+        <div className="body">
+          <SaveFlow start={flow} onClose={() => setFlow(null)} />
+        </div>
+      )}
+      {/* "body" is not decorative: index.css hangs the app font off it. */}
+      <div className={`body bg-white ${flow ? "hidden" : ""}`} aria-hidden={flow ? true : undefined}>
+        <div className="flex">
+          <Sidebar />
+          {/* min-w-0 so the chat column may shrink; without it a long unbroken
+              string in an answer widens the flex child and scrolls the page. */}
+          <div className="app-viewport flex min-w-0 flex-grow flex-col">
+            <Header onSignIn={() => setFlow("signin")} />
+            <AppStatus />
+            <Main />
+          </div>
         </div>
       </div>
-    </div>
+    </Flow.Provider>
   );
 }
 

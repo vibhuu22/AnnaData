@@ -1,72 +1,208 @@
 import React, { useContext, useState, useRef, useEffect, useMemo, useCallback } from "react";
-import Card from "../Card/Card";
-import { IoMdSend } from "react-icons/io";
-import { FaImage, FaMicrophone, FaStop, FaVolumeUp, FaRegStopCircle } from "react-icons/fa";
 import { Context } from "../../Context/ContextProvider";
+import { Auth } from "../../Context/AuthProvider";
+import { Flow } from "../../Context/Flow";
 import MediaPreview from "../MediaPreview/MediaPreview";
 import Sources from "../Sources/Sources";
 import Answer from "../Answer/Answer";
-import Onboarding from "../Onboarding/Onboarding";
-import SaveFarm from "../SaveFarm/SaveFarm";
-import { Auth } from "../../Context/AuthProvider";
+import Home from "../Home/Home";
+import { primaryButton, textButton, SMS_NUMBER } from "../Flow/ui";
 import { speak, stopSpeaking, isSpeechSupported } from "../../Config/speech";
 
-// Deliberately not all English. The system answers in the script it is asked
-// in, and a demo that only ever shows English questions never demonstrates the
-// one capability that distinguishes it. Each card carries its own translation
-// so the behaviour is legible to someone who does not read the script.
-const SUGGESTIONS = [
-  {
-    text: "मेरे गेहूं में पीला रतुआ लग गया है, क्या करूं?",
-    note: "Hindi — yellow rust in wheat",
-  },
-  {
-    text: "Kapas me sundi lag gayi hai, kaunsi dawa daalu?",
-    note: "Hinglish — bollworm in cotton",
-  },
-  {
-    text: "What is today's mandi price for soybean in Madhya Pradesh?",
-    note: "English — live market rate",
-  },
-  {
-    text: "ਮੇਰੇ ਝੋਨੇ ਨੂੰ ਕਦੋਂ ਪਾਣੀ ਦੇਣਾ ਚਾਹੀਦਾ ਹੈ?",
-    note: "Punjabi — irrigation timing for paddy",
-  },
+/**
+ * The conversation, laid out as in the wireframes.
+ *
+ *   ask   "What is happening in your field?", three examples, one large
+ *         microphone, and a photo / type / send row underneath
+ *   chat  the farmer's words on the right, each answer in a card whose border
+ *         and badge say what kind of answer it is, and a follow-up row
+ *   home  a returning farmer's welcome (Home.jsx)
+ *
+ * The badge is decided from data the backend sends, never from the prose:
+ *   dose_status "available"        Approved dose
+ *   dose_status "none_registered"  No approved spray for this  (dashed)
+ *   a photo read at low confidence Photo is not enough to be sure (dashed)
+ * A dashed card is the system working, not failing - it is the answer that
+ * declined to guess - so it is drawn in the same ink as the others, not red.
+ */
+
+// The wireframe's examples: the three things farmers ask most - a pest, a
+// sowing date, a price - in the Hinglish most of them type.
+const EXAMPLES = [
+  "Kapas me sundi lag gayi hai, kya spray karu?",
+  "Gehu ki buwai kab karein?",
+  "Aaj aalu ka mandi bhav kya hai?",
 ];
 
+const SLOW_AFTER_MS = 60000;
+
+function MicIcon({ size = 24 }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 10a7 7 0 0 0 14 0" />
+      <path d="M12 17v5" />
+    </svg>
+  );
+}
+
+function StopIcon({ size = 24 }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12h14" />
+      <path d="M13 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 9v6h4l5 4V5L8 9z" />
+      <path d="M16 9a4 4 0 0 1 0 6" />
+    </svg>
+  );
+}
+
 /**
- * A blob rendered as an image or an audio player.
- *
- * The object URL is created once per file and revoked on unmount. The previous
- * version called URL.createObjectURL inline in the render, which minted a fresh
- * URL on every re-render and never released any of them.
+ * A blob rendered as an image or an audio player. The object URL is created
+ * once per file and revoked on unmount, not minted on every render.
  */
 function SentMedia({ file, kind }) {
   const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => url && URL.revokeObjectURL(url), [url]);
   if (!url) return null;
   return kind === "image" ? (
-    <img src={url} alt="Sent by the farmer" className="max-h-44 rounded-lg" />
+    <img src={url} alt="Sent by the farmer" className="max-h-44 w-full rounded-xl object-cover" />
   ) : (
-    <audio controls src={url} className="h-9" />
+    <audio controls src={url} className="h-9 w-full" />
+  );
+}
+
+/** What kind of answer this is, from the backend's own fields. */
+function kindOf(turn) {
+  if (turn.doseStatus === "available") return "approved";
+  if (turn.doseStatus === "none_registered") return "refusal";
+  const v = turn.vision;
+  if (v && (v.confidence === "low" || v.pest === "unknown")) return "photo-unsure";
+  return "plain";
+}
+
+const BADGES = {
+  approved: {
+    text: "Approved dose",
+    className: "bg-leaf-600 text-white",
+    icon: <path d="M5 12l5 5 9-10" />,
+  },
+  refusal: {
+    text: "No approved spray for this",
+    className: "border-[1.5px] border-soil-900 text-soil-900",
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M6 6l12 12" />
+      </>
+    ),
+  },
+  "photo-unsure": {
+    text: "Photo is not enough to be sure",
+    className: "border-[1.5px] border-soil-900 text-soil-900",
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v5" />
+        <path d="M12 16.5v.5" />
+      </>
+    ),
+  },
+};
+
+const CARD = {
+  approved: "border-2 border-leaf-600",
+  refusal: "border-2 border-dashed border-soil-800",
+  "photo-unsure": "border-2 border-dashed border-soil-800",
+  plain: "border-[1.5px] border-soil-300",
+};
+
+function Badge({ kind }) {
+  const badge = BADGES[kind];
+  if (!badge) return null;
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-bold ${badge.className}`}>
+      <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        {badge.icon}
+      </svg>
+      {badge.text}
+    </span>
+  );
+}
+
+/** "Looking this up for you…", and an honest word if it is slow. */
+function Pending({ startedAt }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const left = SLOW_AFTER_MS - (Date.now() - (startedAt || Date.now()));
+    if (left <= 0) {
+      setSlow(true);
+      return undefined;
+    }
+    const timer = setTimeout(() => setSlow(true), left);
+    return () => clearTimeout(timer);
+  }, [startedAt]);
+
+  return (
+    <div className="flex flex-col gap-3 rounded-[14px] border-[1.5px] border-soil-300 p-4" role="status" aria-live="polite">
+      <div className="flex items-center gap-3">
+        <div className="thinking" aria-hidden="true">
+          <span className="thinking-blade" />
+          <span className="thinking-blade" />
+          <span className="thinking-blade" />
+          <span className="thinking-blade" />
+          <span className="thinking-blade" />
+        </div>
+        <span className="text-lg font-bold text-soil-900">Looking this up for you…</span>
+      </div>
+      <p className="text-sm text-soil-600">Usually 5 to 20 seconds.</p>
+      {slow && (
+        <p className="rounded-xl bg-soil-50 px-3.5 py-3 text-sm text-soil-700">
+          <strong className="block text-soil-900">Taking longer than usual</strong>
+          Some answers take up to a couple of minutes. Please keep this page open — the answer will appear here.
+        </p>
+      )}
+    </div>
   );
 }
 
 function Main() {
-  const { send, responses, loading, setInput, input, dataSent } = useContext(Context);
+  const {
+    send, thread, loading, setInput, input, screen, responses, focusId,
+  } = useContext(Context);
   const { user, needsOnboarding } = useContext(Auth);
+  const openFlow = useContext(Flow);
 
-  // The offer to save follows the conversation: it sits after the newest
-  // turn, so it is in view when the farmer has just read something useful
-  // rather than scrolling away under the first answer. It is rendered once,
-  // after the list, rather than inside a turn - otherwise asking another
-  // question halfway through would remount it under the new answer and throw
-  // away a half-entered code or the step the farmer was on.
-  const latestAnsweredTurn = [...responses]
+  // The offer to save follows the conversation: after the newest answer, so
+  // it is in view when the farmer has just read something useful.
+  const latestAnswered = [...thread]
     .reverse()
     .find((turn) => !turn.pending && !turn.failed && turn.response?.trim());
-  const limited = Boolean(latestAnsweredTurn?.needsSignIn);
-
+  const limited = Boolean(latestAnswered?.needsSignIn);
   // "Not now" holds for this visit. Reaching the guest limit brings the card
   // back regardless, because then saving is the only way to keep asking.
   const [saveDismissed, setSaveDismissed] = useState(false);
@@ -77,16 +213,33 @@ function Main() {
   const [micError, setMicError] = useState("");
   const [speakingId, setSpeakingId] = useState(null);
   const [speechError, setSpeechError] = useState("");
+  const [offline, setOffline] = useState(false);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const bottomRef = useRef(null);
   const autoSpokenRef = useRef(new Set());
+  // Read when a recording stops, which happens in a callback created earlier.
+  const draftRef = useRef({ input, selectedImage });
+  draftRef.current = { input, selectedImage };
 
-  // Keep the newest turn in view as answers stream in.
+  // Keep the newest turn in view as answers arrive.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [responses, loading]);
+    if (screen === "chat") bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [responses, loading, screen]);
+
+  // An earlier question opened from the home screen.
+  useEffect(() => {
+    if (focusId && screen === "chat") {
+      document.getElementById(`turn-${focusId}`)?.scrollIntoView({ block: "start" });
+    }
+  }, [focusId, screen]);
+
+  useEffect(() => {
+    const back = () => setOffline(false);
+    window.addEventListener("online", back);
+    return () => window.removeEventListener("online", back);
+  }, []);
 
   const readAloud = useCallback(async (turn) => {
     setSpeechError("");
@@ -102,8 +255,7 @@ function Main() {
   };
 
   // An answer to a spoken question is read back without being asked. A farmer
-  // who recorded their question rather than typing it is usually not reading
-  // the reply either. Tracked by id so a re-render never replays an answer.
+  // who recorded their question is usually not reading the reply either.
   useEffect(() => {
     const turn = responses.find(
       (t) => t.spoken && !t.pending && !t.failed && !autoSpokenRef.current.has(t.id)
@@ -113,11 +265,23 @@ function Main() {
     readAloud(turn);
   }, [responses, readAloud]);
 
-  // Silence anything still playing when the farmer leaves the page.
   useEffect(() => () => stopSpeaking(), []);
 
-  const clearSelectedImage = () => setSelectedImage(null);
-  const clearSelectedAudio = () => setSelectedAudio(null);
+  /** Send, unless there is plainly no connection to send it over. */
+  const submit = useCallback(
+    async ({ text, image, audio }) => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        // Not sent, and said so - rather than a spinner that never resolves.
+        setOffline(true);
+        if (image) setSelectedImage(image);
+        if (audio) setSelectedAudio(audio);
+        return;
+      }
+      setOffline(false);
+      await send({ text, image, audio });
+    },
+    [send]
+  );
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -126,7 +290,12 @@ function Main() {
     e.target.value = "";
   };
 
-  const handleAudioRecord = async () => {
+  /**
+   * Tap to start, tap again to send. Stopping sends straight away, with
+   * whatever was typed or attached alongside: for a farmer who speaks rather
+   * than types, finding a second button after speaking is one step too many.
+   */
+  const toggleRecording = async () => {
     if (isRecording) {
       mediaRecorderRef.current?.stop();
       setIsRecording(false);
@@ -138,28 +307,27 @@ function Main() {
       const recorder = new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
-
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
-        setSelectedAudio(new Blob(audioChunksRef.current, { type: "audio/webm" }));
         stream.getTracks().forEach((track) => track.stop());
+        const audio = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const { input: text, selectedImage: image } = draftRef.current;
+        setSelectedImage(null);
+        if (audio.size > 0) submit({ text, image, audio });
       };
       recorder.start();
       setIsRecording(true);
     } catch (err) {
-      // A denied microphone used to fail silently to the console, so the button
-      // simply did nothing and the farmer had no idea why.
       console.error("Error accessing microphone:", err);
       setMicError("Microphone unavailable. Check the browser's permission for this site.");
     }
   };
 
   const handleSend = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (isRecording) {
-      // Sending while still recording would attach nothing. Stop first.
       mediaRecorderRef.current?.stop();
       setIsRecording(false);
       return;
@@ -168,294 +336,286 @@ function Main() {
     const audio = selectedAudio;
     setSelectedImage(null);
     setSelectedAudio(null);
-    await send({ text: input, image, audio });
+    await submit({ text: input, image, audio });
   };
 
   const canSend = Boolean(input.trim() || selectedImage || selectedAudio);
 
-  return (
-    <div className="flex-grow min-h-0 w-full flex flex-col overflow-hidden">
-      <div className="flex-grow flex flex-col relative overflow-hidden">
-        <div className="flex w-full flex-grow flex-col items-center overflow-y-auto bg-white p-4">
-          {!dataSent ? (
-            <div className="w-full flex-grow flex flex-col justify-center">
-              <div className="mx-auto w-full max-w-[900px]">
-                <p className="text-center text-xl text-soil-900">
-                  Ask about your crop — type it, speak it, or send a photo.
-                </p>
-                {/* Was text-gray-400: 3.66:1 on white, which is legible at a
-                    desk and gone in a field. soil-500 is the lightest tone the
-                    design system allows to carry text. */}
-                <p className="mx-auto mt-3 max-w-[46ch] text-center text-sm text-soil-500">
-                  Answers come back in the language you asked in, with doses taken
-                  from the CIB&amp;RC register rather than invented.
-                </p>
+  if (screen === "home" && user && responses.length > 0) {
+    return (
+      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto bg-white">
+        <Home />
+      </div>
+    );
+  }
 
-                {/* Horizontally scrolled on a phone rather than stacked, so the
-                    fact that there are four different scripts is visible in the
-                    first screenful instead of below the fold. */}
-                <div className="scrollbar-hide -mx-4 mt-8 flex gap-3 overflow-x-auto px-4 pb-2 sm:mt-10 md:mx-0 md:grid md:grid-cols-4 md:gap-4 md:px-0">
-                  {SUGGESTIONS.map(({ text, note }) => (
-                    <Card
-                      key={text}
-                      text={text}
-                      note={note}
-                      onClick={() => send({ text })}
-                    />
-                  ))}
+  const smsLine = SMS_NUMBER
+    ? `No smartphone? Text your question to ${SMS_NUMBER}.`
+    : "No smartphone? AnnaData also answers by SMS.";
+
+  const notices = (
+    <>
+      {offline && (
+        <div className="mx-auto mb-2 w-full max-w-[750px] rounded-xl border-[1.5px] border-dashed border-soil-600 px-4 py-3" role="alert">
+          <div className="text-sm font-bold text-soil-900">No internet connection</div>
+          <div className="text-sm text-soil-700">
+            Your question has not been sent.{" "}
+            {SMS_NUMBER ? `Text it to ${SMS_NUMBER} instead — SMS works without internet.` : "SMS works without internet."}
+          </div>
+        </div>
+      )}
+      <MediaPreview
+        selectedImage={selectedImage}
+        selectedAudio={selectedAudio}
+        clearSelectedImage={() => setSelectedImage(null)}
+        clearSelectedAudio={() => setSelectedAudio(null)}
+      />
+      {isRecording && (
+        <p className="mb-2 text-center text-sm font-semibold text-red-700">
+          Listening… tap the microphone again to send.
+        </p>
+      )}
+      {micError && <p className="mb-2 text-center text-sm text-red-700">{micError}</p>}
+      {speechError && <p className="mb-2 text-center text-sm text-grain-700">{speechError}</p>}
+    </>
+  );
+
+  const photoButton = (size) => (
+    <label
+      htmlFor="image-upload"
+      title="Add a photo of the crop"
+      className={`grid ${size} shrink-0 cursor-pointer place-items-center rounded-xl border-[1.5px] border-soil-400 bg-white text-soil-900 hover:bg-soil-50 focus-within:ring-2 focus-within:ring-leaf-600`}
+    >
+      <CameraIcon />
+      <span className="sr-only">Add a photo of the crop</span>
+      <input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="sr-only" />
+    </label>
+  );
+
+  if (screen === "ask") {
+    return (
+      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto bg-white">
+        <div className="mx-auto flex w-full max-w-[30rem] flex-grow flex-col gap-4 px-5 pb-5 pt-6">
+          <h1 className="text-2xl font-bold leading-tight text-soil-900">What is happening in your field?</h1>
+          <p className="text-base text-soil-700">
+            Ask in your own words — Hindi, Hinglish, Bengali, Punjabi or English. Free, and no sign-up needed to ask.
+          </p>
+          <div className="flex flex-col gap-2">
+            <div className="text-sm font-semibold text-soil-700">For example</div>
+            {EXAMPLES.map((text) => (
+              <button
+                key={text}
+                type="button"
+                onClick={() => submit({ text })}
+                className="flex min-h-[48px] items-center rounded-[10px] border-[1.5px] border-soil-400 px-3.5 py-2.5 text-left text-sm text-soil-900 transition-colors hover:border-leaf-500 hover:bg-leaf-50"
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+
+          <div className="min-h-4 flex-grow" />
+
+          <div className="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleRecording}
+              aria-label={isRecording ? "Stop and send" : "Speak your question"}
+              aria-pressed={isRecording}
+              className={`grid h-20 w-20 place-items-center rounded-full text-white shadow-lift transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 ${
+                isRecording ? "animate-pulse bg-red-600 focus-visible:ring-red-300" : "bg-leaf-600 hover:bg-leaf-700 focus-visible:ring-leaf-200"
+              }`}
+            >
+              {isRecording ? <StopIcon size={30} /> : <MicIcon size={34} />}
+            </button>
+            <div className="text-sm font-semibold text-soil-900">{isRecording ? "Tap to send" : "Tap to speak"}</div>
+          </div>
+
+          <div className="chat-composer">
+            {notices}
+            <form onSubmit={handleSend} className="flex items-end gap-2">
+              {photoButton("h-[52px] w-[52px]")}
+              <label htmlFor="q" className="sr-only">
+                Your question
+              </label>
+              <textarea
+                id="q"
+                rows={1}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) handleSend(e);
+                }}
+                placeholder="Or type your question…"
+                className="min-h-[52px] min-w-0 flex-1 resize-none rounded-xl border-[1.5px] border-soil-400 px-3.5 py-3 text-base text-soil-900 outline-none placeholder:text-soil-500 focus:border-leaf-600 focus:ring-2 focus:ring-leaf-100"
+              />
+              <button
+                type="submit"
+                disabled={loading || !canSend}
+                aria-label="Send"
+                className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-xl bg-soil-900 text-white transition-colors hover:bg-soil-800 disabled:bg-soil-300"
+              >
+                <SendIcon />
+              </button>
+            </form>
+          </div>
+          <p className="text-center text-xs text-soil-600">{smsLine}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 w-full flex-grow flex-col overflow-hidden">
+      <div className="flex flex-grow flex-col items-center overflow-y-auto bg-white px-4 py-4">
+        <div className="flex w-full max-w-[42rem] flex-col gap-4">
+          {thread.map((turn) => {
+            const kind = kindOf(turn);
+            return (
+              <div key={turn.id} id={`turn-${turn.id}`} className="response-item flex flex-col gap-3">
+                {/* The farmer's words, on the right, in their own script. */}
+                <div className="flex max-w-[80%] flex-col gap-2 self-end rounded-[14px] rounded-br-[4px] bg-soil-100 px-3.5 py-2.5 text-base text-soil-900">
+                  {turn.mediaFile && <SentMedia file={turn.mediaFile} kind={turn.mediaKind} />}
+                  {turn.prompt && <p>{turn.prompt}</p>}
+                  {/* What the microphone heard, so a misheard word is visible
+                      rather than buried in an answer that reads as odd. */}
+                  {turn.transcript && (
+                    <p className="text-soil-700">
+                      <span className="mr-2 text-xs uppercase tracking-wide text-soil-600">heard</span>
+                      {turn.transcript}
+                    </p>
+                  )}
                 </div>
+
+                {turn.pending ? (
+                  <Pending startedAt={turn.startedAt} />
+                ) : turn.needsSignIn ? (
+                  <div className="rounded-[14px] border-[1.5px] border-grain-300 bg-grain-50 p-4 text-base text-soil-900">
+                    {turn.response}
+                  </div>
+                ) : turn.failed ? (
+                  <div className="rounded-[14px] border-[1.5px] border-red-200 bg-red-50 p-4 text-base text-red-800" role="alert">
+                    {turn.response}
+                  </div>
+                ) : (
+                  <div className={`flex min-w-0 flex-col gap-2.5 rounded-[14px] p-4 ${CARD[kind]}`}>
+                    {(BADGES[kind] || isSpeechSupported()) && (
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge kind={kind} />
+                        {isSpeechSupported() && (
+                          <button
+                            type="button"
+                            onClick={() => (speakingId === turn.id ? hush() : readAloud(turn))}
+                            aria-label={speakingId === turn.id ? "Stop reading the answer" : "Listen to this answer"}
+                            className="ml-auto inline-flex min-h-touch min-w-touch items-center gap-1.5 rounded-[10px] border-[1.5px] border-soil-400 bg-white px-2.5 text-sm font-semibold text-soil-900 hover:bg-soil-50"
+                          >
+                            {speakingId === turn.id ? <StopIcon size={16} /> : <SpeakerIcon />}
+                            {speakingId === turn.id ? "Stop" : "Listen"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {turn.vision && (
+                      <p className="text-sm text-soil-700">
+                        <span className="font-semibold text-soil-900">From the photo: </span>
+                        {[
+                          turn.vision.crop !== "unknown" && turn.vision.crop,
+                          turn.vision.stage !== "unknown" && turn.vision.stage,
+                          turn.vision.pest !== "unknown" && `${turn.vision.pest} (${turn.vision.confidence} confidence)`,
+                          turn.vision.severity !== "unknown" && turn.vision.severity,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "nothing identifiable"}
+                      </p>
+                    )}
+                    <Answer markdown={turn.response} doseStatus={turn.doseStatus} />
+                    <Sources tools={turn.toolsUsed} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* A guest is offered the way to save; a farmer who confirmed their
+              number but left the profile halfway is offered the rest. */}
+          {latestAnswered && !user && (limited || !saveDismissed) && (
+            <div className="flex flex-col gap-2.5 rounded-xl bg-soil-50 p-4">
+              <h2 className="text-base font-bold text-soil-900">
+                {limited ? "Confirm your number to keep asking" : "Get answers for your own farm"}
+              </h2>
+              <p className="text-sm text-soil-700">
+                Confirm your number once, then tell us your district and crops. Your questions stay saved too.
+              </p>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => openFlow("save")} className={`${primaryButton} !min-h-touch flex-1 !text-base`}>
+                  Add farm details
+                </button>
+                {!limited && (
+                  <button type="button" onClick={() => setSaveDismissed(true)} className={`${textButton} px-3`}>
+                    Not now
+                  </button>
+                )}
               </div>
             </div>
-          ) : (
-            <div className="result flex-grow w-full flex flex-col items-center">
-              {responses.map((turn) => (
-                <div key={turn.id} className="response-item mb-6 w-full max-w-[800px]">
-                  <div className="flex items-start gap-2 mb-2">
-                    {/* The farmer.
-                        This was a 556 KB PNG of a robot - the template's stock
-                        avatar, standing in for the person asking the question.
-                        In a product whose whole posture is that the farmer
-                        knows their field and the system merely looks things up,
-                        drawing the farmer as a machine was the wrong way round.
-                        An inline glyph costs no request at all. */}
-                    <div
-                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-soil-100 text-soil-600"
-                      aria-hidden="true"
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="h-6 w-6"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <circle cx="12" cy="8.5" r="3.5" />
-                        <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
-                      </svg>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      {turn.mediaFile && (
-                        <SentMedia file={turn.mediaFile} kind={turn.mediaKind} />
-                      )}
-                      {turn.prompt && (
-                        <p className="text-xl font-semibold">{turn.prompt}</p>
-                      )}
-                      {/* What the microphone actually heard, in the farmer's own
-                          script - so a misheard word is visible rather than
-                          buried in an answer that reads as slightly wrong. */}
-                      {turn.transcript && (
-                        <p className="text-lg text-soil-700">
-                          <span className="mr-2 text-xs uppercase tracking-wide text-soil-500">
-                            heard
-                          </span>
-                          {turn.transcript}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {turn.vision && (
-                    <div className="mb-2 ml-12 rounded-lg border border-leaf-200 bg-leaf-50 px-3 py-2 text-sm text-leaf-800">
-                      <span className="font-semibold">From the photo: </span>
-                      {[
-                        turn.vision.crop !== "unknown" && turn.vision.crop,
-                        turn.vision.stage !== "unknown" && turn.vision.stage,
-                        turn.vision.pest !== "unknown" &&
-                          `${turn.vision.pest} (${turn.vision.confidence} confidence)`,
-                        turn.vision.severity !== "unknown" && turn.vision.severity,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || "nothing identifiable"}
-                    </div>
-                  )}
-
-                  <div className="result-data flex items-start gap-2">
-                    {/* Placeholder for the mascot, once there is one. Until
-                        then the letter अ, which is where "Annadata" starts in
-                        the script most of these farmers write in. */}
-                    <div
-                      className="grid h-9 w-9 shrink-0 select-none place-items-center rounded-full bg-leaf-600 text-sm font-bold text-white"
-                      aria-hidden="true"
-                    >
-                      अ
-                    </div>
-                    <div
-                      className={`min-w-0 flex-grow rounded-card border p-4 ${
-                        turn.needsSignIn
-                          ? "border-grain-200 bg-grain-50 text-soil-800"
-                          : `border-soil-200 bg-soil-50 ${turn.failed ? "text-red-700" : ""}`
-                      }`}
-                    >
-                      {turn.pending ? (
-                        // aria-live so a screen reader announces that the
-                        // answer is coming; the blades themselves are
-                        // decoration and are hidden from it.
-                        <div
-                          className="flex items-center gap-3"
-                          role="status"
-                          aria-live="polite"
-                        >
-                          <div className="thinking" aria-hidden="true">
-                            <span className="thinking-blade" />
-                            <span className="thinking-blade" />
-                            <span className="thinking-blade" />
-                            <span className="thinking-blade" />
-                            <span className="thinking-blade" />
-                          </div>
-                          <span className="text-sm text-soil-500">
-                            Finding the answer…
-                          </span>
-                        </div>
-                      ) : (
-                        <>
-                          <Answer
-                            markdown={turn.response}
-                            doseStatus={turn.doseStatus}
-                          />
-                          {!turn.failed && !turn.needsSignIn && <Sources tools={turn.toolsUsed} />}
-                          {isSpeechSupported() && !turn.failed && !turn.needsSignIn && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                speakingId === turn.id ? hush() : readAloud(turn)
-                              }
-                              // For a farmer who does not read, this button is
-                              // how the answer gets delivered at all. It is a
-                              // full-height target, not a text link.
-                              className="mt-3 inline-flex min-h-touch items-center gap-2 rounded-pill border border-leaf-200 bg-white px-4 text-sm font-medium text-leaf-700 transition-colors hover:bg-leaf-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600 focus-visible:ring-offset-2"
-                              aria-label={
-                                speakingId === turn.id
-                                  ? "Stop reading the answer"
-                                  : "Read the answer aloud"
-                              }
-                            >
-                              {speakingId === turn.id ? (
-                                <>
-                                  <FaRegStopCircle /> Stop
-                                </>
-                              ) : (
-                                <>
-                                  <FaVolumeUp /> Listen
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </>
-                      )}
-                      </div>
-                  </div>
-                </div>
-              ))}
-              {/* A guest is offered the way to save; a farmer who has just
-                  confirmed their number is asked the two short profile steps,
-                  in place, without leaving the conversation. */}
-              {latestAnsweredTurn && (
-                <div className="w-full max-w-[800px]">
-                  {!user && (limited || !saveDismissed) && (
-                    <SaveFarm limited={limited} onDismiss={() => setSaveDismissed(true)} />
-                  )}
-                  {user && needsOnboarding && (
-                    <Onboarding key={user.user_id} embedded />
-                  )}
-                </div>
-              )}
-              <div ref={bottomRef} />
+          )}
+          {latestAnswered && user && needsOnboarding && !saveDismissed && (
+            <div className="flex flex-col gap-2.5 rounded-xl bg-soil-50 p-4">
+              <h2 className="text-base font-bold text-soil-900">Finish your farm details</h2>
+              <p className="text-sm text-soil-700">Add your district and crops so answers fit your own field.</p>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => openFlow("profile")} className={`${primaryButton} !min-h-touch flex-1 !text-base`}>
+                  Add farm details
+                </button>
+                <button type="button" onClick={() => setSaveDismissed(true)} className={`${textButton} px-3`}>
+                  Not now
+                </button>
+              </div>
             </div>
           )}
+          <div ref={bottomRef} />
         </div>
       </div>
 
-      {/* Input area */}
-      <div className="chat-composer shrink-0 border-t border-soil-200 bg-white px-3 pt-2 sm:px-4">
-        <MediaPreview
-          selectedImage={selectedImage}
-          selectedAudio={selectedAudio}
-          clearSelectedImage={clearSelectedImage}
-          clearSelectedAudio={clearSelectedAudio}
-        />
-        {isRecording && (
-          <p className="mt-2 text-center text-sm text-red-700">
-            Recording… press the microphone again to stop.
-          </p>
-        )}
-        {micError && <p className="mt-2 text-center text-sm text-red-700">{micError}</p>}
-        {speechError && (
-          <p className="mt-2 text-center text-sm text-grain-700">{speechError}</p>
-        )}
-        {/*
-          Every control here was a bare react-icon at the text's own size -
-          around 17px of tappable area on a touchscreen, sitting inside a
-          low-contrast grey pill. The handlers are untouched; the targets are
-          not.
-
-          The microphone is the largest thing on the bar, at 56px, and it is the
-          only one that carries a filled colour. For a farmer who does not read,
-          it is not one input among three - it is the way in. The camera is next
-          at 44px, because a photograph of a sick plant is the highest-intent
-          message this app receives. Send is last and smallest: it is the one
-          action a farmer can also reach by pressing enter.
-        */}
-        <form
-          onSubmit={handleSend}
-          className="mx-auto mt-2 flex w-full max-w-[750px] items-center gap-2 rounded-pill border border-soil-200 bg-white p-2 shadow-card focus-within:border-leaf-400 focus-within:ring-2 focus-within:ring-leaf-100"
-        >
+      {/* The follow-up row. The microphone stands in for Send until there is
+          something typed or attached, as in the wireframe. */}
+      <div className="chat-composer shrink-0 border-t border-soil-200 bg-white px-4 pb-3 pt-2">
+        {notices}
+        <form onSubmit={handleSend} className="mx-auto flex w-full max-w-[42rem] items-center gap-2">
+          {photoButton("h-12 w-12")}
+          <label htmlFor="followup" className="sr-only">
+            Ask a follow-up
+          </label>
           <input
+            id="followup"
             onChange={(e) => setInput(e.target.value)}
             value={input}
             type="text"
-            placeholder="Ask about your crop, in any language"
-            className="min-w-0 flex-grow bg-transparent px-3 text-base text-soil-800 outline-none placeholder:text-soil-400"
+            placeholder="Ask a follow-up…"
+            className="h-12 min-w-0 flex-1 rounded-xl border-[1.5px] border-soil-400 px-3.5 text-base text-soil-900 outline-none placeholder:text-soil-500 focus:border-leaf-600 focus:ring-2 focus:ring-leaf-100"
           />
-
-          <label
-            htmlFor="image-upload"
-            title="Send a photo of the crop"
-            className="grid h-touch w-touch shrink-0 cursor-pointer place-items-center rounded-full text-soil-600 transition-colors hover:bg-soil-100 hover:text-soil-800 focus-within:ring-2 focus-within:ring-leaf-500"
-          >
-            <FaImage className="h-5 w-5" />
-            <span className="sr-only">Send a photo of the crop</span>
-            <input
-              id="image-upload"
-              type="file"
-              accept="image/*"
-              onChange={handleImageChange}
-              className="sr-only"
-            />
-          </label>
-
-          <button
-            type="button"
-            onClick={handleAudioRecord}
-            aria-label={isRecording ? "Stop recording" : "Record a voice message"}
-            aria-pressed={isRecording}
-            className={`grid h-touch-lg w-touch-lg shrink-0 place-items-center rounded-full text-white shadow-card transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
-              isRecording
-                ? "animate-pulse bg-red-600 focus-visible:ring-red-600"
-                : "bg-leaf-600 hover:bg-leaf-700 focus-visible:ring-leaf-600"
-            }`}
-          >
-            {isRecording ? (
-              <FaStop className="h-5 w-5" />
-            ) : (
-              <FaMicrophone className="h-6 w-6" />
-            )}
-          </button>
-
-          <button
-            type="submit"
-            disabled={loading || !canSend}
-            aria-label="Send"
-            className="grid h-touch w-touch shrink-0 place-items-center rounded-full text-soil-600 transition-colors hover:bg-soil-100 hover:text-soil-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 disabled:pointer-events-none disabled:text-soil-300"
-          >
-            <IoMdSend className="h-6 w-6" />
-          </button>
+          {canSend && !isRecording ? (
+            <button
+              type="submit"
+              disabled={loading}
+              aria-label="Send"
+              className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-soil-900 text-white hover:bg-soil-800 disabled:bg-soil-300"
+            >
+              <SendIcon />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={toggleRecording}
+              aria-label={isRecording ? "Stop and send" : "Speak a follow-up"}
+              aria-pressed={isRecording}
+              className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl text-white ${
+                isRecording ? "animate-pulse bg-red-600" : "bg-leaf-600 hover:bg-leaf-700"
+              }`}
+            >
+              {isRecording ? <StopIcon size={20} /> : <MicIcon size={22} />}
+            </button>
+          )}
         </form>
-
-        {/* A farmer's thumb rests at the bottom of the screen; the bar should
-            not sit flush against the edge of it. Was a <br />. */}
-        <div className="h-4" />
       </div>
     </div>
   );

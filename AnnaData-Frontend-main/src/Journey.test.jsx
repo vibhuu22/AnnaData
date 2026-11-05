@@ -20,14 +20,15 @@ beforeEach(() => {
   resetGuestId();
   // What the backend's claim_guest leaves behind: the crop the guest asked
   // about is on the account by the time verify answers.
-  account = { user_id: '+919999000099', crops: ['wheat'], onboarded_at: null };
+  account = { user_id: '+919999000099', phone: '+919999000099', crops: ['cotton'], onboarded_at: null };
   messages = [];
-  agentBody = { answer: 'This is a simulated advisory answer.', tools_used: [] };
+  agentBody = { answer: 'This is a simulated advisory answer.', tools_used: ['doses'], dose_status: 'available' };
   agentStatus = 200;
   agentHeaders = [];
   verifyBody = null;
   profileBodies = [];
   Element.prototype.scrollIntoView = jest.fn();
+  window.scrollTo = jest.fn();
   global.fetch = jest.fn(async (url, options = {}) => {
     const path = new URL(url).pathname;
     const body = options.body ? JSON.parse(options.body) : {};
@@ -37,7 +38,7 @@ beforeEach(() => {
     if (path === '/auth/verify') {
       verifyBody = body;
       return body.code === '123456'
-        ? response({ token: 'test-session', user: account, needs_onboarding: true })
+        ? response({ token: 'test-session', user: account, needs_onboarding: !account.onboarded_at })
         : response({ detail: 'That code is wrong' }, 401);
     }
     if (path === '/auth/me') return response({ user: account, needs_onboarding: !account.onboarded_at });
@@ -45,12 +46,17 @@ beforeEach(() => {
     if (path === '/agent') {
       agentHeaders.push(options.headers || {});
       if (agentStatus !== 200) return response(agentBody, agentStatus);
-      if (agentBody.answer) messages.push({ direction: 'inbound', body: body.query }, { direction: 'outbound', body: agentBody.answer });
+      if (agentBody.answer) {
+        messages.push(
+          { direction: 'inbound', body: body.query, at: '2026-11-05T05:00:00Z' },
+          { direction: 'outbound', body: agentBody.answer, meta: { tools: agentBody.tools_used, dose_status: agentBody.dose_status } },
+        );
+      }
       return response(agentBody);
     }
     if (path === '/profile') {
       profileBodies.push(body);
-      account = { ...account, ...body, onboarded_at: '2026-11-05T00:00:00Z' };
+      account = { ...account, ...Object.fromEntries(Object.entries(body).filter(([, v]) => v !== null)), onboarded_at: '2026-11-05T00:00:00Z' };
       return response({ saved: true, user: account });
     }
     if (path === '/auth/signout') return response({ signed_out: true });
@@ -60,52 +66,50 @@ beforeEach(() => {
 });
 afterEach(() => { clearToken(); delete global.fetch; });
 
-const composer = () => screen.getByPlaceholderText('Ask about your crop, in any language');
-function ask(text = 'Mere gehun me peela rog') {
-  fireEvent.change(composer(), { target: { value: text } });
+function ask(text = 'Kapas me sundi lag gayi hai') {
+  const box = screen.queryByLabelText('Ask a follow-up') || screen.getByLabelText('Your question');
+  fireEvent.change(box, { target: { value: text } });
   fireEvent.click(screen.getByRole('button', { name: 'Send', exact: true }));
 }
-async function confirmNumber(within_ = screen) {
-  fireEvent.change(within_.getByPlaceholderText('98765 43210'), { target: { value: '9999000099' } });
-  fireEvent.click(within_.getByRole('button', { name: 'Send me a code' }));
-  fireEvent.change(await screen.findByLabelText('Enter the code'), { target: { value: '123456' } });
+async function confirmNumber(finish) {
+  fireEvent.change(screen.getByPlaceholderText('98765 43210'), { target: { value: '9999000099' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+  fireEvent.change(await screen.findByLabelText('6-digit code'), { target: { value: '123456' } });
+  fireEvent.click(screen.getByRole('button', { name: finish }));
 }
 
-test('a guest asks, saves their farm in two steps, reloads, and signs out', async () => {
+test('a guest asks, saves their farm in two steps, comes back, and signs out', async () => {
   const view = mount();
-  // The conversation is there at once - no number asked for.
-  expect(composer()).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Send me a code' })).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'What is happening in your field?' })).toBeInTheDocument();
 
   ask();
   await screen.findByText('This is a simulated advisory answer.');
-  // Asked as a guest: a browser id, no token.
+  expect(screen.getByText('Approved dose')).toBeInTheDocument();
   expect(agentHeaders[0]['X-Guest-Id']).toMatch(/^[0-9a-f-]{36}$/);
   expect(agentHeaders[0].Authorization).toBeUndefined();
   const guestId = agentHeaders[0]['X-Guest-Id'];
 
   fireEvent.click(screen.getByRole('button', { name: 'Add farm details' }));
-  const save = screen.getByRole('region', { name: 'Save your farm' });
-  await confirmNumber(within(save));
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+  await confirmNumber('Verify and continue');
 
-  // Step one. The guest id went with the code, so the backend can move the
+  // About you. The guest id went with the code, so the backend can move the
   // question onto this number.
-  await screen.findByRole('region', { name: 'About you' });
+  await screen.findByRole('heading', { name: 'About you' });
   expect(verifyBody).toEqual({ phone: '9999000099', code: '123456', guest_id: guestId });
   expect(getToken()).toBe('test-session');
   fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Test Farmer' } });
   fireEvent.click(screen.getByRole('button', { name: 'Next: your farm' }));
 
-  // Step two, with the crop from the question already marked.
-  await screen.findByRole('region', { name: 'Your farm' });
-  expect(screen.getByRole('button', { name: 'wheat' })).toHaveAttribute('aria-pressed', 'true');
-  fireEvent.change(screen.getByLabelText('Your district'), { target: { value: 'Karnal' } });
+  // Your farm, with the crop from the question already marked.
+  await screen.findByRole('heading', { name: 'Your farm' });
+  expect(screen.getByRole('button', { name: 'Cotton' })).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.change(screen.getByLabelText('District'), { target: { value: 'Karnal' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save farm details' }));
+
+  // Back in the conversation, which was only hidden.
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Your farm' })).not.toBeInTheDocument());
   expect(profileBodies[0]).toMatchObject({ name: 'Test Farmer' });
-  expect(profileBodies[1]).toMatchObject({ district: 'Karnal', crops: ['wheat'] });
-  // The answer they came for is still on screen.
+  expect(profileBodies[1]).toMatchObject({ district: 'Karnal', crops: ['cotton'] });
   expect(screen.getByText('This is a simulated advisory answer.')).toBeInTheDocument();
 
   // Now asking as themselves.
@@ -114,14 +118,17 @@ test('a guest asks, saves their farm in two steps, reloads, and signs out', asyn
   expect(agentHeaders[1].Authorization).toBe('Bearer test-session');
   expect(agentHeaders[1]['X-Guest-Id']).toBeUndefined();
 
+  // Coming back later: the home screen, by name, with what they asked.
   view.unmount();
   mount();
-  await screen.findAllByText('This is a simulated advisory answer.');
-  expect(screen.queryByRole('region', { name: 'About you' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Add farm details' })).not.toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Welcome back, Test' })).toBeInTheDocument();
+  expect(screen.getByText(/Karnal · Cotton/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /Kapas me sundi/ }));
+  expect(await screen.findAllByText('This is a simulated advisory answer.')).not.toHaveLength(0);
 
-  fireEvent.click(screen.getByRole('button', { name: /sign out/i }));
-  await screen.findByRole('button', { name: 'Sign in' });
+  fireEvent.click(screen.getByRole('button', { name: 'AnnaData — home' }));
+  fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Sign out' }));
+  await screen.findByRole('heading', { name: 'What is happening in your field?' });
   expect(getToken()).toBe('');
   expect(screen.queryByText('This is a simulated advisory answer.')).not.toBeInTheDocument();
 });
@@ -137,15 +144,15 @@ test('a guest at the limit is invited to confirm their number, not shown an erro
   expect(screen.queryByRole('button', { name: 'Not now' })).not.toBeInTheDocument();
 });
 
-test('a returning farmer signs in from the header', async () => {
+test('a returning farmer signs in from the header and lands on their home screen', async () => {
   account = { ...account, onboarded_at: '2026-10-01T00:00:00Z', name: 'Ramesh' };
-  messages = [{ direction: 'inbound', body: 'Old question' }, { direction: 'outbound', body: 'Old answer' }];
+  messages = [{ direction: 'inbound', body: 'Old question', at: '2026-10-20T05:00:00Z' }, { direction: 'outbound', body: 'Old answer' }];
   mount();
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-  await confirmNumber();
-  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-  await screen.findByText('Old answer');
-  expect(composer()).toBeInTheDocument();
+  await confirmNumber('Sign in');
+  expect(await screen.findByRole('heading', { name: 'Welcome back, Ramesh' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Ask a new question' }));
+  expect(screen.getByRole('heading', { name: 'What is happening in your field?' })).toBeInTheDocument();
 });
 
 test('an empty API answer does not offer saving', async () => {

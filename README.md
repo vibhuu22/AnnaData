@@ -426,6 +426,10 @@ in the file. Set these by hand to the **public** hosts:
 | `annadata-backend` | `AUTH_SECRET`, `BRIDGE_TOKEN`, `SMS_GATEWAY_USER`, `SMS_GATEWAY_PASSWORD` | restart |
 | `annadata-sms` | `AI_ENDPOINT` = `https://<backend>/agent`, `PUBLIC_URL`, `BRIDGE_TOKEN` | restart |
 | `annadata-frontend` | `REACT_APP_API_URL` = `https://<backend>` | **redeploy** |
+| `annadata-frontend` | `REACT_APP_SMS_NUMBER` = the gateway's number, as farmers should see it (optional) | **redeploy** |
+
+Without `REACT_APP_SMS_NUMBER` the web app says that AnnaData answers by SMS
+but names no number to text.
 
 The frontend needs a full redeploy, not a restart: CRA inlines env vars at build
 time. `BRIDGE_TOKEN` must be the *same* value on the backend and the bridge, and

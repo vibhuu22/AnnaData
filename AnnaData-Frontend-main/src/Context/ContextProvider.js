@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ask } from "../Config/Gemini";
 import { fetchHistory } from "../Config/session";
 import { Auth } from "./AuthProvider";
@@ -91,15 +91,46 @@ const ContextProvider = (props) => {
   const [loading, setLoading] = useState(false);
   const [resultData, setResultData] = useState("");
   const [responses, setResponses] = useState([]);
-  const [dataSent, setDataSent] = useState(false);
+  /*
+   * Which of three screens the conversation is on:
+   *   ask   the empty "What is happening in your field?" screen
+   *   chat  a conversation
+   *   home  a returning farmer's welcome: their farm, earlier questions
+   *
+   * `threadStart` is where the conversation on screen begins. "Ask a new
+   * question" moves it to the end rather than throwing the earlier turns away,
+   * so they stay listed on the home screen, and so the agent is not handed a
+   * month-old conversation as context for a new question.
+   */
+  const [screen, setScreen] = useState("ask");
+  const [threadStart, setThreadStart] = useState(0);
+  const screenRef = useRef(screen);
+  const threadRef = useRef(threadStart);
+  const responsesRef = useRef(responses);
+  screenRef.current = screen;
+  threadRef.current = threadStart;
+  responsesRef.current = responses;
 
-  const resetChat = () => {
-    setResponses([]);
-    setDataSent(false);
+  const startNewQuestion = useCallback(() => {
+    setThreadStart(responsesRef.current.length);
+    setScreen("ask");
     setShowResult(false);
     setResultData("");
     setRecentPrompt("");
-  };
+  }, []);
+
+  /** Open the conversation with every past turn, scrolled to this one. */
+  const [focusId, setFocusId] = useState(null);
+  const openTurn = useCallback((id) => {
+    setThreadStart(0);
+    setScreen("chat");
+    setFocusId(id);
+  }, []);
+
+  const goHome = useCallback(() => setScreen("home"), []);
+
+  // Kept for the sidebar's "New chat", which used to wipe the conversation.
+  const resetChat = startNewQuestion;
 
   /**
    * Load this farmer's past conversation, or throw it away when they sign out.
@@ -116,7 +147,8 @@ const ContextProvider = (props) => {
       // A guest, or a farmer who just signed out. A sign-out must not leave
       // the previous farmer's conversation on a shared phone.
       setResponses([]);
-      setDataSent(false);
+      setThreadStart(0);
+      setScreen("ask");
       setHistoryLoaded(true);
       return undefined;
     }
@@ -133,10 +165,19 @@ const ContextProvider = (props) => {
         // them), keep what is on screen rather than blanking the conversation
         // the farmer is in the middle of.
         if (turns.length === 0) return;
-        setResponses(turns);
-        // Straight to the conversation when there is one; a returning farmer
-        // should see what they asked last time, not the empty landing screen.
-        setDataSent(turns.length > 0);
+        if (screenRef.current === "chat") {
+          // Signed in from the middle of a conversation (the guest's save
+          // flow). Stay in it, showing the same turns as before - which are
+          // now the last ones in the stored history.
+          const onScreen = responsesRef.current.length - threadRef.current;
+          setResponses(turns);
+          setThreadStart(Math.max(0, turns.length - onScreen));
+        } else {
+          // A returning farmer: welcome them, with what they asked before.
+          setResponses(turns);
+          setThreadStart(turns.length);
+          setScreen("home");
+        }
       } catch (e) {
         // History is a convenience. Failing to load it must not stop a farmer
         // asking a new question, so this is a warning and not an error state.
@@ -166,16 +207,17 @@ const ContextProvider = (props) => {
     // by which time the farmer may have sent another message and shifted every
     // index after this one.
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setResponses((prev) => [...prev, { ...newTurn({ text: trimmed, image, audio }), id }]);
+    setResponses((prev) => [...prev, { ...newTurn({ text: trimmed, image, audio }), id, startedAt: Date.now() }]);
 
     const history = responses
+      .slice(threadStart)
       .filter((item) => item.response && !item.failed && !item.needsSignIn)
       .flatMap((item) => [
         { role: "user", content: item.transcript || item.prompt },
         { role: "assistant", content: item.response },
       ]);
 
-    setDataSent(true);
+    setScreen("chat");
     setLoading(true);
     setShowResult(true);
     setRecentPrompt(trimmed);
@@ -208,7 +250,7 @@ const ContextProvider = (props) => {
     );
     setResultData(result.answer);
     setLoading(false);
-  }, [responses]);
+  }, [responses, threadStart]);
 
   /** Text-only send, for the callers that still pass through `input`. */
   const onSent = useCallback(() => send({ text: input }), [send, input]);
@@ -229,8 +271,15 @@ const ContextProvider = (props) => {
     input,
     setInput,
     resetChat,
-    dataSent,
-    setDataSent,
+    // The turns of the conversation on screen.
+    thread: responses.slice(threadStart),
+    screen,
+    setScreen,
+    startNewQuestion,
+    openTurn,
+    goHome,
+    focusId,
+    dataSent: screen !== "ask",
     historyLoaded,
   };
 
