@@ -1,23 +1,34 @@
 import { getApiUrl } from "./api";
 import { askHeaders, getToken, reportUnauthorized } from "./session";
 
-const GEOLOCATION_TIMEOUT_MS = 8000;
+const GEOLOCATION_TIMEOUT_MS = 3000;
 
 /**
- * Ask the browser for coordinates. Resolves to null rather than rejecting, so a
- * denied or unavailable location never blocks the request - the backend simply
- * answers without location context.
+ * The phone's coordinates, if the farmer has already allowed it. Resolves to
+ * null rather than rejecting, so location never blocks a question - the
+ * backend answers without it and asks for a district, which the web shows
+ * under the answer with a "Use my location" button.
+ *
+ * Never PROMPTS from here. This used to ask on every question and wait up to
+ * eight seconds for the farmer to answer the permission dialog, so the first
+ * question from a new visitor sat behind a popup they had not expected. Where
+ * permission is already granted the position comes back at once from the
+ * browser's cache.
  */
 async function getCoordinates() {
-  if (!("geolocation" in navigator)) {
-    console.warn("Geolocation is not supported by this browser.");
-    return null;
+  if (!("geolocation" in navigator)) return null;
+  try {
+    if (navigator.permissions?.query) {
+      const status = await navigator.permissions.query({ name: "geolocation" });
+      if (status.state !== "granted") return null;
+    }
+  } catch (e) {
+    /* no Permissions API: try, briefly */
   }
-
   try {
     const position = await new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
+        enableHighAccuracy: false,
         timeout: GEOLOCATION_TIMEOUT_MS,
         maximumAge: 300000,
       });
@@ -154,6 +165,11 @@ export async function ask({ text = "", history = [], image = null, audio = null 
       // came back empty. null on a backend too old to send it, and the answer
       // surface falls back to reading the prose.
       doseStatus: data.dose_status || null,
+      // What the answer still needs from the farmer, exactly as SMS gets it:
+      // the bridge turns these into "Reply with your crop name..." on the
+      // end of the text; the web shows the same ask under the answer.
+      missingSlots: data.missing_slots || [],
+      needsLocation: Boolean(data.needs_location),
       // The backend decides this from the script the answer is actually in, so
       // the browser never has to guess which voice to read it with.
       replyLanguage: data.reply_language || "en-IN",

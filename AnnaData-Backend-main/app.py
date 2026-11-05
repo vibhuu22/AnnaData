@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -50,6 +50,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Read by the browser: the sample rate of streamed speech, and how long to
+    # wait after a 429.
+    expose_headers=["X-Sample-Rate", "Retry-After"],
 )
 
 
@@ -149,6 +152,12 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         latitude = profile.get("latitude")
         longitude = profile.get("longitude")
 
+    # The web app sends the turns on screen, which after opening an old
+    # conversation can be fifty of them. SMS gets the last CONTEXT_MESSAGES from
+    # the database; the web gets the same window, so both channels answer from
+    # the same amount of context - and a long thread cannot swell the prompt.
+    if history:
+        history = history[-config.CONTEXT_MESSAGES:]
     # The caller may pass history explicitly (the web app does); otherwise
     # rebuild it from what this farmer has sent before.
     if history is None and user_id:
@@ -504,6 +513,43 @@ def speak_endpoint(request: SpeakRequest,
     Spends model quota on every call, so it is guarded exactly as /agent is:
     the bridge, a signed-in farmer, or a guest within the speaking limits.
     """
+    _may_speak(http, authorization, x_bridge_token, x_guest_id, x_forwarded_for)
+    try:
+        audio = tts.speak(request.text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except tts.SpeechUnavailable:
+        raise HTTPException(status_code=503, detail="speech is unavailable just now")
+    return Response(content=audio, media_type="audio/wav",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.post("/speak/stream")
+def speak_stream_endpoint(request: SpeakRequest,
+                          http: Request,
+                          authorization: Optional[str] = Header(None),
+                          x_bridge_token: Optional[str] = Header(None),
+                          x_guest_id: Optional[str] = Header(None),
+                          x_forwarded_for: Optional[str] = Header(None)):
+    """The same piece, streamed as raw 16-bit mono PCM while it is made.
+
+    Speech starts when the first chunk arrives rather than when the whole
+    piece is finished. The sample rate is in X-Sample-Rate, because raw PCM
+    has no header to carry it.
+    """
+    _may_speak(http, authorization, x_bridge_token, x_guest_id, x_forwarded_for)
+    try:
+        rate, chunks = tts.stream(request.text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except tts.SpeechUnavailable:
+        raise HTTPException(status_code=503, detail="speech is unavailable just now")
+    return StreamingResponse(chunks, media_type="audio/l16",
+                             headers={"X-Sample-Rate": str(rate), "Cache-Control": "no-store"})
+
+
+def _may_speak(http, authorization, x_bridge_token, x_guest_id, x_forwarded_for):
+    """The bridge, a signed-in farmer, or a guest within the speaking limits."""
     if not (_is_bridge(x_bridge_token) or auth.read_token(_bearer(authorization))):
         guest = guest_access.guest_user_id(x_guest_id) if config.GUEST_ASK_ENABLED else None
         if guest:
@@ -514,15 +560,6 @@ def speak_endpoint(request: SpeakRequest,
                                     headers={"Retry-After": str(wait)})
         elif config.AUTH_REQUIRED:
             raise HTTPException(status_code=401, detail="sign in to hear answers")
-
-    try:
-        audio = tts.speak(request.text)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except tts.SpeechUnavailable:
-        raise HTTPException(status_code=503, detail="speech is unavailable just now")
-    return Response(content=audio, media_type="audio/wav",
-                    headers={"Cache-Control": "no-store"})
 
 
 @app.post("/agent")

@@ -54,8 +54,14 @@ function Sidebar() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [locationName, setLocationName] = useState("");
+  // Weather is only fetched once the farmer has said yes to location - never
+  // by springing the browser's permission dialog on page load, which on a
+  // phone (where this panel is hidden) arrived with no explanation at all.
+  const [askToLocate, setAskToLocate] = useState(false);
+  const [locateTick, setLocateTick] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchWeather = async (lat, lon) => {
       try {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,rain_sum,showers_sum,precipitation_probability_mean&forecast_days=7&timezone=Asia%2FKolkata`;
@@ -99,8 +105,7 @@ function Sidebar() {
       }
     };
 
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
+    const locate = () => navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
           fetchWeather(latitude, longitude);
@@ -112,11 +117,39 @@ function Sidebar() {
           console.error("Geolocation error:", err);
         }
       );
-    } else {
+
+    if (!navigator.geolocation) {
       setError("Geolocation is not supported by your browser.");
       setLoading(false);
+      return undefined;
     }
-  }, []);
+    (async () => {
+      // A tap on "Show weather for my area" is the farmer's yes.
+      if (locateTick > 0) {
+        setAskToLocate(false);
+        setLoading(true);
+        return locate();
+      }
+      try {
+        const status = await navigator.permissions?.query({ name: "geolocation" });
+        if (cancelled) return;
+        if (status && status.state !== "granted") {
+          setAskToLocate(true);
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        /* no Permissions API: ask on a tap rather than guess */
+        setAskToLocate(true);
+        setLoading(false);
+        return;
+      }
+      locate();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [locateTick]);
 
   const handleNewChat = () => resetChat();
 
@@ -179,6 +212,15 @@ function Sidebar() {
                 {/* Not an error state. A farmer who declined the location
                     prompt has not broken anything - the agent asks for a
                     district in the conversation instead. */}
+                {askToLocate && !error && (
+                  <button
+                    type="button"
+                    onClick={() => setLocateTick((n) => n + 1)}
+                    className="mt-2 min-h-touch text-left text-sm font-semibold text-leaf-700 underline-offset-4 hover:underline"
+                  >
+                    Show weather for my area
+                  </button>
+                )}
                 {error && (
                   <p className="mt-2 text-sm text-soil-500">
                     Location unavailable — mention your district in the question

@@ -86,28 +86,81 @@ def _prompt(text: str) -> str:
     return f"{style} {text}" if style else text
 
 
-def _synthesise(client, model: str, text: str) -> tuple[bytes, str | None]:
+def _config():
     from google.genai import types
 
-    response = client.models.generate_content(
-        model=model,
-        contents=_prompt(text),
-        config=types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=config.TTS_VOICE)
-                )
-            ),
-            http_options=types.HttpOptions(timeout=int(config.TTS_TIMEOUT * 1000)),
+    return types.GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=config.TTS_VOICE)
+            )
         ),
+        http_options=types.HttpOptions(timeout=int(config.TTS_TIMEOUT * 1000)),
     )
-    for candidate in response.candidates or []:
+
+
+def _audio_parts(response):
+    """(bytes, mime) for every audio part in a response or a streamed chunk."""
+    for candidate in getattr(response, "candidates", None) or []:
         for part in (candidate.content.parts if candidate.content else None) or []:
             blob = getattr(part, "inline_data", None)
             if blob is not None and blob.data:
-                return blob.data, blob.mime_type
+                yield blob.data, blob.mime_type
+
+
+def _synthesise(client, model: str, text: str) -> tuple[bytes, str | None]:
+    response = client.models.generate_content(model=model, contents=_prompt(text), config=_config())
+    for data, mime in _audio_parts(response):
+        return data, mime
     raise SpeechUnavailable(f"{model} returned no audio")
+
+
+def stream(text: str | None, client=None):
+    """Raw 16-bit mono PCM for one piece, yielded as Gemini produces it.
+
+    Returns (sample_rate, iterator). The first chunk is fetched before this
+    returns, so a model that cannot speak is found out - and the next one tried
+    - before the response has started and can no longer change its status.
+    A model that fails after it has begun simply ends the piece early.
+    """
+    said = clean(text)
+    if not said:
+        raise ValueError("nothing to say")
+    if len(said) > config.TTS_MAX_CHARS:
+        raise ValueError(f"at most {config.TTS_MAX_CHARS} characters at a time")
+
+    client = client or _client()
+    failures = []
+    for model in config.TTS_MODELS:
+        try:
+            chunks = client.models.generate_content_stream(
+                model=model, contents=_prompt(said), config=_config())
+            iterator = iter(chunks)
+            first = None
+            for chunk in iterator:
+                for data, mime in _audio_parts(chunk):
+                    first = (data, mime)
+                    break
+                if first:
+                    break
+            if not first:
+                raise SpeechUnavailable(f"{model} streamed no audio")
+
+            def rest(first=first, iterator=iterator, model=model):
+                yield first[0]
+                try:
+                    for chunk in iterator:
+                        for data, _ in _audio_parts(chunk):
+                            yield data
+                except Exception as e:  # noqa: BLE001
+                    print(f"Speech stream from {model} ended early: {type(e).__name__}: {str(e)[:120]}")
+
+            return _rate(first[1]), rest()
+        except Exception as e:  # noqa: BLE001
+            failures.append(f"{model}: {type(e).__name__}: {str(e)[:120]}")
+    print("Streamed speech failed on every model: " + " | ".join(failures))
+    raise SpeechUnavailable("no speech model could say this")
 
 
 def speak(text: str | None, client=None) -> bytes:

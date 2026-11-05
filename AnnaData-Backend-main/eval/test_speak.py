@@ -36,6 +36,14 @@ class FakeModels:
         self.fail = set(fail)
         self.calls = []
 
+    def generate_content_stream(self, model, contents, config):
+        self.calls.append((model, contents, config))
+        if model in self.fail:
+            raise RuntimeError("429 quota")
+        for i in range(3):
+            part = NS(inline_data=NS(data=bytes([i, 0]) * 1200, mime_type="audio/L16;codec=pcm;rate=24000"))
+            yield NS(candidates=[NS(content=NS(parts=[part]))])
+
     def generate_content(self, model, contents, config):
         self.calls.append((model, contents, config))
         if model in self.fail:
@@ -68,7 +76,8 @@ model, contents, cfg = client.models.calls[0]
 check("the first model tried is the first configured", model, config.TTS_MODELS[0])
 check("audio is what is asked for", cfg.response_modalities, ["AUDIO"])
 check("in the configured voice", cfg.speech_config.voice_config.prebuilt_voice_config.voice_name, config.TTS_VOICE)
-check("the text is sent after the style direction", contents.endswith("Gehu ki buwai November mein karein."), True)
+# The model read any direction aloud, so by default only the answer is sent.
+check("only the answer's own words are sent", contents, "Gehu ki buwai November mein karein.")
 check("the call has a time limit", cfg.http_options.timeout, int(config.TTS_TIMEOUT * 1000))
 
 print("\nWhen a model fails")
@@ -82,6 +91,17 @@ try:
     check("every model failing is reported", "no error", "SpeechUnavailable")
 except tts.SpeechUnavailable:
     check("every model failing is reported", "SpeechUnavailable", "SpeechUnavailable")
+
+print("\nStreaming")
+client = fake()
+rate, chunks = tts.stream("Pehla hissa.", client=client)
+pieces = list(chunks)
+check("the sample rate is read from the model", rate, 24000)
+check("every chunk arrives, in order", [p[0] for p in pieces], [0, 1, 2])
+client = fake(fail={config.TTS_MODELS[0]})
+tts.stream("Doosra hissa.", client=client)
+check("a model that cannot stream is passed over before anything is sent",
+      [c[0] for c in client.models.calls], config.TTS_MODELS[:2])
 
 print("\nCaching and limits")
 tts._cache.clear()
@@ -117,6 +137,12 @@ else:
     check("a guest past the speaking limit: 429", web.post("/speak", json={"text": "namaste"}, headers=G).status_code, 429)
     check("a phone number as a guest id: refused",
           web.post("/speak", json={"text": "namaste"}, headers={"X-Guest-Id": "+919876543210"}).status_code, 401)
+    appmod.tts.stream = lambda text: (24000, iter([b"\x00\x00" * 50, b"\x01\x00" * 50]))
+    r = web.post("/speak/stream", json={"text": "namaste"},
+                 headers={"X-Guest-Id": "9f2a9c1e-5b7d-4e8a-9c21-7d4e5f6a8b92"})
+    check("streamed speech: raw PCM", (r.status_code, r.headers.get("content-type")), (200, "audio/l16"))
+    check("with its sample rate in a header", r.headers.get("x-sample-rate"), "24000")
+    check("and all of it", len(r.content), 200)
     appmod.tts.speak = lambda text: (_ for _ in ()).throw(tts.SpeechUnavailable("down"))
     check("speech down: 503, so the browser falls back",
           web.post("/speak", json={"text": "namaste"}, headers={"X-Guest-Id": "8f2a9c1e-5b7d-4e8a-9c21-7d4e5f6a8b91"}).status_code, 503)

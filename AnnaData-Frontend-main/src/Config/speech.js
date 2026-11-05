@@ -102,7 +102,7 @@ const AudioContextClass =
 
 let context = null;
 let session = 0;
-let playing = null;
+let scheduled = [];
 let aborter = null;
 
 function audioContext() {
@@ -144,12 +144,14 @@ export function stopSpeaking() {
   session += 1;
   aborter?.abort();
   aborter = null;
-  try {
-    playing?.stop();
-  } catch (e) {
-    /* already stopped */
-  }
-  playing = null;
+  scheduled.forEach((source) => {
+    try {
+      source.stop();
+    } catch (e) {
+      /* already stopped */
+    }
+  });
+  scheduled = [];
   if (SUPPORTED) window.speechSynthesis.cancel();
 }
 
@@ -158,7 +160,7 @@ export function stopSpeaking() {
  * starts quickly, then longer ones. A sentence longer than a piece is cut at
  * a comma or a space rather than mid-word.
  */
-export function piecesOf(text, first = 160, rest = 400) {
+export function piecesOf(text, first = 120, rest = 400) {
   const sentences = (String(text || "").match(/(?:[^.!?।॥\n]|\.(?=\d))+[.!?।॥]*\s*/g) || [])
     .map((s) => s.trim())
     .filter(Boolean);
@@ -185,36 +187,110 @@ export function piecesOf(text, first = 160, rest = 400) {
   return pieces;
 }
 
-async function fetchPiece(text, lang, signal) {
-  const response = await fetch(`${getApiUrl()}/speak`, {
+/**
+ * One timeline for everything that will be heard. Each chunk is scheduled to
+ * start exactly where the one before it ends, so pieces and the chunks within
+ * them play back to back with no gap and no overlap.
+ */
+function timeline(ctx, mine) {
+  let cursor = 0;
+  let lastEnd = Promise.resolve();
+  return {
+    add(buffer) {
+      if (mine !== session) return;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      cursor = Math.max(cursor, ctx.currentTime + 0.06);
+      source.start(cursor);
+      cursor += buffer.duration;
+      scheduled.push(source);
+      lastEnd = new Promise((resolve) => {
+        source.onended = resolve;
+      });
+    },
+    get started() {
+      return cursor > 0;
+    },
+    done() {
+      return lastEnd;
+    },
+  };
+}
+
+function pcmBuffer(ctx, bytes, rate) {
+  const samples = bytes.length >> 1;
+  const buffer = ctx.createBuffer(1, samples, rate);
+  const out = buffer.getChannelData(0);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, samples * 2);
+  for (let i = 0; i < samples; i += 1) out[i] = view.getInt16(i * 2, true) / 32768;
+  return buffer;
+}
+
+function post(path, text, lang, signal) {
+  return fetch(`${getApiUrl()}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...askHeaders() },
     body: JSON.stringify({ text, lang }),
     signal,
   });
-  if (!response.ok) throw new Error(`speak ${response.status}`);
-  const bytes = await response.arrayBuffer();
-  const ctx = audioContext();
-  // The callback form, because older Safari does not return a promise.
-  return new Promise((resolve, reject) => ctx.decodeAudioData(bytes, resolve, reject));
 }
 
-function play(buffer, mine) {
-  return new Promise((resolve) => {
-    if (mine !== session) return resolve();
-    const ctx = audioContext();
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-    source.onended = () => resolve();
-    playing = source;
-    source.start(0);
-  });
+/**
+ * One piece, played while it downloads. Resolves when the whole piece has
+ * arrived (not when it has finished playing), so the next piece can be asked
+ * for while this one is still being heard.
+ */
+async function streamPiece(ctx, line, text, lang, signal, mine) {
+  const response = await post("/speak/stream", text, lang, signal);
+  if (!response.ok || !response.body) throw new Error(`speak/stream ${response.status}`);
+  const rate = parseInt(response.headers.get("X-Sample-Rate") || "24000", 10);
+  const reader = response.body.getReader();
+  // About a quarter of a second per buffer: small enough to start at once,
+  // large enough that a slow phone is not scheduling hundreds of slivers.
+  const batch = Math.round(rate * 0.25) * 2;
+  let pending = new Uint8Array(0);
+  let heard = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (mine !== session) {
+      reader.cancel().catch(() => {});
+      return;
+    }
+    if (value && value.length) {
+      const joined = new Uint8Array(pending.length + value.length);
+      joined.set(pending);
+      joined.set(value, pending.length);
+      pending = joined;
+    }
+    while (pending.length >= batch || (done && pending.length >= 2)) {
+      const take = done ? pending.length - (pending.length % 2) : batch;
+      line.add(pcmBuffer(ctx, pending.subarray(0, take), rate));
+      heard += take;
+      pending = pending.slice(take);
+    }
+    if (done) break;
+  }
+  if (!heard) throw new Error("no audio in the stream");
+}
+
+/** One piece as a whole WAV, for when streaming is not available. */
+async function wholePiece(ctx, line, text, lang, signal) {
+  const response = await post("/speak", text, lang, signal);
+  if (!response.ok) throw new Error(`speak ${response.status}`);
+  const bytes = await response.arrayBuffer();
+  // The callback form, because older Safari does not return a promise.
+  const buffer = await new Promise((resolve, reject) => ctx.decodeAudioData(bytes, resolve, reject));
+  line.add(buffer);
 }
 
 /**
  * Read an answer aloud with Gemini's voice, falling back to the phone's.
  * Resolves when it finishes, is stopped, or cannot start: { ok, reason }.
+ *
+ * Streaming first. If a stream cannot be had, the same piece is asked for as
+ * a whole file; if speech cannot be had at all, whatever has not been heard is
+ * read in the phone's own voice.
  */
 export async function speak(markdown, lang) {
   const text = speakableText(markdown);
@@ -227,25 +303,34 @@ export async function speak(markdown, lang) {
 
   aborter = new AbortController();
   const { signal } = aborter;
+  const line = timeline(ctx, mine);
+  let streaming = typeof ReadableStream !== "undefined";
   let index = 0;
   try {
     if (ctx.state === "suspended") await ctx.resume().catch(() => {});
-    let next = fetchPiece(pieces[0], lang, signal);
     for (index = 0; index < pieces.length; index += 1) {
-      const buffer = await next;
       if (mine !== session) return { ok: true };
-      if (index + 1 < pieces.length) {
-        next = fetchPiece(pieces[index + 1], lang, signal);
-        next.catch(() => {}); // handled when awaited
+      if (streaming) {
+        const before = scheduled.length;
+        try {
+          await streamPiece(ctx, line, pieces[index], lang, signal, mine);
+          continue;
+        } catch (e) {
+          if (mine !== session) return { ok: true };
+          streaming = false;
+          // Part of this piece was already heard: move on rather than say it
+          // twice. Nothing was heard: ask for the same piece again, whole.
+          if (scheduled.length > before) continue;
+        }
       }
-      await play(buffer, mine);
-      if (mine !== session) return { ok: true };
+      await wholePiece(ctx, line, pieces[index], lang, signal);
     }
+    await line.done();
     return { ok: true };
   } catch (e) {
     if (mine !== session) return { ok: true }; // stopped by the farmer
     console.warn("Spoken answer unavailable, using the phone's voice:", e.message);
-    // Whatever has not been heard yet, in the phone's voice.
+    await line.done();
     return speakOnDevice(pieces.slice(index).join(" "), lang);
   }
 }

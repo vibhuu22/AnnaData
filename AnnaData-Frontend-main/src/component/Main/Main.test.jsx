@@ -91,6 +91,24 @@ const NOT_YET = [
   [{ id: '1', response: '   ' }],
 ];
 
+describe('what an answer still needs', () => {
+  test('a missing crop is asked for, the way SMS asks it', () => {
+    show([{ id: '1', response: 'An answer', missingSlots: ['crop'] }]);
+    expect(screen.getByText('Tell us your crop for advice specific to it.')).toBeInTheDocument();
+  });
+
+  test('a missing location offers to use the phone\'s', () => {
+    show([{ id: '1', response: 'An answer', needsLocation: true }]);
+    expect(screen.getByText(/Tell us your village or district/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use my location' })).toBeInTheDocument();
+  });
+
+  test('nothing is asked when nothing is missing', () => {
+    show([{ id: '1', response: 'An answer', missingSlots: [], needsLocation: false }]);
+    expect(screen.queryByText(/Tell us your/)).not.toBeInTheDocument();
+  });
+});
+
 describe('a guest', () => {
   test.each(NOT_YET.map((t) => [t]))('is not offered saving before a real answer: %j', (turns) => {
     show(turns);

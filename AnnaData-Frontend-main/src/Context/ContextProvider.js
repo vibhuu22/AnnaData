@@ -47,6 +47,7 @@ function foldIntoTurns(messages) {
       // Stored with the reply since dose_status was added to message meta, so a
       // past answer that declined to name a dose still says why after a reload.
       current.doseStatus = message.meta?.dose_status || null;
+      current.missingSlots = message.meta?.missing || [];
       turns.push(current);
       current = null;
     }
@@ -240,6 +241,8 @@ const ContextProvider = (props) => {
               vision: result.vision,
               toolsUsed: result.toolsUsed,
               doseStatus: result.doseStatus,
+              missingSlots: result.missingSlots || [],
+              needsLocation: Boolean(result.needsLocation),
               replyLanguage: result.replyLanguage,
               pending: false,
               // A guest who reached the question limit. Not a failure: the

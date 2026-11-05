@@ -186,9 +186,13 @@ TTS_MODELS = [
     if m.strip()
 ]
 TTS_VOICE = _get("TTS_VOICE", "Kore")
-# Said to the model before the text. Gemini's TTS takes a plain-language style
-# direction this way; set TTS_STYLE to empty to send the text alone.
-TTS_STYLE = _get("TTS_STYLE", "Read this aloud slowly and clearly, in a warm, friendly voice:")
+# An optional direction said to the model before the text. EMPTY BY DEFAULT,
+# because the model read it out: every piece of every answer began with "Read
+# this aloud slowly and clearly...", which a farmer heard and which roughly
+# doubled how long each piece took to make. Measured on the live service: four
+# words came back as 7.9 seconds of audio. Leave it empty unless a new model is
+# checked first to obey a direction rather than say it.
+TTS_STYLE = _get("TTS_STYLE", "")
 # One piece of an answer per request - the web app sends a sentence or two.
 TTS_MAX_CHARS = int(_get("TTS_MAX_CHARS", "600"))
 TTS_TIMEOUT = float(_get("TTS_TIMEOUT", "20"))

@@ -37,6 +37,60 @@ const EXAMPLES = [
 
 const SLOW_AFTER_MS = 60000;
 
+/**
+ * The one thing an answer still needs, asked the way SMS asks it.
+ *
+ * The backend returns missing_slots and needs_location with every answer. The
+ * SMS bridge has always turned the first of them into one line on the end of
+ * the reply ("Reply with your crop name for specific advice."); the web threw
+ * them away, so a web farmer was never asked and an SMS farmer was asked
+ * every time. Same order as the bridge: a missing slot first, then location.
+ */
+const SLOT_ASKS = {
+  crop: "Tell us your crop for advice specific to it.",
+  location: "Tell us your village or district for advice specific to your area.",
+  state: "Tell us your state so we can check your local mandi prices.",
+};
+
+function followUpAsk(turn) {
+  const slot = (turn.missingSlots || []).find((s) => SLOT_ASKS[s]);
+  if (slot) return { slot, text: SLOT_ASKS[slot] };
+  if (turn.needsLocation) return { slot: "location", text: SLOT_ASKS.location };
+  return null;
+}
+
+function FollowUpAsk({ ask }) {
+  const [state, setState] = useState("");
+  if (!ask) return null;
+  // A tap shares the phone's location, which every later question then
+  // carries - quicker for a farmer than spelling out a village.
+  const share = () => {
+    if (!("geolocation" in navigator)) return setState("unavailable");
+    setState("asking");
+    navigator.geolocation.getCurrentPosition(
+      () => setState("shared"),
+      () => setState("unavailable"),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+    );
+    return undefined;
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border-[1.5px] border-dashed border-soil-300 px-3.5 py-2.5 text-sm text-soil-800">
+      <span>{state === "shared" ? "Thanks — your next answers will use your location." : ask.text}</span>
+      {ask.slot === "location" && state !== "shared" && (
+        <button
+          type="button"
+          onClick={share}
+          disabled={state === "asking"}
+          className="inline-flex min-h-touch items-center gap-1.5 font-semibold text-leaf-700 underline-offset-4 hover:underline"
+        >
+          {state === "asking" ? "Finding you…" : state === "unavailable" ? "Location unavailable — type it instead" : "Use my location"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MicIcon({ size = 24 }) {
   return (
     <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -501,6 +555,10 @@ function Main() {
               </div>
             );
           })}
+
+          {latestAnswered && !latestAnswered.needsSignIn && (
+            <FollowUpAsk key={latestAnswered.id} ask={followUpAsk(latestAnswered)} />
+          )}
 
           {/* A guest is offered the way to save; a farmer who confirmed their
               number but left the profile halfway is offered the rest. */}

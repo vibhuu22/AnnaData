@@ -200,6 +200,7 @@ crop is theirs to state, and a picture of one leaf does not get to correct them.
 | `GET`/`PUT /profile`, `GET /history` | A signed-in farmer, about themselves only |
 | `POST /agent`, `POST /agent/media` | A signed-in farmer, the bridge with `BRIDGE_TOKEN`, or a guest sending `X-Guest-Id` (a v4 UUID) within the guest limits — 429 with `Retry-After` beyond them |
 | `POST /speak` | The same callers as `/agent`; guests within separate speaking limits. Returns WAV, or 503 for the browser to fall back to the phone's voice |
+| `POST /speak/stream` | The same, streamed as raw 16-bit PCM while Gemini makes it (sample rate in `X-Sample-Rate`), so speech starts before the piece is finished |
 | `POST /forget` | The bridge relaying STOP, or a farmer naming their own id |
 | `GET /feedback/due`, `POST /feedback/asked`, `POST /feedback/rating`, `GET /feedback/summary` | The bridge |
 | `GET /health`, `GET /` | Anyone. No model calls, so it is safe to ping |
@@ -295,7 +296,7 @@ the advisory still goes out. `GET /health` reports exactly what is live.
 | `AUTH_SECRET` | Sessions that survive a restart | Regenerated per process; everyone signed out on restart |
 | `BRIDGE_TOKEN` | Proof the SMS bridge is the SMS bridge | `/feedback/*` stay open, reported on `/health` |
 | `SMS_GATEWAY_USER` / `SMS_GATEWAY_PASSWORD` | Sending sign-in codes | Nobody can sign in on the web |
-| `TTS_MODELS` / `TTS_VOICE` / `TTS_STYLE` | Spoken answers via Gemini TTS (defaults: 3.8 Flash-Lite TTS, then 3.8 Flash TTS, then 2.5 Flash TTS; voice `Kore`) | Listen and voice mode fall back to the phone's own voice |
+| `TTS_MODELS` / `TTS_VOICE` / `TTS_STYLE` | Spoken answers via Gemini TTS (defaults: 3.8 Flash-Lite TTS, then 3.8 Flash TTS, then 2.5 Flash TTS; voice `Kore`; no style direction, because the model read it aloud) | Listen and voice mode fall back to the phone's own voice |
 | `SPEAK_GUEST_PER_HOUR` / `SPEAK_IP_PER_HOUR` / `SPEAK_DAILY_CAP` | Guest limits for `/speak`, counted in pieces of an answer (defaults 200 / 1000 / 5000) | — |
 | `GUEST_ASK_ENABLED` | Questions before sign-in (default `true`) | `false` makes the web app's guests get 401, as before |
 | `GUEST_PER_HOUR` / `GUEST_IP_PER_HOUR` / `GUEST_DAILY_CAP` | Guest limits: per browser, per network address, all guests per day (defaults 10 / 60 / 400, per instance) | — |
