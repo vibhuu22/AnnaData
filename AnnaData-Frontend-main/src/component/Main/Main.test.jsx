@@ -143,6 +143,28 @@ describe('a new answer is written out', () => {
     expect(screen.queryByText('Writing…')).not.toBeInTheDocument();
   });
 
+  test('once, not again when the farmer comes back to the chat from News', async () => {
+    const text = 'Dhaan mein ek baar 25 kg potash prati acre daalein, baali nikalne se pehle.';
+    const turn = { id: 'back-1', prompt: 'q', response: text, live: true, doseStatus: 'available' };
+    const first = show([turn]);
+    expect(await screen.findByText('Approved dose', {}, { timeout: 4000 })).toBeInTheDocument();
+    first.unmount();
+    show([turn]);
+    expect(screen.queryByText('Writing…')).not.toBeInTheDocument();
+    expect(screen.getByText(text)).toBeInTheDocument();
+  });
+
+  test('an answer left half-written is shown whole on return', () => {
+    const text = 'Sarson ki buwai 15 October tak kar lein. Uske baad paidavaar ghat sakti hai, isliye jaldi karein.';
+    const turn = { id: 'back-2', prompt: 'q', response: text, live: true };
+    const first = show([turn]);
+    expect(screen.getByText('Writing…')).toBeInTheDocument();
+    first.unmount();
+    show([turn]);
+    expect(screen.queryByText('Writing…')).not.toBeInTheDocument();
+    expect(screen.getByText(text)).toBeInTheDocument();
+  });
+
   test('bold is never left open half-way through', () => {
     expect(revealCut('Use **Acephate 75% SP** now', 15)).toBe('Use **Acephate**');
   });

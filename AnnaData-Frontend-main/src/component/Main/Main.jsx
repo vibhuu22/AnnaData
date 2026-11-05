@@ -303,6 +303,11 @@ export function revealCut(text, n) {
   return cut;
 }
 
+// Answers already written out, kept outside the component: the chat screen
+// unmounts when the farmer opens News or Explore, and component state went
+// with it - so coming back wrote every answer in the chat out again.
+const writtenOut = new Set();
+
 function Reveal({ text, settled, onDone, onGrow, children }) {
   const instant =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -312,8 +317,16 @@ function Reveal({ text, settled, onDone, onGrow, children }) {
   // Kept across renders: the answer arriving in full must not start the
   // writing over from the first word.
   const positionRef = useRef(0);
+  const onDoneRef = useRef(onDone);
   textRef.current = text;
   settledRef.current = settled;
+  onDoneRef.current = onDone;
+
+  // Leaving mid-way through a complete answer counts as having read it: on
+  // return it is shown whole, not written out from the first word again.
+  useEffect(() => () => {
+    if (settledRef.current) onDoneRef.current?.();
+  }, []);
 
   useEffect(() => {
     if (instant) return undefined;
@@ -361,8 +374,9 @@ function Main() {
   // it is in view when the farmer has just read something useful.
   // New answers whose writing-out has finished. Until then, what depends on
   // the whole answer - the badge, Listen, rating, the offers below - waits.
-  const [revealed, setRevealed] = useState(() => new Set());
+  const [revealed, setRevealed] = useState(() => new Set(writtenOut));
   const markRevealed = useCallback((id) => {
+    writtenOut.add(id);
     setRevealed((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   }, []);
   const latestAnswered = [...thread]
@@ -706,7 +720,7 @@ function Main() {
                   <div className="card-read rounded-[22px] border-[1.5px] border-red-200 p-4 text-base text-red-800" role="alert">
                     {turn.response}
                   </div>
-                ) : turn.live && !turn.failed && !turn.needsSignIn ? (
+                ) : turn.live && !revealed.has(turn.id) && !turn.failed && !turn.needsSignIn ? (
                   // A new answer is written out at a steady pace, as if being
                   // written for this farmer, whatever speed it arrives at.
                   <Reveal
