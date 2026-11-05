@@ -119,6 +119,9 @@ const newTurn = ({ text, image, audio, quiet }) => ({
   pending: true,
   failed: false,
   needsSignIn: false,
+  // Asked in this visit, so its answer is written out on screen; history
+  // turns are shown at once.
+  live: true,
 });
 
 const ContextProvider = (props) => {

@@ -27,6 +27,12 @@ def main():
     current=dotenv_values(path) if path.exists() else {}
     if len(current.get('ADMIN_API_TOKEN',''))<32:
         set_key(path,'ADMIN_API_TOKEN',secrets.token_urlsafe(36))
+    # The key participant pseudonyms are made with. It must not change between
+    # runs: a new key gives every farmer a new id, and saved classifications and
+    # reviews stop matching anyone. Without it the local dashboard would fall
+    # back to a per-process random AUTH_SECRET, which is exactly that.
+    if len(current.get('ANALYTICS_PSEUDONYM_KEY',''))<32:
+        set_key(path,'ANALYTICS_PSEUDONYM_KEY',secrets.token_urlsafe(36))
     users=set(x.strip() for x in current.get('ANALYTICS_TEST_USERS','').split(',') if x.strip())
     users.update(metrics_store.normal_user(x) for x in args.test_user)
     if users:set_key(path,'ANALYTICS_TEST_USERS',','.join(sorted(users)))

@@ -280,6 +280,76 @@ function Pending({ startedAt }) {
   );
 }
 
+/*
+ * Writing an answer out. The backend sends a sentence or two at a time, so a
+ * short answer used to appear all at once - which reads as pasted, not
+ * written. A new answer is now revealed word by word at a steady pace: about
+ * as fast as a person reads, quicker for a long answer so no one waits on it.
+ * History is shown at once, and so is everything for a reader who has asked
+ * their device for reduced motion.
+ */
+const REVEAL_MIN_CPS = 45;
+const REVEAL_MAX_CPS = 200;
+const REVEAL_SECONDS = 6;
+
+/** The first `n` characters, cut back to a word and with bold or code closed. */
+export function revealCut(text, n) {
+  if (n >= text.length) return text;
+  const space = text.lastIndexOf(" ", n);
+  const line = text.lastIndexOf("\n", n);
+  let cut = text.slice(0, Math.max(space, line, 0));
+  if ((cut.match(/\*\*/g) || []).length % 2) cut += "**";
+  if ((cut.match(/`/g) || []).length % 2) cut += "`";
+  return cut;
+}
+
+function Reveal({ text, settled, onDone, onGrow, children }) {
+  const instant =
+    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const [shown, setShown] = useState(instant ? Number.MAX_SAFE_INTEGER : 0);
+  const textRef = useRef(text);
+  const settledRef = useRef(settled);
+  // Kept across renders: the answer arriving in full must not start the
+  // writing over from the first word.
+  const positionRef = useRef(0);
+  textRef.current = text;
+  settledRef.current = settled;
+
+  useEffect(() => {
+    if (instant) return undefined;
+    let frame = 0;
+    let last = performance.now();
+    let lastCut = -1;
+    const tick = (now) => {
+      const full = textRef.current;
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const cps = Math.min(REVEAL_MAX_CPS, Math.max(REVEAL_MIN_CPS, full.length / REVEAL_SECONDS));
+      const position = Math.min(full.length, positionRef.current + cps * dt);
+      positionRef.current = position;
+      // Re-render only when a whole new word is due, not every frame.
+      const cut = position >= full.length ? full.length : Math.max(full.lastIndexOf(" ", position), 0);
+      if (cut !== lastCut) {
+        lastCut = cut;
+        setShown(position >= full.length ? full.length : position);
+      }
+      if (position >= full.length && settledRef.current) return;
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [instant]);
+
+  const done = settled && shown >= text.length;
+  useEffect(() => {
+    if (done) onDone?.();
+  }, [done, onDone]);
+  useEffect(() => {
+    if (!done) onGrow?.();
+  }, [shown, done, onGrow]);
+  return children(done ? text : revealCut(text, shown), done);
+}
+
 function Main() {
   const {
     send, thread, loading, setInput, input, screen, responses, focusId, newChat,
@@ -289,9 +359,19 @@ function Main() {
 
   // The offer to save follows the conversation: after the newest answer, so
   // it is in view when the farmer has just read something useful.
+  // New answers whose writing-out has finished. Until then, what depends on
+  // the whole answer - the badge, Listen, rating, the offers below - waits.
+  const [revealed, setRevealed] = useState(() => new Set());
+  const markRevealed = useCallback((id) => {
+    setRevealed((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  }, []);
   const latestAnswered = [...thread]
     .reverse()
-    .find((turn) => !turn.pending && !turn.streaming && !turn.failed && turn.response?.trim());
+    .find(
+      (turn) =>
+        !turn.pending && !turn.streaming && !turn.failed && turn.response?.trim() &&
+        (!turn.live || turn.needsSignIn || revealed.has(turn.id))
+    );
   const limited = Boolean(latestAnswered?.needsSignIn);
   // "Not now" holds for this visit. Reaching the guest limit brings the card
   // back regardless, because then saving is the only way to keep asking.
@@ -304,6 +384,14 @@ function Main() {
   const [offline, setOffline] = useState(false);
 
   const bottomRef = useRef(null);
+  // Keep the words being written in view.
+  const grow = useCallback(() => bottomRef.current?.scrollIntoView({ block: "end" }), []);
+  const writingCard = (text) => (
+    <div className="card-read flex min-w-0 flex-col gap-2.5 rounded-[22px] border border-white p-4" aria-busy="true">
+      <Answer markdown={text} doseStatus={null} />
+      <span className="wait-shimmer text-xs font-semibold">Writing…</span>
+    </div>
+  );
   const autoSpokenRef = useRef(new Set());
 
   // Keep the newest turn in view as answers arrive.
@@ -547,41 +635,7 @@ function Main() {
         <div className="flex w-full max-w-[42rem] flex-col gap-4">
           {thread.map((turn) => {
             const kind = kindOf(turn);
-            return (
-              <div key={turn.id} id={`turn-${turn.id}`} className="response-item flex flex-col gap-3">
-                {/* The farmer's words, on the right, in their own script. */}
-                <div className="glass-soft flex max-w-[80%] flex-col gap-2 self-end rounded-[20px] rounded-br-[6px] px-4 py-2.5 text-base text-soil-900 shadow-card">
-                  {turn.mediaFile && <SentMedia file={turn.mediaFile} kind={turn.mediaKind} />}
-                  {turn.prompt && <p>{turn.prompt}</p>}
-                  {/* What the microphone heard, so a misheard word is visible
-                      rather than buried in an answer that reads as odd. */}
-                  {turn.transcript && (
-                    <p className="text-soil-700">
-                      <span className="mr-2 text-xs uppercase tracking-wide text-soil-600">heard</span>
-                      {turn.transcript}
-                    </p>
-                  )}
-                </div>
-
-                {turn.pending ? (
-                  <Pending startedAt={turn.startedAt} />
-                ) : turn.needsSignIn ? (
-                  <div className="card-read rounded-[22px] border-[1.5px] border-grain-300 p-4 text-base text-soil-900">
-                    {turn.response}
-                  </div>
-                ) : turn.streaming ? (
-                  // Still being written: the text as far as it has come, with
-                  // nothing that depends on the whole answer - no badge, no
-                  // Listen, no rating - until it is complete and checked.
-                  <div className="card-read flex min-w-0 flex-col gap-2.5 rounded-[22px] border border-white p-4" aria-busy="true">
-                    <Answer markdown={turn.response} doseStatus={null} />
-                    <span className="wait-shimmer text-xs font-semibold">Writing…</span>
-                  </div>
-                ) : turn.failed ? (
-                  <div className="card-read rounded-[22px] border-[1.5px] border-red-200 p-4 text-base text-red-800" role="alert">
-                    {turn.response}
-                  </div>
-                ) : (
+            const finalCard = (
                   <div className={`flex min-w-0 flex-col gap-2.5 rounded-[22px] p-4 ${CARD[kind]}`}>
                     {(BADGES[kind] || isSpeechSupported()) && (
                       <div className="flex items-center justify-between gap-2">
@@ -620,6 +674,51 @@ function Main() {
                     <Sources tools={turn.toolsUsed} />
                     <Rate />
                   </div>
+            );
+            return (
+              <div key={turn.id} id={`turn-${turn.id}`} className="response-item flex flex-col gap-3">
+                {/* The farmer's words, on the right, in their own script. */}
+                <div className="glass-soft flex max-w-[80%] flex-col gap-2 self-end rounded-[20px] rounded-br-[6px] px-4 py-2.5 text-base text-soil-900 shadow-card">
+                  {turn.mediaFile && <SentMedia file={turn.mediaFile} kind={turn.mediaKind} />}
+                  {turn.prompt && <p>{turn.prompt}</p>}
+                  {/* What the microphone heard, so a misheard word is visible
+                      rather than buried in an answer that reads as odd. */}
+                  {turn.transcript && (
+                    <p className="text-soil-700">
+                      <span className="mr-2 text-xs uppercase tracking-wide text-soil-600">heard</span>
+                      {turn.transcript}
+                    </p>
+                  )}
+                </div>
+
+                {turn.pending ? (
+                  <Pending startedAt={turn.startedAt} />
+                ) : turn.needsSignIn ? (
+                  <div className="card-read rounded-[22px] border-[1.5px] border-grain-300 p-4 text-base text-soil-900">
+                    {turn.response}
+                  </div>
+                ) : turn.streaming && !turn.live ? (
+                  // Still being written: the text as far as it has come, with
+                  // nothing that depends on the whole answer - no badge, no
+                  // Listen, no rating - until it is complete and checked.
+                  writingCard(turn.response)
+                ) : turn.failed ? (
+                  <div className="card-read rounded-[22px] border-[1.5px] border-red-200 p-4 text-base text-red-800" role="alert">
+                    {turn.response}
+                  </div>
+                ) : turn.live && !turn.failed && !turn.needsSignIn ? (
+                  // A new answer is written out at a steady pace, as if being
+                  // written for this farmer, whatever speed it arrives at.
+                  <Reveal
+                    text={turn.response}
+                    settled={!turn.streaming}
+                    onDone={() => markRevealed(turn.id)}
+                    onGrow={grow}
+                  >
+                    {(shown, done) => (done ? finalCard : writingCard(shown))}
+                  </Reveal>
+                ) : (
+                  finalCard
                 )}
               </div>
             );

@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import Main from './Main';
+import Main, { revealCut } from './Main';
 import { Auth } from '../../Context/AuthProvider';
 import { Context } from '../../Context/ContextProvider';
 import { Flow } from '../../Context/Flow';
@@ -128,6 +128,23 @@ describe('an answer being written', () => {
     expect(screen.queryByText('Approved dose')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Yes, useful' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add farm details' })).not.toBeInTheDocument();
+  });
+});
+
+describe('a new answer is written out', () => {
+  test('word by word, with what needs the whole answer waiting until it is done', async () => {
+    const text = 'Gehu ki buwai November ke pehle pakhwade mein karein, aur beej upchar zaroor karein.';
+    show([{ id: '1', prompt: 'q', response: text, live: true, doseStatus: 'available' }]);
+    expect(screen.getByText('Writing…')).toBeInTheDocument();
+    expect(screen.queryByText('Approved dose')).not.toBeInTheDocument();
+    expect(screen.queryByText(text)).not.toBeInTheDocument();
+    expect(await screen.findByText('Approved dose', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(screen.queryByText('Writing…')).not.toBeInTheDocument();
+  });
+
+  test('bold is never left open half-way through', () => {
+    expect(revealCut('Use **Acephate 75% SP** now', 15)).toBe('Use **Acephate**');
   });
 });
 

@@ -1348,6 +1348,22 @@ The visual style is "E" from the design canvas: a soft field of colour behind
 glass surfaces for everything around the content, and a near-solid card for
 the answer itself, so advice keeps full contrast in sunlight.
 
+### The admin dashboard, and answers written out
+
+The owner's dashboard (`admin_api.py`, `admin_web/`) came from Codex's
+analytics work. It runs privately on the founder's laptop (`admin_server.py`,
+`Start-AdminDashboard.ps1`) against the production database; the same routes on
+the public backend refuse every data call unless `ADMIN_API_TOKEN` is set
+there. Participants are pseudonyms: an HMAC of the phone number under
+`ANALYTICS_PSEUDONYM_KEY`, which `tools/setup_analytics.py` creates once and
+which must not change. Farmers' own ratings (web thumbs, SMS scores) are shown
+on the conversation they were given in and can be filtered.
+
+New text answers are written out word by word - about 45 characters a second,
+faster for long answers so none takes more than about six seconds - because the
+backend's sentence-sized pieces made short answers appear all at once. What
+needs the whole answer (badge, Listen, rating, offers) waits until it is done.
+
 ## 4. Two kinds of memory
 
 Deliberately separate, because they have different lifetimes:

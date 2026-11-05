@@ -90,7 +90,8 @@ test('a guest asks, saves their farm in two steps, comes back, and signs out', a
   expect(agentHeaders[0].Authorization).toBeUndefined();
   const guestId = agentHeaders[0]['X-Guest-Id'];
 
-  fireEvent.click(screen.getByRole('button', { name: 'Add farm details' }));
+  // The offer appears once the answer has finished being written out.
+  fireEvent.click(await screen.findByRole('button', { name: 'Add farm details' }, { timeout: 4000 }));
   await confirmNumber('Verify and continue');
 
   // About you. The guest id went with the code, so the backend can move the
