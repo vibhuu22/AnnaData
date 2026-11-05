@@ -8,3 +8,4 @@ __pycache__/
 # Source PDFs are fetched with tools/fetch_cibrc.py; the parsed rows live in
 # the database. No need to carry 6 MB of government PDFs in the repo.
 data/
+conversations_export*.json
