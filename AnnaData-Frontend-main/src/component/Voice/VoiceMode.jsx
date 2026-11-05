@@ -1,8 +1,8 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
-import { createSpeaker, stopSpeaking, unlockAudio, speechProgress } from "../../Config/speech";
-import { followUpAsk } from "../../Config/asks";
+import { createSpeaker, stopSpeaking, unlockAudio, speechProgress, prepareCue, playCue } from "../../Config/speech";
+import { followUpAsk, cueFor, answerLanguage } from "../../Config/asks";
 import { primaryButton } from "../Flow/ui";
 
 /**
@@ -156,6 +156,9 @@ function VoiceMode({ onClose, micContext = null }) {
   const sourceRef = useRef(null);
   // Read once, when voice mode opens: the microphone is set up a single time.
   const micContextRef = useRef(micContext);
+  // The acknowledgement said when the farmer stops talking: Hindi until the
+  // conversation shows another language.
+  const cueRef = useRef(cueFor("hi"));
   sendRef.current = send;
 
   // The phase is read inside the audio loop and after awaits, which run before
@@ -211,6 +214,11 @@ function VoiceMode({ onClose, micContext = null }) {
     }
     if (result.transcript) setHeard(result.transcript);
     setReply(result.answer || "");
+    // The next acknowledgement in the language this conversation is in.
+    if (result.answer && !result.error) {
+      cueRef.current = cueFor(answerLanguage(result.answer));
+      prepareCue(cueRef.current);
+    }
     if (result.needsSignIn) {
       setNeedsSignIn(true);
       pause(result.answer);
@@ -282,6 +290,9 @@ function VoiceMode({ onClose, micContext = null }) {
         return;
       }
       const speaker = createSpeaker();
+      // At once, before the question has even been sent: the farmer hears
+      // that they were heard. The answer is queued to start after it.
+      playCue(cueRef.current);
       let streamed = "";
       const result = await sendRef.current({
         audio,
@@ -393,6 +404,7 @@ function VoiceMode({ onClose, micContext = null }) {
           setNotice("Tap the circle to start talking.");
           return;
         }
+        prepareCue(cueRef.current);
         turnRef.current();
       } catch (e) {
         go("paused");

@@ -58,3 +58,19 @@ export function followUpAsk(turn) {
   if (!slot) return null;
   return { slot, text: ASKS[slot][answerLanguage(turn.response || turn.answer)] };
 }
+
+/**
+ * What voice mode says the moment a farmer stops talking, in the language of
+ * the conversation so far. Only that the question was heard.
+ */
+const CUES = {
+  hi: "जी, एक पल।",
+  hinglish: "जी, एक पल।",
+  bn: "জি, এক মুহূর্ত।",
+  pa: "ਜੀ, ਇੱਕ ਪਲ।",
+  en: "Okay, one moment.",
+};
+
+export function cueFor(language) {
+  return CUES[language] || CUES.hi;
+}

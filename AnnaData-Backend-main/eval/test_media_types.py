@@ -70,5 +70,13 @@ check("an .m4a goes up as audio/mp4", client.files.calls[-1], {"mime_type": "aud
 pm._upload(client, b"\xff\xd8\xff", ".jpg")
 check("a .jpg goes up as image/jpeg", client.files.calls[-1], {"mime_type": "image/jpeg"})
 
+print("\nSmall media goes in the request itself")
+client = FakeClient()
+part = pm._part(client, b"\x00\x00\x00\x18ftypM4A ", ".m4a", inline=True)
+check("a voice note is sent inline, not uploaded", client.files.calls, [])
+check("with its stated type", part.inline_data.mime_type, "audio/mp4")
+pm._part(client, b"\xff\xd8\xff", ".jpg", inline=False)
+check("too-large media is still uploaded", client.files.calls[-1], {"mime_type": "image/jpeg"})
+
 print(f"\n{len(failures)} failure(s)" if failures else "\nAll checks passed")
 sys.exit(1 if failures else 0)

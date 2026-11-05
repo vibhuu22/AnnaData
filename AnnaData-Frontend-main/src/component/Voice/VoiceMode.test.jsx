@@ -6,6 +6,7 @@ import { Flow } from '../../Context/Flow';
 jest.mock('../../Config/speech', () => ({
   speak: jest.fn(), stopSpeaking: jest.fn(), unlockAudio: jest.fn(),
   createSpeaker: jest.fn(), speechProgress: jest.fn(() => null), sharedAudioContext: jest.fn(),
+  prepareCue: jest.fn(), playCue: jest.fn(),
 }));
 
 function show(onClose = jest.fn()) {

@@ -110,6 +110,10 @@ let aborter = null;
 // own voice reports the word it is on, which `onDevice` holds.
 let spoken = [];
 let onDevice = null;
+// When a short cue already playing ends, so an answer queued behind it starts
+// after it rather than on top of it.
+let busyUntil = 0;
+const cues = new Map();
 
 // Speakers idle-waiting for their next sentence. stopSpeaking() wakes them so
 // they notice they were stopped instead of waiting for ever.
@@ -174,6 +178,7 @@ export function stopSpeaking() {
   scheduled = [];
   spoken = [];
   onDevice = null;
+  busyUntil = 0;
   idle.forEach((resume) => resume());
   idle.clear();
   if (SUPPORTED) window.speechSynthesis.cancel();
@@ -199,7 +204,11 @@ export function piecesOf(text, first = 120, rest = 400) {
     let s = sentence;
     while (s.length > limit()) {
       push();
-      const cut = Math.max(s.lastIndexOf(",", limit()), s.lastIndexOf(" ", limit()));
+      // At a comma where there is one far enough in - a cut there falls at a
+      // pause the voice would make anyway - otherwise at a space.
+      const comma = s.lastIndexOf(",", limit());
+      const space = s.lastIndexOf(" ", limit());
+      const cut = comma > limit() / 3 ? comma : space;
       const at = cut > limit() / 3 ? cut + 1 : limit();
       pieces.push(s.slice(0, at).trim());
       s = s.slice(at).trim();
@@ -231,7 +240,7 @@ function timeline(ctx, mine) {
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(ctx.destination);
-      cursor = Math.max(cursor, ctx.currentTime + 0.06);
+      cursor = Math.max(cursor, ctx.currentTime + 0.06, busyUntil);
       source.start(cursor);
       if (record && record.start === null) record.start = cursor;
       cursor += buffer.duration;
@@ -318,6 +327,41 @@ async function wholePiece(ctx, line, text, lang, signal) {
 }
 
 /**
+ * A short spoken cue - "Ji, ek pal..." - made once and kept, so it can be
+ * played the instant a farmer stops talking. A reply takes several seconds to
+ * understand and write; silence for that long sounds like nothing happened.
+ * The cue says only that the question was heard, which it was.
+ */
+export async function prepareCue(text) {
+  if (!text || cues.has(text)) return;
+  cues.set(text, null);
+  try {
+    const ctx = audioContext();
+    const response = await post("/speak", text, "", undefined);
+    if (!ctx || !response.ok) throw new Error(`cue ${response.status}`);
+    const bytes = await response.arrayBuffer();
+    cues.set(text, await new Promise((resolve, reject) => ctx.decodeAudioData(bytes, resolve, reject)));
+  } catch (e) {
+    cues.delete(text); // tried again next turn
+  }
+}
+
+/** Play a prepared cue now, if it is ready. Returns whether it played. */
+export function playCue(text) {
+  const ctx = audioContext();
+  const buffer = cues.get(text);
+  if (!ctx || !buffer) return false;
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctx.destination);
+  const at = Math.max(ctx.currentTime + 0.02, busyUntil);
+  source.start(at);
+  busyUntil = at + buffer.duration + 0.15;
+  scheduled.push(source);
+  return true;
+}
+
+/**
  * What is being said right now, for subtitles: { text, fraction } through a
  * piece of Gemini's audio, { text, char } with the phone's own voice, or null
  * when nothing is playing.
@@ -384,7 +428,9 @@ export function createSpeaker(lang) {
 
   // Sentences joined up to a piece; a short first piece so speech starts soon.
   const take = () => {
-    const limit = heardAny ? 400 : 120;
+    // The first piece short: how soon a reply is heard is mostly how long
+    // Gemini takes to start, and a shorter piece starts sooner.
+    const limit = heardAny ? 400 : 80;
     let piece = queue.shift();
     if (piece.length > limit) {
       const parts = piecesOf(piece, limit, 400);

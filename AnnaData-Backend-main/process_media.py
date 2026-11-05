@@ -211,6 +211,25 @@ def _upload(client, data: bytes, suffix: str):
             pass
 
 
+# A request to Gemini may carry about 20 MB in all; under this, media goes in
+# the request itself rather than as a separately uploaded file.
+INLINE_LIMIT = 15 * 1024 * 1024
+
+
+def _part(client, data: bytes, suffix: str, inline: bool):
+    """The media as part of the request, or uploaded first if it is too large.
+
+    Inline is the fast path. Uploading first was a whole extra round trip to
+    Gemini before it could even start listening: a 2.2-second voice question
+    took about eight seconds to be transcribed on the live service, most of it
+    spent getting the file there. A voice note is tens of kilobytes; only a
+    very large photograph still needs the upload.
+    """
+    if inline:
+        return types.Part.from_bytes(data=data, mime_type=MIME_TYPES[suffix])
+    return _upload(client, data, suffix)
+
+
 def _parse_json(text: str) -> dict:
     """Read the model's JSON, tolerating a markdown fence around it.
 
@@ -262,11 +281,12 @@ def _understand(
     instructions.append(_JSON_KEYS_INSTRUCTION)
 
     parts: list = ["\n\n".join(instructions)]
+    inline = len(audio_bytes or b"") + len(image_bytes or b"") <= INLINE_LIMIT
     if audio_bytes:
-        parts.append(_upload(client, audio_bytes,
-                             _audio_extension(audio_filename, audio_content_type)))
+        parts.append(_part(client, audio_bytes,
+                           _audio_extension(audio_filename, audio_content_type), inline))
     if image_bytes:
-        parts.append(_upload(client, image_bytes, _image_extension(image_filename)))
+        parts.append(_part(client, image_bytes, _image_extension(image_filename), inline))
 
     result = client.models.generate_content(
         model=MEDIA_MODEL,
