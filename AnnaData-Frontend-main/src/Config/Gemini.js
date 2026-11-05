@@ -217,6 +217,9 @@ export async function ask({ text = "", history = [], image = null, audio = null,
       // end of the text; the web shows the same ask under the answer.
       missingSlots: data.missing_slots || [],
       needsLocation: Boolean(data.needs_location),
+      // The phone's place, when the farmer is to be asked once whether it is
+      // their farm ("Is your farm near Kharagpur?").
+      confirmPlace: data.confirm_place || null,
       // The backend decides this from the script the answer is actually in, so
       // the browser never has to guess which voice to read it with.
       replyLanguage: data.reply_language || "en-IN",

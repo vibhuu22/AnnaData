@@ -114,6 +114,21 @@ describe('what an answer still needs', () => {
     expect(screen.getByText(/Apna gaon ya zila bataiye/)).toBeInTheDocument();
   });
 
+  test('the phone\'s place is offered once as the farm, answered with one tap', () => {
+    show([{ id: '1', response: 'Use Mancozeb for blight.', missingSlots: [], needsLocation: false, confirmPlace: 'Kharagpur' }]);
+    expect(screen.getByText('Is your farm near Kharagpur?')).toBeInTheDocument();
+    expect(screen.queryByText(/Tell us your village or district/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+    expect(send).toHaveBeenCalledWith({ text: 'Yes' });
+  });
+
+  test('and in the answer\'s language', () => {
+    show([{ id: '1', response: 'Aloo mein jhulsa rog hai, aap Mancozeb ka chhidkav karein.', confirmPlace: 'Kharagpur' }]);
+    expect(screen.getByText('Kya aapka khet Kharagpur ke paas hai?')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Nahi' }));
+    expect(send).toHaveBeenCalledWith({ text: 'Nahi' });
+  });
+
   test('nothing is asked when nothing is missing', () => {
     show([{ id: '1', response: 'An answer', missingSlots: [], needsLocation: false }]);
     expect(screen.queryByText(/Tell us your/)).not.toBeInTheDocument();

@@ -81,6 +81,12 @@ ALTER TABLE farmers ADD COLUMN IF NOT EXISTS area_unit TEXT;
 ALTER TABLE farmers ADD COLUMN IF NOT EXISTS farmer_group      TEXT;
 ALTER TABLE farmers ADD COLUMN IF NOT EXISTS farmer_group_name TEXT;
 
+-- "Is your farm near Kharagpur?" - asked at most once a place (farm_asked
+-- holds whereabouts.asked_key of each), and the one currently awaiting a yes
+-- or no (farm_pending: name, coordinates, district, state, language).
+ALTER TABLE farmers ADD COLUMN IF NOT EXISTS farm_asked   TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE farmers ADD COLUMN IF NOT EXISTS farm_pending JSONB;
+
 -- A plot of land. Separate from farmers because a smallholding is usually
 -- several fragmented parcels with different water, not one field.
 CREATE TABLE IF NOT EXISTS plots (

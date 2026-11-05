@@ -110,6 +110,50 @@ def forget_location(user_id: str) -> None:
         print(f"Forgetting location failed for {user_id}: {e}")
 
 
+def ask_about_farm(user_id: str, key: str, pending: dict) -> None:
+    """Record that "Is your farm near X?" was asked, and what a yes would save."""
+    if not user_id or not db.is_available():
+        return
+    try:
+        from psycopg.types.json import Jsonb
+        with db.connection() as conn:
+            conn.execute(
+                """INSERT INTO farmers (user_id, farm_asked, farm_pending)
+                   VALUES (%s, ARRAY[%s], %s)
+                   ON CONFLICT (user_id) DO UPDATE SET
+                       farm_asked = CASE WHEN %s = ANY(farmers.farm_asked) THEN farmers.farm_asked
+                                         ELSE array_append(farmers.farm_asked, %s) END,
+                       farm_pending = EXCLUDED.farm_pending, updated_at = now()""",
+                (user_id, key, Jsonb(pending), key, key))
+    except Exception as e:
+        print(f"Recording the farm question failed for {user_id}: {e}")
+
+
+def clear_farm_pending(user_id: str) -> None:
+    """The farm question is answerable by the very next message only."""
+    if not user_id or not db.is_available():
+        return
+    try:
+        with db.connection() as conn:
+            conn.execute("UPDATE farmers SET farm_pending = NULL WHERE user_id = %s", (user_id,))
+    except Exception as e:
+        print(f"Clearing the farm question failed for {user_id}: {e}")
+
+
+def save_farm(user_id: str, pending: dict) -> None:
+    """The farmer said yes: the phone's place becomes their farm.
+
+    The stored place is cleared first. They have confirmed this one, so the
+    rule that refuses a coarser place (a town over a village) must not keep a
+    village they have just said is not theirs.
+    """
+    forget_location(user_id)
+    remember(user_id, location_text=pending.get("name"), latitude=pending.get("latitude"),
+             longitude=pending.get("longitude"), state=pending.get("state"),
+             district=pending.get("district"), location_kind=pending.get("kind"),
+             channel=pending.get("channel") or "web")
+
+
 def get_profile(user_id: str) -> dict | None:
     """Stored facts for a farmer, or None if unknown / no database."""
     if not user_id or not db.is_available():
@@ -124,9 +168,19 @@ def get_profile(user_id: str) -> dict | None:
                 """,
                 (user_id,),
             ).fetchone()
+            farm = None
+            if row:
+                try:
+                    farm = conn.execute(
+                        "SELECT farm_asked, farm_pending FROM farmers WHERE user_id = %s",
+                        (user_id,)).fetchone()
+                except Exception:
+                    farm = None     # columns not migrated yet: nothing asked
         if not row:
             return None
         return {
+            "farm_asked": list((farm or [None])[0] or []),
+            "farm_pending": (farm or [None, None])[1],
             "user_id": row[0],
             "location_text": row[1],
             "latitude": row[2],

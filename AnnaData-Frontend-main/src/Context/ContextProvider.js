@@ -338,6 +338,7 @@ const ContextProvider = (props) => {
               doseStatus: result.doseStatus,
               missingSlots: result.missingSlots || [],
               needsLocation: Boolean(result.needsLocation),
+              confirmPlace: result.confirmPlace || null,
               replyLanguage: result.replyLanguage,
               pending: false,
               // A guest who reached the question limit. Not a failure: the

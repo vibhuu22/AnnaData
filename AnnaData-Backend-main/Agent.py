@@ -5,7 +5,7 @@ from typing import List, Optional
 from langchain.schema import HumanMessage
 
 from utils import llm
-from Address_Convertor import get_location, locate
+from Address_Convertor import get_location, locate, reverse, Place
 from Mandi_Price_Tool import get_state_data
 from Query_Parser import extract_farm_info
 from weather_tool import weather_openmeteo
@@ -21,6 +21,7 @@ import output_guards
 import answer_stream
 import provenance
 import place_check
+import whereabouts
 import re
 
 
@@ -352,7 +353,7 @@ def answer_about_system(query: str, history, channel: str, profile=None) -> str:
     return llm.invoke([HumanMessage(content=prompt)]).content.strip()
 
 
-def handle_correction(query: str, history, channel: str) -> str:
+def handle_correction(query: str, history, channel: str, place: str | None = None) -> str:
     """Reply to a farmer objecting to the previous answer.
 
     Apologising and restating the same advice is what the assistant did before,
@@ -373,6 +374,7 @@ def handle_correction(query: str, history, channel: str) -> str:
     {history_text}
 
     What the farmer just said: {query}
+    {f"The place this farmer is being answered for: {place}. Do not ask where they are." if place else ""}
 
     Work out what they ACTUALLY asked for, and answer that. If they were given
     advice they did not ask for, do not repeat it and do not defend it. If it is
@@ -417,8 +419,34 @@ _GREETING_INSTRUCTION = {
 }
 
 
+def greeting_instruction(profile, continuing_session: bool = False, place=None) -> str:
+    """What the greeting is told to do. Kept apart so it can be checked
+    without a model: which place it names, and whether it asks for one.
+
+    `profile` is the profile as this answer sees it (whereabouts.profile_view),
+    so a stored place the phone has left behind is already gone from it.
+    `place` is the chosen whereabouts.Where.
+    """
+    mode = planner.greeting_mode(profile, continuing_session)
+    instruction = _GREETING_INSTRUCTION[mode]
+    if mode == "returning":
+        instruction = instruction.format(
+            known=" and ".join(planner.profile_facts(profile)))
+    if place is not None and place.known and mode != "continuation":
+        if place.source == whereabouts.PHONE and place.name:
+            instruction += (f" Their phone shows they are near {place.name}; you may say you"
+                            f" will answer for {place.name}.")
+        # The place is known, from the phone if nowhere else: asking for it
+        # is the question this replaced.
+        instruction = instruction.replace(
+            "invite them to say where they farm and what they grow",
+            "invite them to say what they grow")
+        instruction += " Do NOT ask where they farm or where they are; that is known."
+    return instruction
+
+
 def greet(query: str, profile, channel: str,
-          continuing_session: bool = False) -> str:
+          continuing_session: bool = False, place=None) -> str:
     """Answer a greeting by saying what this service can actually do.
 
     A greeting previously fell through to the advice path and produced a
@@ -432,11 +460,7 @@ def greet(query: str, profile, channel: str,
     is also a billed segment, so a greeting nobody asked for costs real money.
     """
     style = style_for(channel, query)
-    mode = planner.greeting_mode(profile, continuing_session)
-    instruction = _GREETING_INSTRUCTION[mode]
-    if mode == "returning":
-        instruction = instruction.format(
-            known=" and ".join(planner.profile_facts(profile)))
+    instruction = greeting_instruction(profile, continuing_session, place)
 
     prompt = f"""
     A farmer has sent a short message with no question in it.
@@ -631,7 +655,8 @@ class AgentResult:
     """
 
     __slots__ = ("answer", "crop", "state", "location", "latitude", "longitude",
-                 "location_kind", "district", "location_named", "forget_location",
+                 "location_kind", "district", "location_named", "forget_location", "place_source",
+                 "state_named",
                  "tools_used", "missing_slots", "intent", "message_type",
                  "dose_status", "source_evidence")
 
@@ -639,7 +664,8 @@ class AgentResult:
                  latitude=None, longitude=None, tools_used=None,
                  missing_slots=None, intent="general", message_type="question",
                  location_kind=None, district=None, dose_status="not_applicable",
-                 evidence=None, location_named=False, forget_location=False):
+                 evidence=None, location_named=False, forget_location=False,
+                 place_source=None, state_named=False):
         self.answer = answer
         # Whether the place came from what the farmer wrote, as opposed to the
         # profile. Only such a place may be written back to the profile: the
@@ -648,6 +674,10 @@ class AgentResult:
         self.location_named = location_named
         # The farmer said they are not where we thought ("i am not in shimla").
         self.forget_location = forget_location
+        # Where the place came from: message, chat, phone, profile or None.
+        self.place_source = place_source
+        # The farmer wrote the state ("up me gehu ka bhav"), so it may be stored.
+        self.state_named = state_named
         # Which sources the answer was built from, hashed, for the admin
         # dashboard's per-request record (metrics_store).
         from metrics_store import evidence_summary
@@ -687,57 +717,73 @@ def _known(value) -> str | None:
     return str(value).strip()
 
 
-# How far the request's own position may be from the stored farm before the
-# stored place name stops describing it. A farmer at the mandi in the next
-# town is still at their farm, as far as advice goes; one 1,400 km away is not.
-STORED_PLACE_KM = 50
-
-
-def _check_place(query, history, location, state, profile, latitude, longitude):
+def _check_place(query, history, location, state, profile):
     """Keep only a place the farmer actually said, and notice one they deny.
 
-    Returns (location, state, forget_location, profile). The profile returned
-    may have its place removed for this answer: when the request comes from a
-    position far from the stored farm, the stored name would contradict the
-    weather and soil sampled at the request's coordinates.
+    Returns a dict:
+      location, state  - what survives: each only if the farmer wrote it
+      in_message       - whether the place is in this message (else an earlier
+                         message of theirs in this chat)
+      denied           - the place they said they are not at, or None
+      forget           - whether that place is the stored one, to be cleared
+      profile          - the profile, without its place when it was denied
     """
-    said_by_farmer = [query] + [h.get("content", "") for h in (history or [])
-                                if h.get("role", "user") == "user"]
-    forget = False
+    earlier = [h.get("content", "") for h in (history or []) if h.get("role", "user") == "user"]
+    forget, denied = False, None
     stored = (profile or {}).get("location_text")
 
     # "i am not in shimla": the place is named, and it is the one to drop.
-    for place in {p for p in (_known(location), stored) if p}:
+    for place in [p for p in dict.fromkeys((_known(location), stored)) if p]:
         if place_check.denied(place, query):
             print(f"Place {place!r} denied by the farmer")
+            denied = denied or place
             if stored and place_check.same_place(place, stored):
                 forget = True
             if _known(location) and place_check.same_place(place, location):
                 location = "unknown"
                 state = "unknown"
 
-    if _known(location) and not place_check.said(location, said_by_farmer):
-        print(f"Place {location!r} was not in the farmer's words; dropped")
-        location = "unknown"
-        if _known(state) and not place_check.said(state, said_by_farmer):
-            state = "unknown"
-    elif not _known(location) and _known(state) and not place_check.said(state, said_by_farmer):
+    in_message = True
+    if _known(location):
+        if place_check.said(location, [query]):
+            in_message = True
+        elif place_check.said(location, earlier):
+            in_message = False
+        else:
+            print(f"Place {location!r} was not in the farmer's words; dropped")
+            location = "unknown"
+    # A state is kept with a place the farmer named (it was read from it), or
+    # on its own if they wrote the state - "up me gehu ka bhav".
+    if _known(state) and not _known(location) and not place_check.said(state, [query] + earlier):
         print(f"State {state!r} was not in the farmer's words; dropped")
         state = "unknown"
 
-    if profile and (forget or _stored_place_is_elsewhere(profile, latitude, longitude)):
+    if profile and forget:
         profile = {k: v for k, v in profile.items()
                    if k not in ("location_text", "district", "state", "latitude", "longitude")}
-    return location, state, forget, profile
+    return {"location": location, "state": state, "in_message": in_message,
+            "denied": denied, "forget": forget, "profile": profile}
 
 
-def _stored_place_is_elsewhere(profile, latitude, longitude) -> bool:
-    apart = place_check.km_apart(profile.get("latitude"), profile.get("longitude"),
-                                 latitude, longitude)
-    if apart is not None and apart > STORED_PLACE_KM:
-        print(f"Request is {apart:.0f} km from the stored farm; not using its name")
-        return True
-    return False
+def _phone_place(latitude, longitude):
+    """Start looking up the phone's place, alongside the parsing that follows."""
+    if latitude is None or longitude is None:
+        return None
+    return _lookups.submit(reverse, latitude, longitude)
+
+
+_lookups = ThreadPoolExecutor(max_workers=4)
+
+
+def _location_label(where) -> str | None:
+    """How the place is named to the model."""
+    if where.name and where.source == whereabouts.PHONE:
+        return f"{where.name} (where the farmer's phone is; do not ask them for their location)"
+    if where.name:
+        return where.name
+    if where.known:
+        return "the farmer's current position, from their phone (do not ask them for their location)"
+    return None
 
 
 def run_agent(
@@ -759,6 +805,11 @@ def run_agent(
     and writes "my wheat" has told us the crop, and the picture does not get to
     disagree.
     """
+    # The phone's place is looked up while the message is being read, so it
+    # costs no time of its own. latitude/longitude are the request's - the
+    # phone's - and never the profile's; whereabouts.choose decides between
+    # them.
+    phone_lookup = _phone_place(latitude, longitude)
     query_final = get_farming_query(query, history)
     print(f"Final query after refinement: {query_final}")
 
@@ -866,33 +917,66 @@ def run_agent(
           f"pest: {structured_input.get('pest')}, "
           f"intent: {intent}, type: {message_type}, answer: {answer}")
 
-    location, state, forget_location, profile = _check_place(
-        query, history, location, state, profile, latitude, longitude)
+    checked = _check_place(query, history, location, state, profile)
+    location, state, profile = checked["location"], checked["state"], checked["profile"]
+    forget_location = checked["forget"]
+
+    # The place to answer for: named here, named earlier in this chat, the
+    # phone's, the stored farm, or none - in that order (whereabouts.py).
+    geocoded = locate(location) if _known(location) else None
+    phone = None
+    if phone_lookup is not None:
+        try:
+            phone = phone_lookup.result(timeout=6)
+        except Exception as e:
+            print(f"Phone place lookup did not finish: {e}")
+            phone = Place(latitude, longitude)
+    where = whereabouts.choose(named=_known(location), named_in_message=checked["in_message"],
+                               geocoded=geocoded, phone=phone, profile=profile)
+    # A state the farmer wrote beats the one that came with the place.
+    if _known(state) and not where.named:
+        where = where._replace(state=_known(state))
+    elif where.named and not where.state:
+        where = where._replace(state=_known(state))
+    print(f"Place: {where.source or 'none'} -> {where.name}, {where.district}, {where.state} "
+          f"({where.latitude}, {where.longitude})")
+    seen = whereabouts.profile_view(profile, where)
 
     facts = {
         "crop": _known(crop),
-        "state": _known(state),
-        "location": _known(location),
-        # Only a place from this message may be stored - see app._answer.
-        "location_named": bool(_known(location)),
+        "state": where.state,
+        "location": where.name,
+        "latitude": where.latitude,
+        "longitude": where.longitude,
+        "location_kind": where.kind,
+        "district": where.district,
+        # Only a place the farmer named may be stored - see app._answer.
+        "location_named": where.named,
         "forget_location": forget_location,
+        "place_source": where.source,
+        "state_named": bool(_known(state)),
     }
 
     # What this message did not say, the profile may already know. Without this
     # the agent asks a farmer for a crop it recorded last week, and cannot look
     # up a dose because it thinks it has no crop.
-    if profile:
-        for key, stored in (("crop", (profile.get("crops") or [None])[-1]),
-                            ("state", profile.get("state")),
-                            ("location", profile.get("location_text"))):
-            if not facts[key] and stored:
-                facts[key] = stored
+    if profile and not facts["crop"] and profile.get("crops"):
+        facts["crop"] = profile["crops"][-1]
+
+    # "i am not in shimla", and nothing else asked: say which place will be
+    # used now. Fixed words, not a model's - it is a confirmation, and it must
+    # name the right place.
+    if checked["denied"] and intent == "general" and not vision:
+        return AgentResult(
+            whereabouts.denial_reply(checked["denied"], where, query),
+            tools_used=["correction"], intent=intent, message_type="correction", **facts
+        )
 
     # A question about the assistant itself is answered from what the service
     # actually does, not from the model's general knowledge of agronomy.
     if message_type == "meta":
         return AgentResult(
-            answer_about_system(query, history, channel, profile),
+            answer_about_system(query, history, channel, seen),
             tools_used=["about"], intent=intent, message_type=message_type, **facts
         )
 
@@ -901,7 +985,7 @@ def run_agent(
     # answer below, which would otherwise swallow it.
     if message_type == "smalltalk":
         return AgentResult(
-            greet(query, profile, channel, continuing_session),
+            greet(query, seen, channel, continuing_session, place=where),
             tools_used=["greeting"], intent=intent, message_type=message_type, **facts
         )
 
@@ -913,23 +997,7 @@ def run_agent(
             and crop == "unknown" and state == "unknown" and location == "unknown"):
         return AgentResult(answer, tools_used=["direct"], message_type=message_type)
 
-    # A location named in this message beats a remembered or browser one, but
-    # only if geocoding actually resolves it.
-    lat, lon = latitude, longitude
-    place_kind = district = None
-    if _known(location):
-        place = locate(facts["location"])
-        if place.latitude is not None and place.longitude is not None:
-            lat, lon = place.latitude, place.longitude
-            # Carried so the profile can tell a village from a whole state, and
-            # so the district is recorded instead of asked for every time.
-            place_kind, district = place.kind, place.district
-            if place.state and not facts["state"]:
-                facts["state"] = place.state
-
-    facts["latitude"], facts["longitude"] = lat, lon
-    facts["location_kind"], facts["district"] = place_kind, district
-    print(f"Coordinates: lat={lat}, lon={lon}")
+    lat, lon = where.latitude, where.longitude
 
     # Which tools this question can actually use, given what we know. A leaf
     # spot question no longer waits on mandi prices it will never mention.
@@ -940,8 +1008,11 @@ def run_agent(
         kb_available=knowledge.documents_loaded() or kb_available(),
         crop=facts["crop"],
     )
+    # A position with no name is still a place to answer for: weather and soil
+    # need only coordinates, so the farmer is not asked where they are.
     missing = planner.missing_slots(
-        intent, crop=facts["crop"], location=facts["location"], state=facts["state"]
+        intent, crop=facts["crop"], location=facts["location"] or (where.known or None),
+        state=facts["state"]
     )
     print(f"Plan: intent={intent} type={message_type} "
           f"tools={sorted(tools) or 'none'} missing={missing or 'nothing'}")
@@ -950,7 +1021,7 @@ def run_agent(
     # asked instead of apologising and repeating it.
     if message_type == "correction":
         return AgentResult(
-            handle_correction(query, history, channel),
+            handle_correction(query, history, channel, place=_location_label(where)),
             tools_used=["correction"], missing_slots=missing,
             intent=intent, message_type=message_type, **facts
         )
@@ -982,14 +1053,13 @@ def run_agent(
     # turns a state-wide spread of prices into their own market's rate.
     pest = _known(structured_input.get("pest"))
     gathered, raw = gather(tools, lat=lat, lon=lon, state=facts["state"], crop=facts["crop"],
-                           query=query_final, pest=pest,
-                           district=facts.get("district") or (profile or {}).get("district"))
+                           query=query_final, pest=pest, district=facts["district"])
 
     if vision:
         gathered["image"] = describe_vision(vision)
 
     final_response = extract_markdown_content(
-        get_farming_advice(facts["location"], facts["state"], facts["crop"],
+        get_farming_advice(_location_label(where), facts["state"], facts["crop"],
                            gathered, query, channel, history=history, on_text=on_text)
     )
     # A price or a subsidy is a number a farmer acts on. If nothing retrieved

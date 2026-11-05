@@ -24,6 +24,7 @@ import db
 import farmer_account
 import feedback
 import guest_access
+import whereabouts
 import lesion_bank
 import msp
 import news
@@ -34,7 +35,7 @@ import tts
 import weather_tool
 import metrics_store
 import admin_api
-from Agent import run_agent, speech_language
+from Agent import AgentResult, run_agent, speech_language
 from process_media import process_media, understand_media
 
 app = FastAPI(title="Annadata Agent API")
@@ -206,11 +207,9 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
     chat_history_sent = history is not None and channel != "sms"
     profile = profile_store.get_profile(user_id) if user_id else None
 
-    # An explicit position in the request wins; otherwise fall back to what we
-    # remember, which is what gives SMS access to the location-aware tools.
-    if (latitude is None or longitude is None) and profile:
-        latitude = profile.get("latitude")
-        longitude = profile.get("longitude")
+    # latitude/longitude stay the request's own - the phone's. The agent
+    # decides between them and the stored farm (whereabouts.choose), which is
+    # also what still gives SMS, which sends none, the stored place.
 
     # The web app sends the turns on screen, which after opening an old
     # conversation can be fifty of them. SMS gets the last CONTEXT_MESSAGES from
@@ -246,8 +245,17 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
                                   meta={"request_id": request_id, "channel": channel,
                                         **({"chat": chat} if chat else {})})
 
+    # "Is your farm near Kharagpur?" is answerable by the next message only.
+    pending = (profile or {}).get("farm_pending") if user_id else None
+    farm_reply = None
+    if pending:
+        profile_store.clear_farm_pending(user_id)
+        verdict = whereabouts.yes_or_no(query) if channel != "sms" else None
+        if verdict is not None:
+            farm_reply = _farm_answer(user_id, pending, verdict)
+
     try:
-        result = run_agent(
+        result = farm_reply or run_agent(
             query=query,
             latitude=latitude,
             longitude=longitude,
@@ -268,6 +276,7 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         raise HTTPException(status_code=502, detail=f"Agent failed: {e}")
 
     needs_location = False
+    confirm_place = None
     if user_id:
         if getattr(result, "forget_location", False):
             profile_store.forget_location(user_id)
@@ -282,7 +291,8 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
             location_text=result.location if named else None,
             latitude=result.latitude if named else None,
             longitude=result.longitude if named else None,
-            state=result.state,
+            # The phone's state is used, never stored, like the rest of its place.
+            state=result.state if named or getattr(result, "state_named", False) else None,
             district=result.district if named else None,
             location_kind=result.location_kind,
             crop=result.crop,
@@ -301,12 +311,17 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
                   "request_id": request_id},
             session_id=session_id,
         )
-        # Re-read so the decision reflects anything just learned.
-        needs_location = profile_store.should_ask_location(
+        # Re-read so the decision reflects anything just learned. A place this
+        # answer was given for - the phone's included - means there is nothing
+        # to ask: "Tell us your village or district" under an answer for
+        # Kharagpur is the question this replaced.
+        place_known = bool(result.location) or result.latitude is not None
+        needs_location = not place_known and profile_store.should_ask_location(
             profile_store.get_profile(user_id)
         )
         if needs_location:
             profile_store.mark_location_asked(user_id)
+        confirm_place = _farm_question(user_id, channel, profile, result)
 
     reply_language = speech_language(result.answer)
     metrics_store.finish(request_id, user_id, result, (time.monotonic()-started)*1000, reply_language)
@@ -326,8 +341,50 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         # Exactly what the farmer has not told us yet, so the caller can ask
         # for that one thing instead of a generic prompt.
         "missing_slots": result.missing_slots,
+        # The phone's place, when the farmer should be asked once whether it is
+        # their farm. The caller words the question (asks.js), as it does the
+        # other follow-up asks.
+        "confirm_place": confirm_place,
         "session_id": session_id,
     }
+
+
+def _farm_answer(user_id, pending, verdict):
+    """The reply to a yes or no to "Is your farm near X?"."""
+    language = pending.get("language") or "en"
+    if verdict:
+        profile_store.save_farm(user_id, pending)
+        text = whereabouts.farm_saved(pending.get("name"), language)
+    else:
+        text = whereabouts.farm_declined(language)
+    # Saved here already, so nothing is written back again after.
+    return AgentResult(text, tools_used=["farm"], message_type="statement",
+                       location=pending.get("name"), state=pending.get("state"),
+                       latitude=pending.get("latitude"), longitude=pending.get("longitude"),
+                       place_source=whereabouts.PROFILE if verdict else whereabouts.PHONE)
+
+
+def _farm_question(user_id, channel, profile, result):
+    """Whether to ask "Is your farm near X?" under this answer, and record it.
+
+    Only when the answer was given for the phone's place - so the stored farm
+    is absent or far from it - and only once a place. Not when something else
+    is already being asked: one question under an answer, and a "haan" must
+    have only one thing it can mean.
+    """
+    name = result.location
+    if (channel == "sms" or getattr(result, "place_source", None) != whereabouts.PHONE
+            or not name or result.missing_slots or "farm" in (result.tools_used or [])):
+        return None
+    key = whereabouts.asked_key(name)
+    if key in ((profile or {}).get("farm_asked") or []):
+        return None
+    profile_store.ask_about_farm(user_id, key, {
+        "name": name, "latitude": result.latitude, "longitude": result.longitude,
+        "state": result.state, "district": result.district, "kind": result.location_kind,
+        "language": whereabouts.language_of(result.answer), "channel": channel,
+    })
+    return name
 
 
 # --- Who is calling -------------------------------------------------------

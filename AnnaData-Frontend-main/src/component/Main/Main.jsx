@@ -84,7 +84,7 @@ function Rate() {
   );
 }
 
-function FollowUpAsk({ ask }) {
+function FollowUpAsk({ ask, onReply }) {
   const [state, setState] = useState("");
   if (!ask) return null;
   // A tap shares the phone's location, which every later question then
@@ -111,6 +111,21 @@ function FollowUpAsk({ ask }) {
         >
           {state === "asking" ? "Finding you…" : state === "unavailable" ? "Location unavailable — type it instead" : "Use my location"}
         </button>
+      )}
+      {/* The farm question: one tap answers it, in the answer's language. */}
+      {ask.replies && onReply && (
+        <span className="flex gap-2">
+          {ask.replies.map((reply) => (
+            <button
+              key={reply}
+              type="button"
+              onClick={() => onReply(reply)}
+              className="inline-flex min-h-touch items-center rounded-full border-[1.5px] border-leaf-600 px-4 font-semibold text-leaf-700 hover:bg-leaf-50"
+            >
+              {reply}
+            </button>
+          ))}
+        </span>
       )}
     </div>
   );
@@ -739,7 +754,7 @@ function Main() {
           })}
 
           {latestAnswered && !latestAnswered.needsSignIn && (
-            <FollowUpAsk key={latestAnswered.id} ask={followUpAsk(latestAnswered)} />
+            <FollowUpAsk key={latestAnswered.id} ask={followUpAsk(latestAnswered)} onReply={(text) => send({ text })} />
           )}
 
           {/* A guest is offered the way to save; a farmer who confirmed their

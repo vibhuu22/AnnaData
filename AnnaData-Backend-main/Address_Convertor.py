@@ -55,6 +55,7 @@ class Place(NamedTuple):
     kind: str | None = None          # 'state', 'city', 'village', ...
     district: str | None = None
     state: str | None = None
+    name: str | None = None          # set by reverse(): what to call the place
 
 
 # How specific a place is, higher being finer. Used only to refuse a downgrade,
@@ -77,14 +78,14 @@ def precision(kind: str | None) -> int | None:
     return PRECISION.get(kind.strip().lower())
 
 
-def _throttled_get(url: str, params: dict, headers: dict):
+def _throttled_get(url: str, params: dict, headers: dict, timeout=None):
     global _last_call
     with _throttle:
         wait = _MIN_INTERVAL - (time.monotonic() - _last_call)
         if wait > 0:
             time.sleep(wait)
         _last_call = time.monotonic()
-    return requests.get(url, params=params, headers=headers, timeout=HTTP_TIMEOUT)
+    return requests.get(url, params=params, headers=headers, timeout=timeout or HTTP_TIMEOUT)
 
 
 def _google(address: str):
@@ -185,3 +186,97 @@ def get_location(address: str):
     """Get (latitude, longitude) for a place, or (None, None)."""
     place = locate(address)
     return place.latitude, place.longitude
+
+
+# --- Coordinates to a place --------------------------------------------------
+#
+# A browser that has been allowed its location sends coordinates with every
+# question. Weather and soil need only those, but a mandi price needs the
+# state, the dose table the district, and a farmer is told "for Kharagpur", not
+# "for 22.34, 87.30". Rounded to two decimals - about a kilometre - so a phone
+# asking twenty questions from the same field is looked up once, and so a
+# Nominatim outage costs one slow request rather than one per question.
+
+_REVERSE_TIMEOUT = 4
+_reverse_cache: dict[tuple, tuple] = {}
+_REVERSE_FAIL_SECONDS = 600
+# Most specific first: what a farmer would call where they are.
+_PLACE_FIELDS = ("village", "hamlet", "town", "city", "suburb", "municipality",
+                 "city_district", "county", "state_district")
+
+
+def _reverse_key(latitude, longitude):
+    return (round(float(latitude), 2), round(float(longitude), 2))
+
+
+def _nominatim_reverse(latitude, longitude) -> Place:
+    url = NOMINATIM_URL.rsplit("/", 1)[0] + "/reverse"
+    response = _throttled_get(
+        url,
+        {"lat": latitude, "lon": longitude, "format": "jsonv2", "zoom": 12,
+         "addressdetails": 1, "accept-language": "en"},
+        {"User-Agent": NOMINATIM_USER_AGENT, "Accept": "application/json"},
+        timeout=_REVERSE_TIMEOUT,
+    )
+    response.raise_for_status()
+    top = response.json() or {}
+    parts = top.get("address") or {}
+    if not parts:
+        return Place(latitude, longitude)
+    kind = top.get("addresstype") or top.get("type")
+    name = top.get("name") if kind in PRECISION else None
+    name = name or next((parts[f] for f in _PLACE_FIELDS if parts.get(f)), None)
+    return Place(latitude, longitude, kind=kind,
+                 district=parts.get("state_district") or parts.get("county") or parts.get("district"),
+                 state=parts.get("state"), name=name)
+
+
+def _google_reverse(latitude, longitude) -> Place:
+    response = requests.get(
+        "https://maps.googleapis.com/maps/api/geocode/json",
+        params={"latlng": f"{latitude},{longitude}", "key": LOCATION_API_KEY, "language": "en"},
+        timeout=_REVERSE_TIMEOUT,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if data.get("status") != "OK" or not data.get("results"):
+        return Place(latitude, longitude)
+    name = district = state = kind = None
+    for part in data["results"][0].get("address_components", []):
+        types = part.get("types", [])
+        if not name and ({"locality", "sublocality"} & set(types)):
+            name, kind = part.get("long_name"), "locality"
+        if "administrative_area_level_2" in types:
+            district = part.get("long_name")
+        elif "administrative_area_level_1" in types:
+            state = part.get("long_name")
+    return Place(latitude, longitude, kind=kind, district=district, state=state,
+                 name=name or district)
+
+
+def reverse(latitude, longitude) -> Place:
+    """The place at these coordinates: name, district and state where known.
+
+    Never raises. On any failure the coordinates come back alone, so the
+    answer still gets weather and soil for where the farmer is.
+    """
+    if latitude is None or longitude is None:
+        return Place(None, None)
+    key = _reverse_key(latitude, longitude)
+    hit = _reverse_cache.get(key)
+    if hit:
+        place, failed_at = hit
+        if failed_at is None or time.monotonic() - failed_at < _REVERSE_FAIL_SECONDS:
+            return Place(latitude, longitude, *place[2:])
+    provider = "google" if LOCATION_API_KEY else "nominatim"
+    try:
+        place = (_google_reverse if LOCATION_API_KEY else _nominatim_reverse)(latitude, longitude)
+    except Exception as e:
+        print(f"Reverse geocoding failed ({provider}) for {key}: {e}")
+        _reverse_cache[key] = (Place(latitude, longitude), time.monotonic())
+        return Place(latitude, longitude)
+    if len(_reverse_cache) >= _CACHE_MAX:
+        _reverse_cache.clear()
+    _reverse_cache[key] = (place, None if place.name or place.state else time.monotonic())
+    print(f"Reverse geocoded {key} -> {place.name}, {place.district}, {place.state} via {provider}")
+    return place

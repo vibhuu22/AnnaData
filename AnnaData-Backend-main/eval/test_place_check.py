@@ -72,33 +72,32 @@ except Exception as e:  # langchain absent: the rest needs the agent module
 if Agent:
     SHIMLA = {"location_text": "Shimla", "state": "Himachal Pradesh", "district": "Shimla",
               "latitude": 31.10, "longitude": 77.17, "crops": ["wheat", "potato"]}
-    KGP = (22.34, 87.30)
 
     print("\nThe agent's place check")
-    loc, state, forget, prof = Agent._check_place(
-        "aloo me jhulsa rog lag gaya hai", [], "Jalandhar", "Punjab", None, *KGP)
-    check("an invented place and its state are dropped", (loc, state, forget), ("unknown", "unknown", False))
+    c = Agent._check_place("aloo me jhulsa rog lag gaya hai", [], "Jalandhar", "Punjab", None)
+    check("an invented place and its state are dropped", (c["location"], c["state"], c["forget"]),
+          ("unknown", "unknown", False))
 
-    loc, state, forget, prof = Agent._check_place(
-        "dhaan ka rog, main kharagpur me hoon", [], "Kharagpur", "West Bengal", None, *KGP)
-    check("a named place is kept", (loc, state), ("Kharagpur", "West Bengal"))
+    c = Agent._check_place("dhaan ka rog, main kharagpur me hoon", [], "Kharagpur", "West Bengal", None)
+    check("a named place is kept, as named in this message",
+          (c["location"], c["state"], c["in_message"]), ("Kharagpur", "West Bengal", True))
 
-    loc, state, forget, prof = Agent._check_place(
-        "hello", [{"role": "assistant", "content": "Hello from your fields in Shimla!"}],
-        "Shimla", "Himachal Pradesh", None, *KGP)
-    check("our own reply does not vouch for a place", loc, "unknown")
+    c = Agent._check_place("dhaan ka rog", [{"role": "user", "content": "main kharagpur me hoon"}],
+                           "Kharagpur", "West Bengal", None)
+    check("one named earlier in the chat is kept, as from the chat", (c["location"], c["in_message"]),
+          ("Kharagpur", False))
 
-    loc, state, forget, prof = Agent._check_place("hello", [], "unknown", "unknown", SHIMLA, *KGP)
-    check("a request 1,400 km from the stored farm does not use its name",
-          (prof.get("location_text"), prof.get("crops")), (None, ["wheat", "potato"]))
+    c = Agent._check_place("hello", [{"role": "assistant", "content": "Hello from your fields in Shimla!"}],
+                           "Shimla", "Himachal Pradesh", None)
+    check("our own reply does not vouch for a place", c["location"], "unknown")
 
-    loc, state, forget, prof = Agent._check_place("hello", [], "unknown", "unknown", SHIMLA, 31.10, 77.17)
-    check("a request from the farm itself does", prof.get("location_text"), "Shimla")
+    c = Agent._check_place("up me gehu ka bhav", [], "unknown", "Uttar Pradesh", None)
+    check("a state the farmer wrote is kept on its own", c["state"], "Uttar Pradesh")
 
-    loc, state, forget, prof = Agent._check_place("i am not in shimla", [], "Shimla", "Himachal Pradesh",
-                                                  SHIMLA, 31.10, 77.17)
-    check("a denied stored place is forgotten", (loc, forget, prof.get("location_text")),
-          ("unknown", True, None))
+    c = Agent._check_place("i am not in shimla", [], "Shimla", "Himachal Pradesh", SHIMLA)
+    check("a denied stored place is forgotten",
+          (c["location"], c["forget"], c["denied"], c["profile"].get("location_text")),
+          ("unknown", True, "Shimla", None))
 
 print()
 if failures:
