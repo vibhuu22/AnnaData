@@ -7,6 +7,7 @@ import MediaPreview from "../MediaPreview/MediaPreview";
 import Sources from "../Sources/Sources";
 import Answer from "../Answer/Answer";
 import Onboarding from "../Onboarding/Onboarding";
+import SaveFarm from "../SaveFarm/SaveFarm";
 import { Auth } from "../../Context/AuthProvider";
 import { speak, stopSpeaking, isSpeechSupported } from "../../Config/speech";
 
@@ -54,9 +55,21 @@ function SentMedia({ file, kind }) {
 function Main() {
   const { send, responses, loading, setInput, input, dataSent } = useContext(Context);
   const { user, needsOnboarding } = useContext(Auth);
-  const firstAnsweredTurn = responses.find(
-    (turn) => !turn.pending && !turn.failed && turn.response?.trim()
-  );
+
+  // The offer to save follows the conversation: it sits after the newest
+  // turn, so it is in view when the farmer has just read something useful
+  // rather than scrolling away under the first answer. It is rendered once,
+  // after the list, rather than inside a turn - otherwise asking another
+  // question halfway through would remount it under the new answer and throw
+  // away a half-entered code or the step the farmer was on.
+  const latestAnsweredTurn = [...responses]
+    .reverse()
+    .find((turn) => !turn.pending && !turn.failed && turn.response?.trim());
+  const limited = Boolean(latestAnsweredTurn?.needsSignIn);
+
+  // "Not now" holds for this visit. Reaching the guest limit brings the card
+  // back regardless, because then saving is the only way to keep asking.
+  const [saveDismissed, setSaveDismissed] = useState(false);
 
   const [selectedImage, setSelectedImage] = useState(null);
   const [selectedAudio, setSelectedAudio] = useState(null);
@@ -269,8 +282,10 @@ function Main() {
                       अ
                     </div>
                     <div
-                      className={`min-w-0 flex-grow rounded-card border border-soil-200 bg-soil-50 p-4 ${
-                        turn.failed ? "text-red-700" : ""
+                      className={`min-w-0 flex-grow rounded-card border p-4 ${
+                        turn.needsSignIn
+                          ? "border-grain-200 bg-grain-50 text-soil-800"
+                          : `border-soil-200 bg-soil-50 ${turn.failed ? "text-red-700" : ""}`
                       }`}
                     >
                       {turn.pending ? (
@@ -299,8 +314,8 @@ function Main() {
                             markdown={turn.response}
                             doseStatus={turn.doseStatus}
                           />
-                          {!turn.failed && <Sources tools={turn.toolsUsed} />}
-                          {isSpeechSupported() && !turn.failed && (
+                          {!turn.failed && !turn.needsSignIn && <Sources tools={turn.toolsUsed} />}
+                          {isSpeechSupported() && !turn.failed && !turn.needsSignIn && (
                             <button
                               type="button"
                               onClick={() =>
@@ -331,11 +346,21 @@ function Main() {
                       )}
                       </div>
                   </div>
-                  {needsOnboarding && turn.id === firstAnsweredTurn?.id && (
-                    <Onboarding key={user?.user_id} embedded />
-                  )}
                 </div>
               ))}
+              {/* A guest is offered the way to save; a farmer who has just
+                  confirmed their number is asked the two short profile steps,
+                  in place, without leaving the conversation. */}
+              {latestAnsweredTurn && (
+                <div className="w-full max-w-[800px]">
+                  {!user && (limited || !saveDismissed) && (
+                    <SaveFarm limited={limited} onDismiss={() => setSaveDismissed(true)} />
+                  )}
+                  {user && needsOnboarding && (
+                    <Onboarding key={user.user_id} embedded />
+                  )}
+                </div>
+              )}
               <div ref={bottomRef} />
             </div>
           )}

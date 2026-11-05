@@ -47,6 +47,69 @@ export function authHeaders() {
 }
 
 /**
+ * Who this browser is before the farmer has signed in.
+ *
+ * A farmer now asks first and confirms their number only when they choose to
+ * save their farm. Until then their questions are answered under a random id
+ * this browser makes up and keeps. It proves nothing about who they are - the
+ * backend treats it accordingly, answering within tight limits and never
+ * touching a real farmer's profile with it - and its one job is to let the
+ * questions asked before sign-in be moved onto the farmer's number afterwards.
+ */
+const GUEST_KEY = "annadata.guest";
+let cachedGuest = null;
+
+function newGuestId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  // A version-4 UUID by hand, for browsers without randomUUID. The backend
+  // accepts only this exact shape, so it has to match it precisely.
+  // The id is not a secret - it proves nothing and is only ever trusted
+  // within guest limits - so where even getRandomValues is missing (very old
+  // browsers, some test environments) Math.random is good enough.
+  const bytes = new Uint8Array(16);
+  if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < 16; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export function getGuestId() {
+  if (cachedGuest) return cachedGuest;
+  try {
+    cachedGuest = window.localStorage.getItem(GUEST_KEY) || "";
+  } catch (e) {
+    cachedGuest = "";
+  }
+  if (!cachedGuest) {
+    cachedGuest = newGuestId();
+    try {
+      window.localStorage.setItem(GUEST_KEY, cachedGuest);
+    } catch (e) {
+      /* lasts this page only */
+    }
+  }
+  return cachedGuest;
+}
+
+/** A fresh guest id, so a farmer who signs out does not carry the old one. */
+export function resetGuestId() {
+  cachedGuest = null;
+  try {
+    window.localStorage.removeItem(GUEST_KEY);
+  } catch (e) {
+    /* nothing to do */
+  }
+}
+
+/** Headers for a question: the farmer's token if they have one, else the guest id. */
+export function askHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : { "X-Guest-Id": getGuestId() };
+}
+
+/**
  * Anyone can subscribe to "the token stopped working".
  *
  * A 401 can come back from any request, including one fired from deep inside
@@ -139,11 +202,15 @@ export function requestCode(phone) {
 }
 
 export async function verifyCode(phone, code) {
+  // The guest id goes with the code so the backend can move the questions
+  // asked before sign-in onto this number. Then it is thrown away: it has done
+  // its one job, and keeping it would let a later sign-out resurrect it.
   const data = await apiFetch("/auth/verify", {
     method: "POST",
-    body: { phone, code },
+    body: { phone, code, guest_id: getGuestId() },
   });
   setToken(data.token);
+  resetGuestId();
   return data;
 }
 

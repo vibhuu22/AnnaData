@@ -44,6 +44,9 @@ function foldIntoTurns(messages) {
     } else if (current) {
       current.response = message.body;
       current.toolsUsed = message.meta?.tools || [];
+      // Stored with the reply since dose_status was added to message meta, so a
+      // past answer that declined to name a dose still says why after a reload.
+      current.doseStatus = message.meta?.dose_status || null;
       turns.push(current);
       current = null;
     }
@@ -75,6 +78,7 @@ const newTurn = ({ text, image, audio }) => ({
   spoken: Boolean(audio),
   pending: true,
   failed: false,
+  needsSignIn: false,
 });
 
 const ContextProvider = (props) => {
@@ -109,9 +113,11 @@ const ContextProvider = (props) => {
     let cancelled = false;
 
     if (!userId) {
+      // A guest, or a farmer who just signed out. A sign-out must not leave
+      // the previous farmer's conversation on a shared phone.
       setResponses([]);
       setDataSent(false);
-      setHistoryLoaded(false);
+      setHistoryLoaded(true);
       return undefined;
     }
 
@@ -121,6 +127,12 @@ const ContextProvider = (props) => {
         const data = await fetchHistory(50);
         if (cancelled) return;
         const turns = foldIntoTurns(data.messages || []);
+        // A guest who has just signed in had their questions moved onto this
+        // number by the backend, so the stored history already holds them.
+        // If it came back empty anyway (an older backend that does not move
+        // them), keep what is on screen rather than blanking the conversation
+        // the farmer is in the middle of.
+        if (turns.length === 0) return;
         setResponses(turns);
         // Straight to the conversation when there is one; a returning farmer
         // should see what they asked last time, not the empty landing screen.
@@ -157,7 +169,7 @@ const ContextProvider = (props) => {
     setResponses((prev) => [...prev, { ...newTurn({ text: trimmed, image, audio }), id }]);
 
     const history = responses
-      .filter((item) => item.response && !item.failed)
+      .filter((item) => item.response && !item.failed && !item.needsSignIn)
       .flatMap((item) => [
         { role: "user", content: item.transcript || item.prompt },
         { role: "assistant", content: item.response },
@@ -187,7 +199,10 @@ const ContextProvider = (props) => {
               doseStatus: result.doseStatus,
               replyLanguage: result.replyLanguage,
               pending: false,
-              failed: Boolean(result.error),
+              // A guest who reached the question limit. Not a failure: the
+              // answer surface offers sign-in instead of showing an error.
+              needsSignIn: Boolean(result.needsSignIn),
+              failed: Boolean(result.error) && !result.needsSignIn,
             }
       )
     );

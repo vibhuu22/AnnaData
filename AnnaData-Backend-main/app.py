@@ -4,7 +4,7 @@ import json
 import secrets
 from typing import List, Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -15,6 +15,7 @@ import config
 import db
 import farmer_account
 import feedback
+import guest_access
 import lesion_bank
 import msp
 import profile_store
@@ -114,6 +115,15 @@ def health():
             "secret": "ephemeral" if config.AUTH_SECRET_IS_EPHEMERAL else "configured",
             "bridge_token": "configured" if config.BRIDGE_TOKEN else "not set",
             "code_transport": sms_out.transport(),
+            # Questions before sign-in, and the bounds on them. Stated here
+            # because an open endpoint that spends model quota is exactly the
+            # kind of setting that should never be a guess.
+            "guest_questions": (
+                {"enabled": True, "per_hour": config.GUEST_PER_HOUR,
+                 "per_address_per_hour": config.GUEST_IP_PER_HOUR,
+                 "daily_cap": config.GUEST_DAILY_CAP}
+                if config.GUEST_ASK_ENABLED else {"enabled": False}
+            ),
         },
     }
 
@@ -182,9 +192,15 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         )
         profile_store.log_message(
             user_id, "outbound", result.answer,
+            # dose_status is stored because it is the one field that says an
+            # answer refused to name a chemical. Without it a refusal reloaded
+            # from history - after a guest signs in, after a page refresh - lost
+            # its refusal styling and read as an ordinary answer, and refusals
+            # could not be counted from the database at all.
             meta={"tools": result.tools_used, "channel": channel,
                   "intent": result.intent,
-        "message_type": result.message_type, "missing": result.missing_slots},
+                  "message_type": result.message_type, "missing": result.missing_slots,
+                  "dose_status": result.dose_status},
         )
         # Re-read so the decision reflects anything just learned.
         needs_location = profile_store.should_ask_location(
@@ -223,18 +239,31 @@ def _bearer(authorization: str | None) -> str | None:
     return None
 
 
+_guests = guest_access.GuestLimiter(
+    per_guest=config.GUEST_PER_HOUR,
+    per_ip=config.GUEST_IP_PER_HOUR,
+    daily_cap=config.GUEST_DAILY_CAP,
+)
+
+
 def _caller(authorization: str | None, bridge_token: str | None,
-            claimed_user_id: str | None) -> str | None:
+            claimed_user_id: str | None, guest_id: str | None = None,
+            client_ip: str | None = None) -> str | None:
     """The farmer this request is for, from the strongest evidence available.
 
-    Three callers, in descending order of proof:
+    Four callers, in descending order of proof:
 
     1. The SMS bridge, holding BRIDGE_TOKEN. It may name any user_id, because the
        mobile network told it who sent the message and a farmer cannot forge the
        network's idea of their own number.
     2. A browser holding a signed token. The id comes out of the token; whatever
        the body says about user_id is ignored, which is the entire point.
-    3. Nobody. Raises 401 when AUTH_REQUIRED, and otherwise falls back to the old
+    3. A browser that has not signed in yet, sending its own guest id. It is
+       answered under `guest:<id>`, a key that can never be a phone number, so
+       it reaches no real farmer's profile - and only within the limits in
+       guest_access.py. Whatever the body claims about user_id is ignored here
+       too.
+    4. Nobody. Raises 401 when AUTH_REQUIRED, and otherwise falls back to the old
        body-supplied user_id so local development and the un-migrated bridge keep
        working.
     """
@@ -245,6 +274,15 @@ def _caller(authorization: str | None, bridge_token: str | None,
     user_id = auth.read_token(_bearer(authorization))
     if user_id:
         return user_id
+
+    guest = guest_access.guest_user_id(guest_id) if config.GUEST_ASK_ENABLED else None
+    if guest:
+        admitted, wait, which = _guests.check(guest, client_ip or "unknown")
+        if not admitted:
+            raise HTTPException(status_code=429,
+                                detail=guest_access.REFUSALS[which],
+                                headers={"Retry-After": str(wait)})
+        return guest
 
     if config.AUTH_REQUIRED:
         raise HTTPException(status_code=401, detail="sign in to ask a question")
@@ -292,6 +330,10 @@ class PhoneRequest(BaseModel):
 class VerifyRequest(BaseModel):
     phone: str
     code: str
+    # The browser's guest id, if the farmer asked questions before signing in.
+    # Those questions are moved onto their number, because the screen that
+    # asked them to sign in promised their questions would stay saved.
+    guest_id: Optional[str] = None
 
 
 @app.post("/auth/request-code")
@@ -336,10 +378,19 @@ def verify_code(request: VerifyRequest):
         raise HTTPException(status_code=401, detail=reason or "that code is wrong")
 
     version = farmer_account.ensure(phone, channel="web")
+
+    # Before reading the account, so a crop the guest mentioned is already in
+    # the profile when the farm-details screen asks what they grow.
+    claimed = 0
+    guest = guest_access.guest_user_id(request.guest_id)
+    if guest:
+        claimed = profile_store.claim_guest(guest, phone)
+
     account = farmer_account.account(phone) or {}
     return {
         "token": auth.issue_token(phone, version),
         "user": account,
+        "claimed_messages": claimed,
         # The browser uses this to decide between the onboarding screen and the
         # chat. Onboarding is skippable, so this can stay true indefinitely.
         "needs_onboarding": not account.get("onboarded_at"),
@@ -378,6 +429,12 @@ class OnboardingRequest(BaseModel):
     area: Optional[float] = None
     area_unit: Optional[str] = None
     sown_on: Optional[str] = None
+    # Which collective the farmer belongs to, if any: "fpo", "cooperative",
+    # "shg" or "none", plus its name. The service is sold to these institutions
+    # rather than to farmers, so this is how usage is tied to the organisation
+    # paying for it.
+    farmer_group: Optional[str] = None
+    farmer_group_name: Optional[str] = None
     # How long the form took, in milliseconds, measured in the browser. Recorded
     # so "a one-minute onboarding" is a number somebody checked.
     took_ms: Optional[int] = None
@@ -411,16 +468,25 @@ def read_history(limit: int = 50, authorization: Optional[str] = Header(None)):
     return {"messages": farmer_account.history(user_id, limit)}
 
 
+def _peer(http: Request) -> str | None:
+    return http.client.host if http.client else None
+
+
 @app.post("/agent")
 def run_agent_endpoint(request: QueryRequest,
+                       http: Request,
                        authorization: Optional[str] = Header(None),
-                       x_bridge_token: Optional[str] = Header(None)):
+                       x_bridge_token: Optional[str] = Header(None),
+                       x_guest_id: Optional[str] = Header(None),
+                       x_forwarded_for: Optional[str] = Header(None)):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="query must not be empty")
 
     return _answer(
         request.query,
-        user_id=_caller(authorization, x_bridge_token, request.user_id),
+        user_id=_caller(authorization, x_bridge_token, request.user_id,
+                        guest_id=x_guest_id,
+                        client_ip=guest_access.client_ip(x_forwarded_for, _peer(http))),
         channel=request.channel or "web",
         latitude=request.latitude,
         longitude=request.longitude,
@@ -450,6 +516,7 @@ def _to_float(raw: Optional[str]) -> Optional[float]:
 
 @app.post("/agent/media")
 async def run_agent_media(
+    http: Request,
     audio: Optional[UploadFile] = File(None, description="Voice note"),
     image: Optional[UploadFile] = File(None, description="Photo of the crop"),
     query: str = Form(""),
@@ -461,6 +528,8 @@ async def run_agent_media(
     message_id: Optional[str] = Form(None),
     authorization: Optional[str] = Header(None),
     x_bridge_token: Optional[str] = Header(None),
+    x_guest_id: Optional[str] = Header(None),
+    x_forwarded_for: Optional[str] = Header(None),
 ):
     """A voice note and/or a photo, answered in one round trip.
 
@@ -477,7 +546,10 @@ async def run_agent_media(
     # image uploads into memory on a 1 GiB container and then spends the media
     # model's daily quota; deciding who is calling after accepting the upload
     # would leave both of those open to anyone who found the URL.
-    caller = _caller(authorization, x_bridge_token, user_id)
+    caller = _caller(authorization, x_bridge_token, user_id,
+                     guest_id=x_guest_id,
+                     client_ip=guest_access.client_ip(
+                         x_forwarded_for, _peer(http)))
 
     audio_bytes = await audio.read() if audio is not None else None
     image_bytes = await image.read() if image is not None else None

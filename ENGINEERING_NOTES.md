@@ -1217,6 +1217,39 @@ than a thing to fix blind.
 
 ---
 
+### Asking before signing in
+
+The web app put a phone number and an SMS code in front of the first answer.
+That is the most expensive thing it can ask — an SMS off our own SIM and a
+minute of the farmer's attention — and it was asked before there was any
+reason to trust the service with it. The flow is now: ask, read the answer,
+then "Add farm details" → confirm number → About you → Your farm, every step
+skippable. A returning farmer uses "Sign in" in the header.
+
+This reopens an unauthenticated endpoint that spends model quota on every
+call, which is what the sign-in work closed. `guest_access.py` keeps it closed
+in the way that matters:
+
+- A guest is answered under `guest:<uuid4>`. The id is validated strictly, so it
+  can never be — or contain — a phone number; a guest cannot reach a real
+  farmer's row, and the rating scheduler (digit-only ids) never texts one.
+- Three windows: per guest id (the limit a genuine farmer meets, phrased as an
+  invitation to sign in), per network address (deliberately loose because
+  carrier-grade NAT puts whole villages behind one address), and a daily cap on
+  all guests together. A refused question is counted in none of them.
+- At verify, `profile_store.claim_guest` moves the guest's messages onto the
+  number and fills profile gaps from what the questions taught us (a crop named
+  in the question is already marked on the Your farm step), then deletes the
+  guest row. One transaction.
+
+`/profile` and `/history` still require a token; a guest has neither.
+
+The profile's `language` is stored but nothing reads it yet — replies follow the
+script the farmer writes in — and the screen says exactly that rather than
+implying the choice changes answers. Outbound messages now carry `dose_status`
+in their meta, so a past answer that declined to name a dose still says why
+after a reload.
+
 ## 4. Two kinds of memory
 
 Deliberately separate, because they have different lifetimes:
@@ -1464,7 +1497,10 @@ unmeasured.
   real use; everything else is polish until billing is enabled.
 - **One phone, one SIM.** Off, offline or out of balance means the service is
   down, and silence looks identical to working.
-- **No authentication or rate limiting** on `/agent`.
+- **Rate limiting covers guests only.** A browser that has not signed in is
+  held to per-guest, per-address and daily limits, kept in each instance's
+  memory (so up to three times the configured figures across Cloud Run's
+  instances, reset on restart). A signed-in farmer is not rate limited at all.
 - **Soil is a 250 m global model**, not a test of the farmer's field. The
   system says so when asked.
 - **data.gov.in** has been returning 502 for days. A circuit breaker stops

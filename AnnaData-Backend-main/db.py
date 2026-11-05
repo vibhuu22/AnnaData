@@ -75,6 +75,12 @@ ALTER TABLE farmers ADD COLUMN IF NOT EXISTS tehsil  TEXT;
 -- unit the farmer used. See units.py for why a bigha needs the state too.
 ALTER TABLE farmers ADD COLUMN IF NOT EXISTS area_unit TEXT;
 
+-- The collective a farmer belongs to: 'fpo', 'cooperative', 'shg' or 'none'.
+-- AnnaData is paid for by institutions on behalf of their members, so this is
+-- what ties a farmer's usage to the organisation buying the coverage.
+ALTER TABLE farmers ADD COLUMN IF NOT EXISTS farmer_group      TEXT;
+ALTER TABLE farmers ADD COLUMN IF NOT EXISTS farmer_group_name TEXT;
+
 -- A plot of land. Separate from farmers because a smallholding is usually
 -- several fragmented parcels with different water, not one field.
 CREATE TABLE IF NOT EXISTS plots (

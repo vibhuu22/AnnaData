@@ -331,6 +331,59 @@ def mark_location_asked(user_id: str) -> None:
         print(f"Could not record location prompt for {user_id}: {e}")
 
 
+def claim_guest(guest_user_id: str, phone: str) -> int:
+    """Move a guest's conversation and learned facts onto a verified number.
+
+    A farmer asks before signing in, is shown their answer, and is then told
+    that confirming their number keeps their questions saved. That promise is
+    kept here. Without it the history screen would be empty the moment after it
+    said it would not be.
+
+    The guest row's facts fill gaps only - a district or crop the farmer told us
+    weeks ago over SMS outranks one inferred from a single anonymous question.
+    Crops are the exception and are merged, because a farmer grows more than one
+    thing. Coordinates move with their location text or not at all, the same
+    rule remember() keeps, so the two cannot come to disagree.
+
+    Returns how many messages moved. All in one transaction, so a failure leaves
+    the guest's conversation where it was rather than half-moved.
+    """
+    if not guest_user_id or not phone or not db.is_available():
+        return 0
+    if not guest_user_id.startswith("guest:") or guest_user_id == phone:
+        return 0
+    try:
+        with db.connection() as conn:
+            moved = conn.execute(
+                "UPDATE messages SET user_id = %s WHERE user_id = %s",
+                (phone, guest_user_id),
+            ).rowcount or 0
+            conn.execute(
+                """
+                UPDATE farmers f SET
+                    location_text = CASE WHEN f.latitude IS NULL THEN g.location_text ELSE f.location_text END,
+                    latitude      = CASE WHEN f.latitude IS NULL THEN g.latitude      ELSE f.latitude      END,
+                    longitude     = CASE WHEN f.latitude IS NULL THEN g.longitude     ELSE f.longitude     END,
+                    location_kind = CASE WHEN f.latitude IS NULL THEN g.location_kind ELSE f.location_kind END,
+                    state    = COALESCE(f.state, g.state),
+                    district = COALESCE(f.district, g.district),
+                    language = COALESCE(f.language, g.language),
+                    crops    = ARRAY(SELECT DISTINCT c FROM unnest(f.crops || g.crops) AS c),
+                    updated_at = now()
+                  FROM farmers g
+                 WHERE f.user_id = %s AND g.user_id = %s
+                """,
+                (phone, guest_user_id),
+            )
+            conn.execute("DELETE FROM farmers WHERE user_id = %s", (guest_user_id,))
+        if moved:
+            print(f"Moved {moved} guest message(s) onto a verified number")
+        return moved
+    except Exception as e:
+        print(f"Could not claim guest conversation: {e}")
+        return 0
+
+
 def forget(user_id: str) -> bool:
     """Delete a farmer's profile and messages. Backs the STOP keyword."""
     if not user_id or not db.is_available():

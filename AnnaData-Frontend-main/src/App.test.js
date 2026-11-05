@@ -6,7 +6,11 @@ import { requestCode, verifyCode } from './Config/session';
 jest.mock('./Config/session', () => ({ requestCode: jest.fn(), verifyCode: jest.fn() }));
 jest.mock('./component/Main/Main', () => () => <div>Farmer conversation</div>);
 jest.mock('./component/Sidebar/Sidebar', () => () => null);
-jest.mock('./component/Header/Header', () => () => null);
+// The real header needs nothing from the network, but a stub keeps this file
+// about routing: one button, wired to the same prop.
+jest.mock('./component/Header/Header', () => ({ onSignIn }) => (
+  <button type="button" onClick={onSignIn}>Sign in</button>
+));
 
 function show(auth = {}) {
   return render(<Auth.Provider value={{ user: null, checking: false, ...auth }}><App /></Auth.Provider>);
@@ -14,10 +18,19 @@ function show(auth = {}) {
 
 beforeEach(() => jest.clearAllMocks());
 
-test('signed-out farmers must sign in before seeing their conversation', () => {
+test('a farmer who has not signed in reaches the conversation straight away', () => {
   show();
+  expect(screen.getByText('Farmer conversation')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Send me a code' })).not.toBeInTheDocument();
+});
+
+test('the header opens sign-in for a returning farmer, and they can go back', () => {
+  show();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
   expect(screen.getByRole('button', { name: 'Send me a code' })).toBeDisabled();
   expect(screen.queryByText('Farmer conversation')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to asking' }));
+  expect(screen.getByText('Farmer conversation')).toBeInTheDocument();
 });
 
 test('OTP journey passes the verified account to authentication', async () => {
@@ -26,6 +39,7 @@ test('OTP journey passes the verified account to authentication', async () => {
   requestCode.mockResolvedValue({ phone: '+91 ***** 00099', transport: 'android-gateway' });
   verifyCode.mockResolvedValue(account);
   show({ signedIn });
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
   fireEvent.change(screen.getByPlaceholderText('98765 43210'), { target: { value: '9999000099' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send me a code' }));
   fireEvent.change(await screen.findByLabelText('Enter the code'), { target: { value: '123456' } });
@@ -38,21 +52,16 @@ test('OTP journey passes the verified account to authentication', async () => {
 test('failed OTP delivery keeps the farmer on the phone screen', async () => {
   requestCode.mockRejectedValue(new Error('Gateway unavailable'));
   show();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
   fireEvent.change(screen.getByPlaceholderText('98765 43210'), { target: { value: '9999000099' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send me a code' }));
   expect(await screen.findByText('Gateway unavailable')).toBeInTheDocument();
   expect(screen.queryByLabelText('Enter the code')).not.toBeInTheDocument();
 });
 
-test('onboarded farmers can see the conversation', () => {
+test('signed-in farmers see the conversation, profile or not', () => {
   show({ user: { user_id: '+919999000099' }, needsOnboarding: false });
   expect(screen.getByText('Farmer conversation')).toBeInTheDocument();
-});
-
-test('new farmers reach chat before completing their profile', () => {
-  show({ user: { user_id: '+919999000099' }, needsOnboarding: true });
-  expect(screen.getByText('Farmer conversation')).toBeInTheDocument();
-  expect(screen.queryByText('Tell us about your farm')).not.toBeInTheDocument();
 });
 
 test('session verification does not expose a conversation prematurely', () => {

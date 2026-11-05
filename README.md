@@ -152,8 +152,9 @@ A farmer texts *"Kapas me sundi lag gayi hai, kya spray karu?"*
    before treating it as a question, then calls `/agent` with `X-Bridge-Token` —
    which is what entitles it to name a `user_id` the backend will believe.
 2. **The backend decides who is calling.** Bridge token, then signed token, then
-   nobody (401 when `AUTH_REQUIRED`). Identity is the phone number on every
-   channel, so one farmer is one history.
+   a browser's guest id (within guest limits), then nobody (401 when
+   `AUTH_REQUIRED`). Identity is the phone number on every channel, so one
+   farmer is one history.
 3. **Profile and history are recalled.** District, crops, land area, recent
    turns. Coordinates come from the profile when the request has none, which is
    what gives SMS access to the location-aware tools.
@@ -194,10 +195,10 @@ crop is theirs to state, and a picture of one leaf does not get to correct them.
 
 | Endpoint | Who may call it |
 |---|---|
-| `POST /auth/request-code`, `POST /auth/verify` | Anyone. Answers identically whether or not the number is known |
+| `POST /auth/request-code`, `POST /auth/verify` | Anyone. Answers identically whether or not the number is known. Verify takes an optional `guest_id` and moves that guest's questions onto the number |
 | `GET /auth/me`, `POST /auth/signout` | A signed-in farmer |
 | `GET`/`PUT /profile`, `GET /history` | A signed-in farmer, about themselves only |
-| `POST /agent`, `POST /agent/media` | A signed-in farmer, or the bridge with `BRIDGE_TOKEN` |
+| `POST /agent`, `POST /agent/media` | A signed-in farmer, the bridge with `BRIDGE_TOKEN`, or a guest sending `X-Guest-Id` (a v4 UUID) within the guest limits — 429 with `Retry-After` beyond them |
 | `POST /forget` | The bridge relaying STOP, or a farmer naming their own id |
 | `GET /feedback/due`, `POST /feedback/asked`, `POST /feedback/rating`, `GET /feedback/summary` | The bridge |
 | `GET /health`, `GET /` | Anyone. No model calls, so it is safe to ping |
@@ -293,6 +294,8 @@ the advisory still goes out. `GET /health` reports exactly what is live.
 | `AUTH_SECRET` | Sessions that survive a restart | Regenerated per process; everyone signed out on restart |
 | `BRIDGE_TOKEN` | Proof the SMS bridge is the SMS bridge | `/feedback/*` stay open, reported on `/health` |
 | `SMS_GATEWAY_USER` / `SMS_GATEWAY_PASSWORD` | Sending sign-in codes | Nobody can sign in on the web |
+| `GUEST_ASK_ENABLED` | Questions before sign-in (default `true`) | `false` makes the web app's guests get 401, as before |
+| `GUEST_PER_HOUR` / `GUEST_IP_PER_HOUR` / `GUEST_DAILY_CAP` | Guest limits: per browser, per network address, all guests per day (defaults 10 / 60 / 400, per instance) | — |
 | `DATABASE_URL` | Profiles, history, doses, retrieval, lesion bank, ratings | Stateless: no memory, no grounded doses, no retrieval |
 | `GOV_API_KEY` | Live mandi prices | MSP still answers; live rates omitted |
 | `EE_SERVICE_KEY` | Soil texture, pH, organic carbon | Advice omits soil |
@@ -480,6 +483,7 @@ deterministic tests:
 | `eval/test_romanisation.py` | Rare nondeterministic output would make a case pass or fail on the roll of the model. Checks the correction, on hand-written inputs |
 | `eval/test_profile_location.py` | Profile and location-precision bookkeeping |
 | `eval/test_retry.py` | Transport classification: which backend statuses the bridge waits out and which it drops. The model never sees a status code, and the fault it guards against produces *no message at all* |
+| `eval/test_guest_access.py` | Who may ask without signing in and how often: guest ids that could carry a phone number, limits that count refused requests, a ceiling that never triggers. Fake clock, no database, no model |
 | `eval/test_greeting.py` | Whether a short message is an arrival or someone closing a conversation. Decided before any model is called, and what it picks is which instruction the model is then given |
 
 A suite that can only express "ask the model and look at the answer" quietly

@@ -233,7 +233,9 @@ function Sidebar() {
 
           {/* The account, at the bottom where a footer belongs. Collapsed, it is
               the initial alone - enough to tell you that you are signed in and
-              as whom, in 44px of rail. */}
+              as whom, in 44px of rail. Absent for a guest: there is no account
+              to show, and the header carries the way to sign in. */}
+          {user && (
           <div className="mb-3 border-t border-soil-200 pt-3">
             {extended ? (
               <>
@@ -270,6 +272,7 @@ function Sidebar() {
               </button>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>

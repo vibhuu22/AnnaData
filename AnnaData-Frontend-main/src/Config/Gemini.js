@@ -1,5 +1,5 @@
 import { getApiUrl } from "./api";
-import { authHeaders, reportUnauthorized } from "./session";
+import { askHeaders, getToken, reportUnauthorized } from "./session";
 
 const GEOLOCATION_TIMEOUT_MS = 8000;
 
@@ -77,7 +77,7 @@ export async function ask({ text = "", history = [], image = null, audio = null 
       // No Content-Type header: the browser sets it with the multipart boundary.
       response = await fetch(`${getApiUrl()}/agent/media`, {
         method: "POST",
-        headers: authHeaders(),
+        headers: askHeaders(),
         body: form,
       });
     } else {
@@ -88,7 +88,7 @@ export async function ask({ text = "", history = [], image = null, audio = null 
       }
       response = await fetch(`${getApiUrl()}/agent`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json", ...askHeaders() },
         body: JSON.stringify(body),
       });
     }
@@ -97,6 +97,31 @@ export async function ask({ text = "", history = [], image = null, audio = null 
     // return the farmer to the sign-in screen, rather than leaving them on a
     // chat where every question comes back as an error.
     if (response.status === 401) reportUnauthorized();
+
+    // A farmer who has not signed in and has reached the guest limit. Not an
+    // error in their eyes and not shown as one: the backend's words say what to
+    // do next, and needsSignIn lets the screen offer the way to do it.
+    if (response.status === 429 && !getToken()) {
+      let detail = "Confirm your phone number to keep asking.";
+      try {
+        const body = await response.json();
+        detail = body.detail || detail;
+      } catch (e) {
+        /* keep the default */
+      }
+      return {
+        answer: detail,
+        transcript: "",
+        vision: null,
+        queryUsed: text,
+        toolsUsed: [],
+        doseStatus: null,
+        replyLanguage: "en-IN",
+        needsSignIn: true,
+        error: new Error(detail),
+      };
+    }
+
     if (!response.ok) throw await errorFrom(response);
 
     const data = await response.json();

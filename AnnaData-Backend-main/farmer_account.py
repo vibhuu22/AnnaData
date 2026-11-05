@@ -88,7 +88,8 @@ def account(user_id: str) -> dict | None:
                 """
                 SELECT user_id, name, state, district, village, block, tehsil,
                        latitude, longitude, language, area_unit, crops,
-                       onboarded_at, verified_at, consent_sms
+                       onboarded_at, verified_at, consent_sms,
+                       farmer_group, farmer_group_name
                   FROM farmers WHERE user_id = %s
                 """,
                 (user_id,),
@@ -133,6 +134,8 @@ def account(user_id: str) -> dict | None:
             "onboarded_at": row[12].isoformat() if row[12] else None,
             "verified_at": row[13].isoformat() if row[13] else None,
             "consent_sms": row[14],
+            "farmer_group": row[15],
+            "farmer_group_name": row[16],
             "total_area_ha": total_ha,
             # Said in the farmer's own unit as well as hectares, because "0.27
             # hectares" is not a quantity a farmer who said "2 bigha" recognises.
@@ -182,6 +185,10 @@ def save_onboarding(user_id: str, data: dict) -> tuple[bool, str | None]:
     latitude = data.get("latitude")
     longitude = data.get("longitude")
     crops = [c.strip().lower() for c in (data.get("crops") or []) if c and c.strip()]
+    group = (data.get("farmer_group") or "").strip().lower() or None
+    if group not in (None, "fpo", "cooperative", "shg", "none"):
+        group = None
+    group_name = (data.get("farmer_group_name") or "").strip()[:120] or None
 
     area_said = data.get("area")
     area_unit = units.normalise_unit(data.get("area_unit"))
@@ -202,12 +209,14 @@ def save_onboarding(user_id: str, data: dict) -> tuple[bool, str | None]:
                     longitude  = COALESCE(%s, longitude),
                     area_unit  = COALESCE(%s, area_unit),
                     crops      = CASE WHEN %s::text[] IS NULL THEN crops ELSE %s::text[] END,
+                    farmer_group      = COALESCE(%s, farmer_group),
+                    farmer_group_name = COALESCE(%s, farmer_group_name),
                     onboarded_at = COALESCE(farmers.onboarded_at, now()),
                     updated_at = now()
                  WHERE user_id = %s
                 """,
                 (name, state, district, village, language, latitude, longitude,
-                 area_unit, crops or None, crops or None, user_id),
+                 area_unit, crops or None, crops or None, group, group_name, user_id),
             )
 
             # One plot at sign-up. A farmer with three fragmented parcels can add

@@ -130,6 +130,17 @@ AUTH_REQUIRED = (_get("AUTH_REQUIRED", "true") or "").lower() not in ("0", "fals
 # their own, so the bridge is trusted to name the user_id - but only the bridge.
 BRIDGE_TOKEN = _get("BRIDGE_TOKEN")
 
+# Questions from the web app before the farmer has signed in. A farmer now asks
+# first and confirms their number only when they choose to save their farm; see
+# guest_access.py for why, and for why each of these bounds exists. Per-hour
+# figures are per instance, so Cloud Run's three instances can admit up to three
+# times as many. Set GUEST_ASK_ENABLED=false to require sign-in again.
+GUEST_ASK_ENABLED = (_get("GUEST_ASK_ENABLED", "true") or "").lower() not in ("0", "false", "no", "off")
+GUEST_PER_HOUR = int(_get("GUEST_PER_HOUR", "10"))
+# Loose on purpose: carrier-grade NAT puts whole villages behind one address.
+GUEST_IP_PER_HOUR = int(_get("GUEST_IP_PER_HOUR", "60"))
+GUEST_DAILY_CAP = int(_get("GUEST_DAILY_CAP", "400"))
+
 
 # --- Outbound SMS (sign-in codes) ----------------------------------------
 # The same Android handset gateway the bridge uses. See sms_out.py for why the
