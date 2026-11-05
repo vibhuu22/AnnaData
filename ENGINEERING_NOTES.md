@@ -1250,6 +1250,43 @@ implying the choice changes answers. Outbound messages now carry `dose_status`
 in their meta, so a past answer that declined to name a dose still says why
 after a reload.
 
+### Voice mode
+
+Tapping a microphone opens a full-screen spoken conversation (VoiceMode.jsx),
+after ChatGPT's and Claude's voice modes: an orb that follows the farmer's voice,
+Listening / Thinking / Speaking, tap to interrupt, one button to end.
+
+One microphone stream is opened for the whole conversation. Turn-taking is a
+level detector in the browser: the room's noise floor is measured for the first
+350 ms of each turn, speech is anything three times above it, and 1.3 s of
+silence after at least 250 ms of speech ends the turn. Fifteen seconds of
+nothing pauses rather than listening forever. Each turn is then an ordinary
+`/agent/media` request, and the answer is read aloud by the phone's own voice
+before listening resumes. Voice turns are marked quiet so the chat does not
+read them a second time.
+
+What this is not: a persistent connection. The reply cannot start until the
+whole answer has been written, and the voice is whatever the phone has
+installed - many budget Android phones have no Bengali or Punjabi voice at all.
+
+The next step, and the choice it turns on:
+
+- **Gemini Live** (one WebSocket, audio in and audio out, server-side turn
+  detection and barge-in, our tools as function calls). Lowest latency. But the
+  model's speech goes straight to the farmer: `output_guards.py` never sees it,
+  so an invented support price or an unregistered dose would be spoken before
+  anything could remove it.
+- **Our own pipeline over a WebSocket** (stream the microphone up, streaming
+  speech-to-text for Indian languages, the existing agent with its tools and
+  guards once the turn ends, the answer streamed back a sentence at a time
+  through server-side text-to-speech). Slower to first word than Gemini Live,
+  but every spoken sentence has passed the same guards as a written one, and
+  server-side voices fix the missing-language problem.
+
+The second keeps the property the product is built on - doses from the
+register, figures only when retrieved - and is the recommendation. Cloud Run
+supports WebSockets; the request timeout has to be raised for long sessions.
+
 ## 4. Two kinds of memory
 
 Deliberately separate, because they have different lifetimes:

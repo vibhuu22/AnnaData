@@ -42,6 +42,17 @@ describe('the ask screen', () => {
     expect(send).toHaveBeenCalledWith({ text: 'Gehu ki buwai kab karein?' });
   });
 
+  test('the microphone opens voice mode', () => {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: jest.fn(() => new Promise(() => {})) },
+    });
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to AnnaData' }));
+    expect(screen.getByRole('dialog', { name: 'Voice conversation' })).toBeInTheDocument();
+    delete navigator.mediaDevices;
+  });
+
   test('says so, and sends nothing, when there is no connection', () => {
     const spy = jest.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(false);
     show();

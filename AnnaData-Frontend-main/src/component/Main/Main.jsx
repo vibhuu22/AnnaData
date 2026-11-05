@@ -6,6 +6,7 @@ import MediaPreview from "../MediaPreview/MediaPreview";
 import Sources from "../Sources/Sources";
 import Answer from "../Answer/Answer";
 import Home from "../Home/Home";
+import VoiceMode from "../Voice/VoiceMode";
 import { primaryButton, textButton, SMS_NUMBER } from "../Flow/ui";
 import { speak, stopSpeaking, isSpeechSupported } from "../../Config/speech";
 
@@ -154,38 +155,46 @@ function Badge({ kind }) {
   );
 }
 
-/** "Looking this up for you…", and an honest word if it is slow. */
+/**
+ * Waiting for an answer, after ChatGPT and Claude: no box, the mark breathing
+ * where the answer will appear, and one line of shimmering text.
+ *
+ * The wording moves on with time, and only with time. It never names a step -
+ * "checking the pesticide register" - because the backend does not report its
+ * steps yet, and a progress line that is not true is worse than none.
+ */
+const WAIT_LINES = [
+  [0, "Looking this up for you"],
+  [10000, "Still working on your answer"],
+  [30000, "This one is taking a little longer"],
+];
+
 function Pending({ startedAt }) {
-  const [slow, setSlow] = useState(false);
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const left = SLOW_AFTER_MS - (Date.now() - (startedAt || Date.now()));
-    if (left <= 0) {
-      setSlow(true);
-      return undefined;
-    }
-    const timer = setTimeout(() => setSlow(true), left);
-    return () => clearTimeout(timer);
-  }, [startedAt]);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const elapsed = Math.max(0, now - (startedAt || now));
+  const line = WAIT_LINES.filter(([after]) => elapsed >= after).pop()[1];
+  const seconds = Math.floor(elapsed / 1000);
 
   return (
-    <div className="flex flex-col gap-3 rounded-[14px] border-[1.5px] border-soil-300 p-4" role="status" aria-live="polite">
-      <div className="flex items-center gap-3">
-        <div className="thinking" aria-hidden="true">
-          <span className="thinking-blade" />
-          <span className="thinking-blade" />
-          <span className="thinking-blade" />
-          <span className="thinking-blade" />
-          <span className="thinking-blade" />
-        </div>
-        <span className="text-lg font-bold text-soil-900">Looking this up for you…</span>
+    <div className="flex items-start gap-3 py-1" role="status" aria-live="polite">
+      <div className="wait-mark shrink-0" aria-hidden="true">
+        अ
       </div>
-      <p className="text-sm text-soil-600">Usually 5 to 20 seconds.</p>
-      {slow && (
-        <p className="rounded-xl bg-soil-50 px-3.5 py-3 text-sm text-soil-700">
-          <strong className="block text-soil-900">Taking longer than usual</strong>
-          Some answers take up to a couple of minutes. Please keep this page open — the answer will appear here.
-        </p>
-      )}
+      <div className="flex min-w-0 flex-col gap-1 pt-1">
+        <span className="wait-shimmer text-base font-semibold">{line}…</span>
+        <span className="text-xs text-soil-500" aria-hidden="true">
+          {seconds > 0 ? `${seconds}s · ` : ""}usually 5 to 20 seconds
+        </span>
+        {elapsed >= SLOW_AFTER_MS && (
+          <p className="mt-2 rounded-xl bg-soil-50 px-3.5 py-3 text-sm text-soil-700">
+            Some answers take up to a couple of minutes. Please keep this page open — the answer will appear here.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -208,20 +217,13 @@ function Main() {
   const [saveDismissed, setSaveDismissed] = useState(false);
 
   const [selectedImage, setSelectedImage] = useState(null);
-  const [selectedAudio, setSelectedAudio] = useState(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [micError, setMicError] = useState("");
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [speakingId, setSpeakingId] = useState(null);
   const [speechError, setSpeechError] = useState("");
   const [offline, setOffline] = useState(false);
 
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
   const bottomRef = useRef(null);
   const autoSpokenRef = useRef(new Set());
-  // Read when a recording stops, which happens in a callback created earlier.
-  const draftRef = useRef({ input, selectedImage });
-  draftRef.current = { input, selectedImage };
 
   // Keep the newest turn in view as answers arrive.
   useEffect(() => {
@@ -269,16 +271,15 @@ function Main() {
 
   /** Send, unless there is plainly no connection to send it over. */
   const submit = useCallback(
-    async ({ text, image, audio }) => {
+    async ({ text, image }) => {
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         // Not sent, and said so - rather than a spinner that never resolves.
         setOffline(true);
         if (image) setSelectedImage(image);
-        if (audio) setSelectedAudio(audio);
         return;
       }
       setOffline(false);
-      await send({ text, image, audio });
+      await send({ text, image });
     },
     [send]
   );
@@ -290,56 +291,22 @@ function Main() {
     e.target.value = "";
   };
 
-  /**
-   * Tap to start, tap again to send. Stopping sends straight away, with
-   * whatever was typed or attached alongside: for a farmer who speaks rather
-   * than types, finding a second button after speaking is one step too many.
-   */
-  const toggleRecording = async () => {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      setIsRecording(false);
-      return;
-    }
-    setMicError("");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-      audioChunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-      recorder.onstop = () => {
-        stream.getTracks().forEach((track) => track.stop());
-        const audio = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        const { input: text, selectedImage: image } = draftRef.current;
-        setSelectedImage(null);
-        if (audio.size > 0) submit({ text, image, audio });
-      };
-      recorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error("Error accessing microphone:", err);
-      setMicError("Microphone unavailable. Check the browser's permission for this site.");
-    }
+  /** Voice is a conversation, not a voice note: it opens voice mode. */
+  const openVoice = () => {
+    stopSpeaking();
+    setSpeakingId(null);
+    setVoiceOpen(true);
   };
 
   const handleSend = async (e) => {
     e?.preventDefault();
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      setIsRecording(false);
-      return;
-    }
     const image = selectedImage;
-    const audio = selectedAudio;
     setSelectedImage(null);
-    setSelectedAudio(null);
-    await submit({ text: input, image, audio });
+    await submit({ text: input, image });
   };
 
-  const canSend = Boolean(input.trim() || selectedImage || selectedAudio);
+  const canSend = Boolean(input.trim() || selectedImage);
+  const voice = voiceOpen && <VoiceMode onClose={() => setVoiceOpen(false)} />;
 
   if (screen === "home" && user && responses.length > 0) {
     return (
@@ -366,16 +333,10 @@ function Main() {
       )}
       <MediaPreview
         selectedImage={selectedImage}
-        selectedAudio={selectedAudio}
+        selectedAudio={null}
         clearSelectedImage={() => setSelectedImage(null)}
-        clearSelectedAudio={() => setSelectedAudio(null)}
+        clearSelectedAudio={() => {}}
       />
-      {isRecording && (
-        <p className="mb-2 text-center text-sm font-semibold text-red-700">
-          Listening… tap the microphone again to send.
-        </p>
-      )}
-      {micError && <p className="mb-2 text-center text-sm text-red-700">{micError}</p>}
       {speechError && <p className="mb-2 text-center text-sm text-grain-700">{speechError}</p>}
     </>
   );
@@ -395,6 +356,7 @@ function Main() {
   if (screen === "ask") {
     return (
       <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto bg-white">
+        {voice}
         <div className="mx-auto flex w-full max-w-[30rem] flex-grow flex-col gap-4 px-5 pb-5 pt-6">
           <h1 className="text-2xl font-bold leading-tight text-soil-900">What is happening in your field?</h1>
           <p className="text-base text-soil-700">
@@ -419,16 +381,13 @@ function Main() {
           <div className="flex flex-col items-center gap-2">
             <button
               type="button"
-              onClick={toggleRecording}
-              aria-label={isRecording ? "Stop and send" : "Speak your question"}
-              aria-pressed={isRecording}
-              className={`grid h-20 w-20 place-items-center rounded-full text-white shadow-lift transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 ${
-                isRecording ? "animate-pulse bg-red-600 focus-visible:ring-red-300" : "bg-leaf-600 hover:bg-leaf-700 focus-visible:ring-leaf-200"
-              }`}
+              onClick={openVoice}
+              aria-label="Talk to AnnaData"
+              className="grid h-20 w-20 place-items-center rounded-full bg-leaf-600 text-white shadow-lift transition-colors hover:bg-leaf-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-leaf-200 focus-visible:ring-offset-2"
             >
-              {isRecording ? <StopIcon size={30} /> : <MicIcon size={34} />}
+              <MicIcon size={34} />
             </button>
-            <div className="text-sm font-semibold text-soil-900">{isRecording ? "Tap to send" : "Tap to speak"}</div>
+            <div className="text-sm font-semibold text-soil-900">Tap to talk</div>
           </div>
 
           <div className="chat-composer">
@@ -467,6 +426,7 @@ function Main() {
 
   return (
     <div className="flex min-h-0 w-full flex-grow flex-col overflow-hidden">
+      {voice}
       <div className="flex flex-grow flex-col items-center overflow-y-auto bg-white px-4 py-4">
         <div className="flex w-full max-w-[42rem] flex-col gap-4">
           {thread.map((turn) => {
@@ -593,7 +553,7 @@ function Main() {
             placeholder="Ask a follow-up…"
             className="h-12 min-w-0 flex-1 rounded-xl border-[1.5px] border-soil-400 px-3.5 text-base text-soil-900 outline-none placeholder:text-soil-500 focus:border-leaf-600 focus:ring-2 focus:ring-leaf-100"
           />
-          {canSend && !isRecording ? (
+          {canSend ? (
             <button
               type="submit"
               disabled={loading}
@@ -605,14 +565,11 @@ function Main() {
           ) : (
             <button
               type="button"
-              onClick={toggleRecording}
-              aria-label={isRecording ? "Stop and send" : "Speak a follow-up"}
-              aria-pressed={isRecording}
-              className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl text-white ${
-                isRecording ? "animate-pulse bg-red-600" : "bg-leaf-600 hover:bg-leaf-700"
-              }`}
+              onClick={openVoice}
+              aria-label="Talk to AnnaData"
+              className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-leaf-600 text-white hover:bg-leaf-700"
             >
-              {isRecording ? <StopIcon size={20} /> : <MicIcon size={22} />}
+              <MicIcon size={22} />
             </button>
           )}
         </form>

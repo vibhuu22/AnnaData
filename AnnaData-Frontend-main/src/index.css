@@ -382,3 +382,103 @@ body { margin: 0; padding-top: env(safe-area-inset-top, 0px); }
   border-left: 3px solid theme("colors.soil.200");
   color: theme("colors.soil.600");
 }
+
+/* --- Waiting for an answer ---------------------------------------------
+ * After ChatGPT's and Claude's: no box, just the mark breathing where the
+ * answer will appear and a line of text with light passing across it. The
+ * box made a pending answer look like a finished empty one.
+ */
+.wait-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background: theme("colors.leaf.600");
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 700;
+  animation: wait-breathe 1.8s ease-in-out infinite;
+}
+.wait-mark::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  border: 2px solid theme("colors.leaf.300");
+  animation: wait-ring 1.8s ease-out infinite;
+}
+@keyframes wait-breathe {
+  0%, 100% { transform: scale(0.92); }
+  50% { transform: scale(1); }
+}
+@keyframes wait-ring {
+  0% { transform: scale(0.85); opacity: 0.9; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+.wait-shimmer {
+  background: linear-gradient(
+    90deg,
+    theme("colors.soil.600") 0%,
+    theme("colors.soil.600") 35%,
+    theme("colors.leaf.400") 50%,
+    theme("colors.soil.600") 65%,
+    theme("colors.soil.600") 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: wait-sweep 2.2s linear infinite;
+}
+@keyframes wait-sweep {
+  0% { background-position: 100% 0; }
+  100% { background-position: -150% 0; }
+}
+
+/* --- Voice mode ----------------------------------------------------------
+ * The orb is the whole interface. Its size follows the microphone while
+ * listening (set from script as --level, 0 to 1), it turns slowly while
+ * thinking, and it pulses while speaking.
+ */
+.voice-orb {
+  --level: 0;
+  width: 12rem;
+  height: 12rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, theme("colors.leaf.300"), theme("colors.leaf.600") 55%, theme("colors.leaf.800"));
+  box-shadow: 0 18px 50px rgba(31, 107, 69, 0.35);
+  transform: scale(calc(0.86 + var(--level) * 0.3));
+  transition: transform 90ms linear;
+}
+.voice-orb[data-phase="thinking"] {
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.5), transparent 50%),
+    conic-gradient(from 0deg, theme("colors.leaf.300"), theme("colors.leaf.600"), theme("colors.leaf.800"), theme("colors.leaf.500"), theme("colors.grain.200"), theme("colors.leaf.300"));
+  animation: voice-turn 2.4s linear infinite, wait-breathe 1.8s ease-in-out infinite;
+  transition: none;
+}
+.voice-orb[data-phase="speaking"] {
+  animation: voice-speak 0.9s ease-in-out infinite;
+  transition: none;
+}
+.voice-orb[data-phase="paused"],
+.voice-orb[data-phase="starting"] {
+  filter: saturate(0.35);
+  opacity: 0.8;
+  transform: scale(0.86);
+}
+@keyframes voice-turn {
+  to { rotate: 360deg; }
+}
+@keyframes voice-speak {
+  0%, 100% { transform: scale(0.9); }
+  35% { transform: scale(1.02); }
+  60% { transform: scale(0.94); }
+  80% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wait-mark, .wait-mark::after, .wait-shimmer, .voice-orb { animation: none !important; }
+  .wait-shimmer { color: theme("colors.soil.600"); background: none; }
+}

@@ -64,7 +64,7 @@ function foldIntoTurns(messages) {
  * second entry for the answer, leaving the first one on screen forever. The
  * entry is now created once and filled in when the answer arrives.
  */
-const newTurn = ({ text, image, audio }) => ({
+const newTurn = ({ text, image, audio, quiet }) => ({
   prompt: text,
   response: "",
   mediaFile: image || audio || null,
@@ -75,7 +75,8 @@ const newTurn = ({ text, image, audio }) => ({
   replyLanguage: "en-IN",
   // A farmer who spoke their question is told the answer, not shown it. This
   // is what marks the turn as one to read aloud when it arrives.
-  spoken: Boolean(audio),
+  // Voice mode reads its own answers, so it marks its turns quiet.
+  spoken: Boolean(audio) && !quiet,
   pending: true,
   failed: false,
   needsSignIn: false,
@@ -199,15 +200,15 @@ const ContextProvider = (props) => {
    * got an answer are included - a failed request must not teach the agent that
    * it said "could not reach the service".
    */
-  const send = useCallback(async ({ text = "", image = null, audio = null }) => {
+  const send = useCallback(async ({ text = "", image = null, audio = null, quiet = false }) => {
     const trimmed = text.trim();
-    if (!trimmed && !image && !audio) return;
+    if (!trimmed && !image && !audio) return null;
 
     // Matched by id rather than by position: the answer arrives seconds later,
     // by which time the farmer may have sent another message and shifted every
     // index after this one.
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setResponses((prev) => [...prev, { ...newTurn({ text: trimmed, image, audio }), id, startedAt: Date.now() }]);
+    setResponses((prev) => [...prev, { ...newTurn({ text: trimmed, image, audio, quiet }), id, startedAt: Date.now() }]);
 
     const history = responses
       .slice(threadStart)
@@ -250,6 +251,8 @@ const ContextProvider = (props) => {
     );
     setResultData(result.answer);
     setLoading(false);
+    // Handed back for voice mode, which reads the answer aloud itself.
+    return { ...result, id };
   }, [responses, threadStart]);
 
   /** Text-only send, for the callers that still pass through `input`. */
