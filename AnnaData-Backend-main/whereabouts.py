@@ -203,9 +203,12 @@ def farm_declined(language: str) -> str:
 # --- Yes and no -----------------------------------------------------------------
 
 _YES = {"yes", "yeah", "yep", "yup", "haan", "han", "ha", "haa", "haanji", "hanji", "ji", "jee",
-        "sahi", "correct", "right", "ok", "okay", "theek", "thik", "bilkul",
+        # Not "ok" or "theek hai": farmers send both to acknowledge an answer
+        # (the conversation export has dozens), and the farm question sits
+        # under an answer - an "ok" to the advice must not save a farm.
+        "sahi", "correct", "right", "bilkul",
         "हाँ", "हां", "हा", "जी", "हाँजी", "हांजी", "सही", "बिल्कुल",
-        "হ্যাঁ", "হাঁ", "হ্যা", "জি", "ঠিক", "ਹਾਂ", "ਹਾਂਜੀ", "ਜੀ", "ਸਹੀ"}
+        "হ্যাঁ", "হাঁ", "হ্যা", "জি", "ਹਾਂ", "ਹਾਂਜੀ", "ਜੀ", "ਸਹੀ"}
 _NO = {"no", "nope", "nahi", "nahin", "nai", "nhi", "na", "naa", "galat", "wrong",
        "नहीं", "नही", "ना", "गलत", "না", "নয়", "ਨਹੀਂ", "ਨਹੀ", "ਨਾ", "ਗਲਤ"}
 _HONORIFIC = {"ji", "jee", "जी", "ਜੀ", "জি"}

@@ -42,7 +42,9 @@ from Address_Convertor import Place  # noqa: E402
 print("Yes and no")
 for said, want in (("haan", True), ("Haan ji", True), ("yes", True), ("ji", True), ("ha", True),
                    ("हाँ", True), ("ਹਾਂ ਜੀ", True), ("nahi", False), ("ji nahi", False), ("no", False),
-                   ("नहीं", False), ("haan par mera khet Medinipur me hai", None), ("aloo me rog", None)):
+                   ("नहीं", False), ("haan par mera khet Medinipur me hai", None), ("aloo me rog", None),
+                   # An acknowledgement of the answer above the question, not a yes to it.
+                   ("ok", None), ("theek hai", None), ("okk thaks", None)):
     check(f"{said!r}", wh.yes_or_no(said), want)
 
 print("\nThe order places are chosen in")
