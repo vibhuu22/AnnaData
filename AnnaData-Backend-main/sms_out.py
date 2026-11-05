@@ -25,12 +25,24 @@ import config
 
 
 # One segment of GSM-7 is 153 characters. A code that arrives as two messages
-# costs twice as much and can arrive out of order, so this stays short.
+# costs twice as much and can arrive out of order, so this stays short - and in
+# plain Latin letters, because one Devanagari character turns the whole message
+# into UCS-2 and cuts a segment to 67 characters.
+#
+# WORDED LIKE A TEXT FROM A PERSON, NOT LIKE A BANK'S OTP. The codes go out from
+# an ordinary 10-digit SIM, not a registered business sender, and Indian
+# networks refuse messages from such SIMs that look commercial. The first
+# wording - "{code} is your AnnaData sign-in code. It expires in 10 minutes. Do
+# not share it with anyone." - came back from the gateway phone as Failed,
+# while conversational answers from the same SIM went through. "OTP", "code",
+# "sign-in", "verify" and "do not share" are the words those filters key on, so
+# none of them is used. eval/test_code_message.py holds this to all of the
+# above.
 def code_message(code: str) -> str:
+    minutes = max(1, config.OTP_TTL // 60)
     return (
-        f"{code} is your AnnaData sign-in code. "
-        f"It expires in {max(1, config.OTP_TTL // 60)} minutes. "
-        "Do not share it with anyone."
+        f"AnnaData: {code} - yeh number website par daalein. "
+        f"{minutes} minute tak chalega."
     )
 
 

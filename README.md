@@ -489,6 +489,7 @@ deterministic tests:
 | `eval/test_retry.py` | Transport classification: which backend statuses the bridge waits out and which it drops. The model never sees a status code, and the fault it guards against produces *no message at all* |
 | `eval/test_guest_access.py` | Who may ask without signing in and how often: guest ids that could carry a phone number, limits that count refused requests, a ceiling that never triggers. Fake clock, no database, no model |
 | `eval/test_claim_guest.py` | That a guest's questions follow them onto the number they confirm, filling profile gaps without overwriting what the farmer told us before. Needs a database, because an `UPDATE ... FROM` that matches nothing fails silently |
+| `eval/test_code_message.py` | That the sign-in SMS still looks like a text from a person - no "OTP", "code" or "do not share", GSM-7 only, one segment. Networks refuse commercial-looking messages from an ordinary SIM, and the gateway only reports Failed |
 | `eval/test_greeting.py` | Whether a short message is an arrival or someone closing a conversation. Decided before any model is called, and what it picks is which instruction the model is then given |
 
 A suite that can only express "ask the model and look at the answer" quietly
