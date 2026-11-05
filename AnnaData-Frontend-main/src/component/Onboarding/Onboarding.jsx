@@ -48,7 +48,7 @@ function Chip({ active, children, ...rest }) {
   );
 }
 
-function Onboarding() {
+function Onboarding({ embedded = false }) {
   const { user, onboarded } = useContext(Auth);
 
   const [name, setName] = useState(user?.name || "");
@@ -135,14 +135,14 @@ function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen bg-soil-50 px-4 py-8">
+    <section aria-label="Your farm profile" className={embedded ? "mt-6 rounded-card bg-soil-50 px-4 py-6" : "min-h-screen bg-soil-50 px-4 py-8"}>
       <div className="mx-auto w-full max-w-[30rem]">
-        <h1 className="text-2xl font-bold text-soil-900">
-          {name ? `Welcome, ${name.split(" ")[0]}` : "Tell us about your farm"}
-        </h1>
+        <h2 className="text-2xl font-bold text-soil-900">
+          Tell us about your farm
+        </h2>
         <p className="mt-2 text-sm text-soil-600">
-          Four quick questions, so answers are about your field and not a general
-          one. You can skip any of them and add them later.
+          Help us tailor your next answers to your field. These details are
+          optional — you can skip them and keep chatting.
         </p>
 
         <div className="mt-6 space-y-5 rounded-card border border-soil-200 bg-white p-5 shadow-card">
@@ -257,7 +257,7 @@ function Onboarding() {
             disabled={busy}
             className="min-h-touch-lg w-full rounded-pill bg-leaf-600 text-base font-semibold text-white transition-colors hover:bg-leaf-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600 focus-visible:ring-offset-2 disabled:bg-soil-300"
           >
-            {busy ? "Saving…" : "Start asking questions"}
+            {busy ? "Saving…" : "Save farm details"}
           </button>
         </div>
 
@@ -270,7 +270,7 @@ function Onboarding() {
           Skip for now
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 

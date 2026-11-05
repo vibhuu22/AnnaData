@@ -3,7 +3,7 @@ import Main from "./component/Main/Main";
 import Sidebar from "./component/Sidebar/Sidebar";
 import Header from "./component/Header/Header";
 import SignIn from "./component/SignIn/SignIn";
-import Onboarding from "./component/Onboarding/Onboarding";
+import AppStatus from "./component/AppStatus";
 import { Auth } from "./Context/AuthProvider";
 
 /**
@@ -14,7 +14,7 @@ import { Auth } from "./Context/AuthProvider";
  * otherwise fire without a token and come back 401 on every load.
  */
 function App() {
-  const { user, needsOnboarding, checking } = useContext(Auth);
+  const { user, checking } = useContext(Auth);
 
   // A stored token is being checked against the server. Deliberately blank
   // rather than a spinner: it is one request, and a spinner that flashes for
@@ -26,15 +26,8 @@ function App() {
   if (!user) {
     return (
       <div className="body">
+        <AppStatus />
         <SignIn />
-      </div>
-    );
-  }
-
-  if (needsOnboarding) {
-    return (
-      <div className="body">
-        <Onboarding />
       </div>
     );
   }
@@ -46,8 +39,9 @@ function App() {
         <Sidebar />
         {/* min-w-0 so the chat column may shrink; without it a long unbroken
             string in an answer widens the flex child and scrolls the page. */}
-        <div className="flex flex-col flex-grow min-w-0 h-screen">
+        <div className="app-viewport flex flex-col flex-grow min-w-0">
           <Header />
+          <AppStatus />
           <Main />
         </div>
       </div>
