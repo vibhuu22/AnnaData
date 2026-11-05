@@ -32,6 +32,20 @@ async function getCoordinates() {
   }
 }
 
+/**
+ * The file name for a recording, from what the browser actually recorded.
+ * Chrome records WebM, iPhone Safari MP4. Calling every recording voice.webm
+ * mislabelled every iPhone voice note.
+ */
+function audioExtension(type) {
+  const base = String(type || "").split(";")[0].trim().toLowerCase();
+  if (base === "audio/mp4" || base === "audio/x-m4a" || base === "audio/aac") return ".m4a";
+  if (base === "audio/ogg") return ".ogg";
+  if (base === "audio/mpeg") return ".mp3";
+  if (base === "audio/wav" || base === "audio/x-wav") return ".wav";
+  return ".webm";
+}
+
 /** The backend returns a real status code with a {detail} body. Surface it. */
 async function errorFrom(response) {
   let detail = response.statusText;
@@ -67,7 +81,7 @@ export async function ask({ text = "", history = [], image = null, audio = null 
       if (image) form.append("image", image, image.name || "photo.jpg");
       // A recording is a Blob with no name; without one some servers reject the
       // part, and the extension is how the model is told what it is decoding.
-      if (audio) form.append("audio", audio, audio.name || "voice.webm");
+      if (audio) form.append("audio", audio, audio.name || `voice${audioExtension(audio.type)}`);
       form.append("query", text);
       form.append("history", JSON.stringify(history));
       if (coords) {

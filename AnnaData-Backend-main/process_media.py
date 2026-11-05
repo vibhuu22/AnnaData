@@ -49,6 +49,31 @@ AUDIO_EXTENSIONS = {
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 
+# The MIME type each extension is uploaded as - stated, never guessed.
+#
+# The Gemini client guesses it from the file name with Python's `mimetypes`,
+# which reads the operating system's /etc/mime.types. The slim container this
+# runs in has none, and Python's built-in table does not know .m4a, .ogg or
+# .flac. So an iPhone voice note - Safari records MP4 audio, saved as .m4a -
+# failed with "Could not determine the mimetype", while Chrome's .webm happened
+# to be in the built-in table and worked. Found from a farmer-facing error on a
+# real iPhone; eval/test_media_types.py holds every extension to this table.
+MIME_TYPES = {
+    ".webm": "audio/webm",
+    ".ogg": "audio/ogg",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".wav": "audio/wav",
+    ".aac": "audio/aac",
+    ".flac": "audio/flac",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+}
+
 UNKNOWN = "unknown"
 
 
@@ -177,7 +202,8 @@ def _upload(client, data: bytes, suffix: str):
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        return client.files.upload(file=tmp_path)
+        # Stated, because guessing it fails in this container - see MIME_TYPES.
+        return client.files.upload(file=tmp_path, config={"mime_type": MIME_TYPES[suffix]})
     finally:
         try:
             os.unlink(tmp_path)

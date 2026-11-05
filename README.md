@@ -490,6 +490,7 @@ deterministic tests:
 | `eval/test_guest_access.py` | Who may ask without signing in and how often: guest ids that could carry a phone number, limits that count refused requests, a ceiling that never triggers. Fake clock, no database, no model |
 | `eval/test_claim_guest.py` | That a guest's questions follow them onto the number they confirm, filling profile gaps without overwriting what the farmer told us before. Needs a database, because an `UPDATE ... FROM` that matches nothing fails silently |
 | `eval/test_code_message.py` | That the sign-in SMS still looks like a text from a person - no "OTP", "code" or "do not share", GSM-7 only, one segment. Networks refuse commercial-looking messages from an ordinary SIM, and the gateway only reports Failed |
+| `eval/test_media_types.py` | That every voice note and photo is uploaded with a stated MIME type. The container cannot guess .m4a, so iPhone voice notes failed until this was stated |
 | `eval/test_greeting.py` | Whether a short message is an arrival or someone closing a conversation. Decided before any model is called, and what it picks is which instruction the model is then given |
 
 A suite that can only express "ask the model and look at the answer" quietly
