@@ -3,7 +3,7 @@ import VoiceMode from './VoiceMode';
 import { Context } from '../../Context/ContextProvider';
 import { Flow } from '../../Context/Flow';
 
-jest.mock('../../Config/speech', () => ({ speak: jest.fn(), stopSpeaking: jest.fn() }));
+jest.mock('../../Config/speech', () => ({ speak: jest.fn(), stopSpeaking: jest.fn(), unlockAudio: jest.fn() }));
 
 function show(onClose = jest.fn()) {
   render(

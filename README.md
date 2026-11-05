@@ -199,6 +199,7 @@ crop is theirs to state, and a picture of one leaf does not get to correct them.
 | `GET /auth/me`, `POST /auth/signout` | A signed-in farmer |
 | `GET`/`PUT /profile`, `GET /history` | A signed-in farmer, about themselves only |
 | `POST /agent`, `POST /agent/media` | A signed-in farmer, the bridge with `BRIDGE_TOKEN`, or a guest sending `X-Guest-Id` (a v4 UUID) within the guest limits — 429 with `Retry-After` beyond them |
+| `POST /speak` | The same callers as `/agent`; guests within separate speaking limits. Returns WAV, or 503 for the browser to fall back to the phone's voice |
 | `POST /forget` | The bridge relaying STOP, or a farmer naming their own id |
 | `GET /feedback/due`, `POST /feedback/asked`, `POST /feedback/rating`, `GET /feedback/summary` | The bridge |
 | `GET /health`, `GET /` | Anyone. No model calls, so it is safe to ping |
@@ -294,6 +295,8 @@ the advisory still goes out. `GET /health` reports exactly what is live.
 | `AUTH_SECRET` | Sessions that survive a restart | Regenerated per process; everyone signed out on restart |
 | `BRIDGE_TOKEN` | Proof the SMS bridge is the SMS bridge | `/feedback/*` stay open, reported on `/health` |
 | `SMS_GATEWAY_USER` / `SMS_GATEWAY_PASSWORD` | Sending sign-in codes | Nobody can sign in on the web |
+| `TTS_MODELS` / `TTS_VOICE` / `TTS_STYLE` | Spoken answers via Gemini TTS (defaults: 3.8 Flash-Lite TTS, then 3.8 Flash TTS, then 2.5 Flash TTS; voice `Kore`) | Listen and voice mode fall back to the phone's own voice |
+| `SPEAK_GUEST_PER_HOUR` / `SPEAK_IP_PER_HOUR` / `SPEAK_DAILY_CAP` | Guest limits for `/speak`, counted in pieces of an answer (defaults 200 / 1000 / 5000) | — |
 | `GUEST_ASK_ENABLED` | Questions before sign-in (default `true`) | `false` makes the web app's guests get 401, as before |
 | `GUEST_PER_HOUR` / `GUEST_IP_PER_HOUR` / `GUEST_DAILY_CAP` | Guest limits: per browser, per network address, all guests per day (defaults 10 / 60 / 400, per instance) | — |
 | `DATABASE_URL` | Profiles, history, doses, retrieval, lesion bank, ratings | Stateless: no memory, no grounded doses, no retrieval |
@@ -491,6 +494,7 @@ deterministic tests:
 | `eval/test_claim_guest.py` | That a guest's questions follow them onto the number they confirm, filling profile gaps without overwriting what the farmer told us before. Needs a database, because an `UPDATE ... FROM` that matches nothing fails silently |
 | `eval/test_code_message.py` | That the sign-in SMS still looks like a text from a person - no "OTP", "code" or "do not share", GSM-7 only, one segment. Networks refuse commercial-looking messages from an ordinary SIM, and the gateway only reports Failed |
 | `eval/test_media_types.py` | That every voice note and photo is uploaded with a stated MIME type. The container cannot guess .m4a, so iPhone voice notes failed until this was stated |
+| `eval/test_speak.py` | What reaches Gemini TTS (no markdown), that a browser can decode what comes back, model fallback, and who may call `/speak` |
 | `eval/test_greeting.py` | Whether a short message is an arrival or someone closing a conversation. Decided before any model is called, and what it picks is which instruction the model is then given |
 
 A suite that can only express "ask the model and look at the answer" quietly

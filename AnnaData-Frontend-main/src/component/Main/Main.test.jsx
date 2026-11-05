@@ -6,7 +6,7 @@ import { Flow } from '../../Context/Flow';
 
 jest.mock('../../Config/session', () => ({ saveProfile: jest.fn() }));
 jest.mock('../../Config/speech', () => ({
-  speak: jest.fn(), stopSpeaking: jest.fn(), isSpeechSupported: () => false,
+  speak: jest.fn(), stopSpeaking: jest.fn(), isSpeechSupported: () => false, unlockAudio: jest.fn(),
 }));
 
 const openFlow = jest.fn();

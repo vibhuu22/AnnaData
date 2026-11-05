@@ -8,7 +8,7 @@ import Answer from "../Answer/Answer";
 import Home from "../Home/Home";
 import VoiceMode from "../Voice/VoiceMode";
 import { primaryButton, textButton, SMS_NUMBER } from "../Flow/ui";
-import { speak, stopSpeaking, isSpeechSupported } from "../../Config/speech";
+import { speak, stopSpeaking, isSpeechSupported, unlockAudio } from "../../Config/speech";
 
 /**
  * The conversation, laid out as in the wireframes.
@@ -293,6 +293,8 @@ function Main() {
 
   /** Voice is a conversation, not a voice note: it opens voice mode. */
   const openVoice = () => {
+    // From the tap itself, so an iPhone will play the spoken answers later.
+    unlockAudio();
     stopSpeaking();
     setSpeakingId(null);
     setVoiceOpen(true);
@@ -465,7 +467,11 @@ function Main() {
                         {isSpeechSupported() && (
                           <button
                             type="button"
-                            onClick={() => (speakingId === turn.id ? hush() : readAloud(turn))}
+                            onClick={() => {
+                              unlockAudio();
+                              if (speakingId === turn.id) hush();
+                              else readAloud(turn);
+                            }}
                             aria-label={speakingId === turn.id ? "Stop reading the answer" : "Listen to this answer"}
                             className="ml-auto inline-flex min-h-touch min-w-touch items-center gap-1.5 rounded-[10px] border-[1.5px] border-soil-400 bg-white px-2.5 text-sm font-semibold text-soil-900 hover:bg-soil-50"
                           >

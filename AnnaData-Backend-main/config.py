@@ -176,6 +176,27 @@ TEXT_MODELS = [
 TEXT_MODEL = TEXT_MODELS[0]
 MEDIA_MODEL = _get("MEDIA_MODEL", "gemini-3.5-flash-lite")
 
+# --- Spoken answers (tts.py) -------------------------------------------------
+# Tried in order. Flash-Lite first: a sentence of advice does not need the
+# larger model's range, and it is the cheaper of the two once past the free tier.
+TTS_MODELS = [
+    m.strip()
+    for m in _get("TTS_MODELS",
+                  "gemini-3.8-flash-lite-tts,gemini-3.8-flash-tts,gemini-2.5-flash-preview-tts").split(",")
+    if m.strip()
+]
+TTS_VOICE = _get("TTS_VOICE", "Kore")
+# Said to the model before the text. Gemini's TTS takes a plain-language style
+# direction this way; set TTS_STYLE to empty to send the text alone.
+TTS_STYLE = _get("TTS_STYLE", "Read this aloud slowly and clearly, in a warm, friendly voice:")
+# One piece of an answer per request - the web app sends a sentence or two.
+TTS_MAX_CHARS = int(_get("TTS_MAX_CHARS", "600"))
+TTS_TIMEOUT = float(_get("TTS_TIMEOUT", "20"))
+# Pieces, not questions: one answer is several. Guests only; see /speak.
+SPEAK_GUEST_PER_HOUR = int(_get("SPEAK_GUEST_PER_HOUR", "200"))
+SPEAK_IP_PER_HOUR = int(_get("SPEAK_IP_PER_HOUR", "1000"))
+SPEAK_DAILY_CAP = int(_get("SPEAK_DAILY_CAP", "5000"))
+
 # Retries inside one model before failing over. Kept low on purpose: the client
 # backs off 2s, 4s, 8s, 16s, 32s by default, which spends a minute stalling on a
 # quota error when another model would have answered immediately.

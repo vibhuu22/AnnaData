@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -21,6 +21,7 @@ import msp
 import profile_store
 import sms_out
 import startup
+import tts
 import weather_tool
 from Agent import run_agent, speech_language
 from process_media import process_media, understand_media
@@ -125,6 +126,9 @@ def health():
                 if config.GUEST_ASK_ENABLED else {"enabled": False}
             ),
         },
+        # Which models will speak answers, so a silent Listen button can be
+        # told apart from a misconfigured one without reading the logs.
+        "speech": {"models": config.TTS_MODELS, "voice": config.TTS_VOICE},
     }
 
 
@@ -243,6 +247,15 @@ _guests = guest_access.GuestLimiter(
     per_guest=config.GUEST_PER_HOUR,
     per_ip=config.GUEST_IP_PER_HOUR,
     daily_cap=config.GUEST_DAILY_CAP,
+)
+
+# Spoken answers are counted apart from questions: one answer is read as
+# several pieces, so sharing the question limit would cut a guest off halfway
+# through hearing their third answer.
+_speakers = guest_access.GuestLimiter(
+    per_guest=config.SPEAK_GUEST_PER_HOUR,
+    per_ip=config.SPEAK_IP_PER_HOUR,
+    daily_cap=config.SPEAK_DAILY_CAP,
 )
 
 
@@ -470,6 +483,46 @@ def read_history(limit: int = 50, authorization: Optional[str] = Header(None)):
 
 def _peer(http: Request) -> str | None:
     return http.client.host if http.client else None
+
+
+class SpeakRequest(BaseModel):
+    text: str
+    # The language the answer is in, as the answer told the browser. Gemini
+    # detects it from the text; this is kept for the log and for later use.
+    lang: Optional[str] = None
+
+
+@app.post("/speak")
+def speak_endpoint(request: SpeakRequest,
+                   http: Request,
+                   authorization: Optional[str] = Header(None),
+                   x_bridge_token: Optional[str] = Header(None),
+                   x_guest_id: Optional[str] = Header(None),
+                   x_forwarded_for: Optional[str] = Header(None)):
+    """One piece of an answer, spoken. WAV bytes, or 503 to fall back on.
+
+    Spends model quota on every call, so it is guarded exactly as /agent is:
+    the bridge, a signed-in farmer, or a guest within the speaking limits.
+    """
+    if not (_is_bridge(x_bridge_token) or auth.read_token(_bearer(authorization))):
+        guest = guest_access.guest_user_id(x_guest_id) if config.GUEST_ASK_ENABLED else None
+        if guest:
+            ip = guest_access.client_ip(x_forwarded_for, _peer(http))
+            admitted, wait, _ = _speakers.check(guest, ip)
+            if not admitted:
+                raise HTTPException(status_code=429, detail="too much speech just now",
+                                    headers={"Retry-After": str(wait)})
+        elif config.AUTH_REQUIRED:
+            raise HTTPException(status_code=401, detail="sign in to hear answers")
+
+    try:
+        audio = tts.speak(request.text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except tts.SpeechUnavailable:
+        raise HTTPException(status_code=503, detail="speech is unavailable just now")
+    return Response(content=audio, media_type="audio/wav",
+                    headers={"Cache-Control": "no-store"})
 
 
 @app.post("/agent")

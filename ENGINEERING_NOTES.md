@@ -1265,9 +1265,18 @@ nothing pauses rather than listening forever. Each turn is then an ordinary
 before listening resumes. Voice turns are marked quiet so the chat does not
 read them a second time.
 
+Answers are spoken by Gemini TTS through `/speak` (tts.py), not by the phone:
+the phone's voice read Hinglish in an English accent and, on many phones, had
+no Bengali or Punjabi voice at all. The browser cuts an answer into
+sentence-sized pieces - the first short, so speech starts in a second or two -
+and fetches each next piece while the one before plays. Playback goes through
+Web Audio, because an iPhone refuses an `<audio>` element started after a
+network wait but keeps playing through an AudioContext a tap has unlocked. If
+`/speak` fails, whatever has not yet been heard is read in the phone's voice.
+
 What this is not: a persistent connection. The reply cannot start until the
 whole answer has been written, and the voice is whatever the phone has
-installed - many budget Android phones have no Bengali or Punjabi voice at all.
+generated a piece at a time rather than streamed.
 
 The next step, and the choice it turns on:
 

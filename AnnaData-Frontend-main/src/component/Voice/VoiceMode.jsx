@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
-import { speak, stopSpeaking } from "../../Config/speech";
+import { speak, stopSpeaking, unlockAudio } from "../../Config/speech";
 import { primaryButton } from "../Flow/ui";
 
 /**
@@ -266,6 +266,7 @@ function VoiceMode({ onClose }) {
 
   /** The orb: resume when paused, interrupt when speaking, send early when listening. */
   const tapOrb = async () => {
+    unlockAudio();
     if (phase === "speaking") {
       stopSpeaking(); // speak() resolves, and respond() goes back to listening
       return;
