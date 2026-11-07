@@ -214,6 +214,17 @@ export async function verifyCode(phone, code) {
   return data;
 }
 
+/** Sign in with the access token MSG91's widget gave for a verified code. */
+export async function verifyWidgetToken(accessToken) {
+  const data = await apiFetch("/auth/verify-widget", {
+    method: "POST",
+    body: { access_token: accessToken, guest_id: getGuestId() },
+  });
+  setToken(data.token);
+  resetGuestId();
+  return data;
+}
+
 export function fetchMe() {
   return apiFetch("/auth/me");
 }

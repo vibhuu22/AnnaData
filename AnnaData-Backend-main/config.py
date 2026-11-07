@@ -148,6 +148,9 @@ GUEST_DAILY_CAP = int(_get("GUEST_DAILY_CAP", "400"))
 # --- Outbound SMS (sign-in codes) ----------------------------------------
 # The same Android handset gateway the bridge uses. See sms_out.py for why the
 # backend calls it directly rather than going through the bridge.
+# MSG91's OTP widget, for sign-in codes (msg91.py). Secret: set on Cloud Run,
+# never in the repository. Unset, sign-in uses the SIM gateway below.
+MSG91_AUTHKEY = _get("MSG91_AUTHKEY")
 SMS_GATEWAY_BASE = _get("SMS_GATEWAY_BASE", "https://api.sms-gate.app/3rdparty/v1")
 SMS_GATEWAY_USER = _get("SMS_GATEWAY_USER") or _get("APP_USERNAME")
 SMS_GATEWAY_PASSWORD = _get("SMS_GATEWAY_PASSWORD") or _get("PASSWORD")

@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { Auth } from "../../Context/AuthProvider";
-import { requestCode, verifyCode } from "../../Config/session";
+import { requestCode, verifyCode, verifyWidgetToken } from "../../Config/session";
+import * as msg91 from "../../Config/msg91";
 import {
   BackLink,
   FlowScreen,
@@ -33,6 +34,8 @@ import {
  */
 
 const CODE_TTL_MINUTES = 10;
+// MSG91's widget waits 30 seconds before it will send again; our own codes, 60.
+const MSG91_RESEND_SECONDS = 30;
 
 function clock(seconds) {
   const m = Math.floor(seconds / 60);
@@ -58,6 +61,15 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
   const [problem, setProblem] = useState(null);
   const [cooldown, setCooldown] = useState(0);
   const [transport, setTransport] = useState("");
+  // MSG91's widget sends the codes when it is configured and its script loads;
+  // otherwise AnnaData's own codes, exactly as before.
+  const [useMsg91, setUseMsg91] = useState(msg91.msg91Enabled());
+  const codeLength = useMsg91 ? msg91.CODE_LENGTH : 6;
+
+  useEffect(() => {
+    if (!useMsg91) return;
+    msg91.loadWidget().catch(() => setUseMsg91(false));
+  }, [useMsg91]);
 
   const codeRef = useRef(null);
 
@@ -82,6 +94,15 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
     setBusy(true);
     setError("");
     try {
+      if (useMsg91) {
+        if (step === "code") await msg91.resendCode();
+        else await msg91.sendCode(digits);
+        setTransport("msg91");
+        setCooldown(MSG91_RESEND_SECONDS);
+        setProblem(null);
+        setStep("code");
+        return;
+      }
       const data = await requestCode(digits);
       setTransport(data.transport || "");
       setCooldown(60);
@@ -98,11 +119,13 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
 
   const submitCode = async (event) => {
     event?.preventDefault();
-    if (code.length !== 6 || busy) return;
+    if (code.length !== codeLength || busy) return;
     setBusy(true);
     setError("");
     try {
-      const data = await verifyCode(digits, code);
+      const data = useMsg91
+        ? await verifyWidgetToken(await msg91.verifyCode(code))
+        : await verifyCode(digits, code);
       signedIn(data);
       onVerified?.(data);
     } catch (e) {
@@ -150,8 +173,8 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
         </h1>
         <p className="text-base text-soil-700">
           {saving
-            ? "First, confirm your mobile number. We will send a 6-digit code by SMS. After that, answers come for your own district and crops, and your questions stay saved."
-            : "We will send a 6-digit code by SMS to confirm it is you."}
+            ? `First, confirm your mobile number. We will send a ${codeLength}-digit code by SMS. After that, answers come for your own district and crops, and your questions stay saved.`
+            : `We will send a ${codeLength}-digit code by SMS to confirm it is you.`}
         </p>
         <form id="phone-form" onSubmit={askForCode} className="flex flex-col gap-2">
           <label htmlFor="phone" className="text-sm font-semibold">
@@ -177,6 +200,8 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
           <p className="text-sm text-soil-600">
             Use the number you text us from — your SMS questions and this app share one history.
           </p>
+          {/* MSG91 draws its captcha here, when the widget has one switched on. */}
+          {useMsg91 && <div id={msg91.CAPTCHA_ID} className="min-h-0" />}
           {errorLine}
         </form>
       </FlowScreen>
@@ -227,11 +252,17 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
             }`,
             true
           )}
-        {card(
-          "Our sending phone may be offline",
-          "If no code arrives in 2 minutes, the problem is most likely on our side, not your number. SMS answers use the same phone, so please try again later.",
-          !problem
-        )}
+        {useMsg91
+          ? card(
+              "The SMS may be delayed",
+              "Codes usually arrive within a minute. If none comes in 2 minutes, go back and tap Resend — it may come as a voice call instead.",
+              !problem
+            )
+          : card(
+              "Our sending phone may be offline",
+              "If no code arrives in 2 minutes, the problem is most likely on our side, not your number. SMS answers use the same phone, so please try again later.",
+              !problem
+            )}
         {card("Code expired", `Codes work for ${CODE_TTL_MINUTES} minutes. Ask for a new one.`)}
       </FlowScreen>
     );
@@ -252,31 +283,31 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
         </BackLink>
       }
       actions={
-        <button type="submit" form="code-form" disabled={code.length !== 6 || busy} className={primaryButton}>
+        <button type="submit" form="code-form" disabled={code.length !== codeLength || busy} className={primaryButton}>
           {busy ? "Checking…" : saving ? "Verify and continue" : "Sign in"}
         </button>
       }
     >
       <h1 className="text-3xl font-bold leading-tight">Enter the code</h1>
       <p className="text-lg text-soil-700">
-        We sent a 6-digit code by SMS to <strong className="text-soil-900">{spaced(digits)}</strong>. It can
+        We sent a {codeLength}-digit code by SMS to <strong className="text-soil-900">{spaced(digits)}</strong>. It can
         take up to a minute to arrive.
       </p>
       <form id="code-form" onSubmit={submitCode} className="flex flex-col gap-2">
         <label htmlFor="code" className="text-sm font-semibold">
-          6-digit code
+          {codeLength}-digit code
         </label>
         <input
           id="code"
           ref={codeRef}
           value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, codeLength))}
           type="text"
           inputMode="numeric"
           // The attribute that lets Android fill this from the SMS itself.
           autoComplete="one-time-code"
-          maxLength={6}
-          placeholder="• • • • • •"
+          maxLength={codeLength}
+          placeholder={Array(codeLength).fill("•").join(" ")}
           className={`${fieldClass} h-16 text-center text-3xl tracking-[0.4em] placeholder:tracking-[0.2em]`}
         />
         <p className="text-sm text-soil-600">The code works for {CODE_TTL_MINUTES} minutes.</p>

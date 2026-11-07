@@ -24,6 +24,7 @@ import db
 import farmer_account
 import feedback
 import guest_access
+import msg91
 import whereabouts
 import lesion_bank
 import msp
@@ -549,13 +550,38 @@ def verify_code(request: VerifyRequest):
     ok, reason = auth.check_code(phone, request.code)
     if not ok:
         raise HTTPException(status_code=401, detail=reason or "that code is wrong")
+    return _signed_in(phone, request.guest_id)
 
+
+class WidgetVerifyRequest(BaseModel):
+    access_token: str
+    guest_id: Optional[str] = None
+
+
+@app.post("/auth/verify-widget")
+def verify_widget(request: WidgetVerifyRequest):
+    """Sign in with the access token MSG91's widget gave the browser.
+
+    The number signed in is the one MSG91 says it verified (msg91.py), not one
+    the browser names.
+    """
+    if not msg91.enabled():
+        raise HTTPException(status_code=503, detail="sign-in by MSG91 is not set up")
+    phone, reason = msg91.verified_phone(request.access_token)
+    if not phone:
+        raise HTTPException(status_code=401, detail=reason)
+    return _signed_in(phone, request.guest_id)
+
+
+def _signed_in(phone: str, guest_id: Optional[str]) -> dict:
+    """What every way of proving a number ends in: the account, the guest's
+    questions moved onto it, and a token."""
     version = farmer_account.ensure(phone, channel="web")
 
     # Before reading the account, so a crop the guest mentioned is already in
     # the profile when the farm-details screen asks what they grow.
     claimed = 0
-    guest = guest_access.guest_user_id(request.guest_id)
+    guest = guest_access.guest_user_id(guest_id)
     if guest:
         claimed = profile_store.claim_guest(guest, phone)
 
