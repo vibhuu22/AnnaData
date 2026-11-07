@@ -61,14 +61,16 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
   const [problem, setProblem] = useState(null);
   const [cooldown, setCooldown] = useState(0);
   const [transport, setTransport] = useState("");
-  // MSG91's widget sends the codes when it is configured and its script loads;
-  // otherwise AnnaData's own codes, exactly as before.
+  // MSG91's widget sends the codes when it is configured and starts; if it
+  // cannot, the same tap falls back to AnnaData's own codes and says so.
   const [useMsg91, setUseMsg91] = useState(msg91.msg91Enabled());
+  const [fellBack, setFellBack] = useState("");
   const codeLength = useMsg91 ? msg91.CODE_LENGTH : 6;
 
+  // Started early so the widget is usually ready by the time the farmer taps.
+  // A failure here changes nothing on screen; the tap decides.
   useEffect(() => {
-    if (!useMsg91) return;
-    msg91.loadWidget().catch(() => setUseMsg91(false));
+    if (useMsg91) msg91.loadWidget().catch(() => {});
   }, [useMsg91]);
 
   const codeRef = useRef(null);
@@ -95,13 +97,27 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
     setError("");
     try {
       if (useMsg91) {
-        if (step === "code") await msg91.resendCode();
-        else await msg91.sendCode(digits);
-        setTransport("msg91");
-        setCooldown(MSG91_RESEND_SECONDS);
-        setProblem(null);
-        setStep("code");
-        return;
+        let started = true;
+        try {
+          await msg91.loadWidget();
+        } catch (e) {
+          started = false;
+          // MSG91 itself is unreachable or refused the widget: our own codes
+          // instead, on this same tap, and the screen says so.
+          setUseMsg91(false);
+          setFellBack(e.message || "MSG91 is not available");
+        }
+        if (started) {
+          // A refusal from here on is MSG91's answer about this number (a
+          // limit, a captcha, a blocked number), shown as MSG91 gave it.
+          if (step === "code") await msg91.resendCode();
+          else await msg91.sendCode(digits);
+          setTransport("msg91");
+          setCooldown(MSG91_RESEND_SECONDS);
+          setProblem(null);
+          setStep("code");
+          return;
+        }
       }
       const data = await requestCode(digits);
       setTransport(data.transport || "");
@@ -312,6 +328,11 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
         />
         <p className="text-sm text-soil-600">The code works for {CODE_TTL_MINUTES} minutes.</p>
         {errorLine}
+        {fellBack && transport !== "msg91" && (
+          <p className="rounded-lg bg-grain-50 px-3 py-2 text-xs text-grain-700">
+            MSG91 could not be used ({fellBack}), so this code was sent from AnnaData's own number.
+          </p>
+        )}
         {transport === "console" && (
           // Development only. Without this the code is in a server log and
           // nobody testing locally can find it.

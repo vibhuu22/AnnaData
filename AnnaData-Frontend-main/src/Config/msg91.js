@@ -16,7 +16,7 @@
 const WIDGET_ID = process.env.REACT_APP_MSG91_WIDGET_ID || "";
 const TOKEN_AUTH = process.env.REACT_APP_MSG91_TOKEN_AUTH || "";
 const SCRIPT = "https://verify.msg91.com/otp-provider.js";
-const LOAD_TIMEOUT_MS = 10000;
+const LOAD_TIMEOUT_MS = 20000;
 
 /** Where MSG91 draws its captcha, when the widget has captcha on. */
 export const CAPTCHA_ID = "msg91-captcha";
@@ -30,42 +30,69 @@ export function msg91Enabled() {
 
 let loading = null;
 
-/** Load MSG91's script once and start the widget. Rejects if it cannot. */
+/**
+ * Load MSG91's script once and start the widget. Resolves only when MSG91 has
+ * accepted the widget id and token - not merely when its script has arrived:
+ * a wrong token still defines sendOtp, then refuses everything
+ * (AuthenticationFailure), which looked like a working widget. Rejects with
+ * MSG91's own reason, or after LOAD_TIMEOUT_MS.
+ */
 export function loadWidget() {
   if (!msg91Enabled()) return Promise.reject(new Error("MSG91 is not configured"));
   if (loading) return loading;
   loading = new Promise((resolve, reject) => {
-    if (typeof window.sendOtp === "function") return resolve();
-    const timer = setTimeout(() => reject(new Error("MSG91 did not load")), LOAD_TIMEOUT_MS);
-    const script = document.createElement("script");
-    script.src = SCRIPT;
-    script.async = true;
-    script.onload = () => {
+    let settled = false;
+    let poll = null;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearInterval(poll);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => finish(new Error("MSG91 took too long to load")), LOAD_TIMEOUT_MS);
+    // getWidgetData() is null until MSG91 has accepted the widget.
+    const ready = () => {
+      try {
+        return Boolean(window.getWidgetData && window.getWidgetData());
+      } catch (e) {
+        return false;
+      }
+    };
+    const start = () => {
       try {
         window.initSendOTP({
           widgetId: WIDGET_ID,
           tokenAuth: TOKEN_AUTH,
           exposeMethods: true,
           captchaRenderId: CAPTCHA_ID,
-          // Results come back through each method's own callbacks; listening
-          // here as well would deliver every event twice.
+          // Per-call results come back through each method's own callbacks;
+          // this one only hears whether the widget itself started.
           success: () => {},
-          failure: () => {},
+          failure: (error) => {
+            if (!ready()) finish(reason(error, "MSG91 refused the widget settings"));
+          },
         });
-        clearTimeout(timer);
-        resolve();
       } catch (e) {
-        clearTimeout(timer);
-        reject(e);
+        finish(e);
+        return;
       }
+      poll = setInterval(() => ready() && finish(), 200);
     };
-    script.onerror = () => {
-      clearTimeout(timer);
-      reject(new Error("MSG91 could not be reached"));
-    };
+    if (typeof window.initSendOTP === "function") {
+      if (ready()) finish();
+      else start();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = SCRIPT;
+    script.async = true;
+    script.onload = start;
+    script.onerror = () => finish(new Error("MSG91 could not be reached"));
     document.head.appendChild(script);
   }).catch((e) => {
-    loading = null; // try again next time
+    loading = null; // a later attempt starts afresh
     throw e;
   });
   return loading;

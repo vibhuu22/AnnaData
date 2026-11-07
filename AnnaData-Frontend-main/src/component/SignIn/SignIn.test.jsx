@@ -62,12 +62,21 @@ test("with MSG91, its widget sends and checks the code, and the backend confirms
   expect(session.requestCode).not.toHaveBeenCalled();
 });
 
-test("if MSG91's script cannot load, sign-in falls back to AnnaData's own codes", async () => {
+test("if MSG91 cannot start, the same tap sends AnnaData's own code, and says so", async () => {
   msg91.msg91Enabled.mockReturnValue(true);
-  msg91.loadWidget.mockRejectedValue(new Error('blocked'));
+  msg91.loadWidget.mockRejectedValue(new Error('MSG91 took too long to load'));
   show();
-  await waitFor(() => expect(document.getElementById('msg91-captcha')).toBeNull());
   await signInWith('98765 43210', '123456');
-  expect(session.requestCode).toHaveBeenCalled();
+  expect(session.requestCode).toHaveBeenCalledTimes(1);
   expect(msg91.sendCode).not.toHaveBeenCalled();
+});
+
+test("MSG91 refusing a send is shown, not swapped for another sender", async () => {
+  msg91.msg91Enabled.mockReturnValue(true);
+  msg91.sendCode.mockRejectedValue(new Error('Captcha not verified'));
+  show();
+  fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '98765 43210' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Captcha not verified');
+  expect(session.requestCode).not.toHaveBeenCalled();
 });
