@@ -411,12 +411,35 @@ _GREETING_INSTRUCTION = {
     ),
     "first_contact": (
         "You have not spoken to this farmer before. Introduce yourself in one "
-        "sentence: you are AnnaData, an agricultural advisor they can text any "
-        "time, free. Then say what is worth asking about - pests and diseases, "
-        "fertiliser, irrigation, sowing times, weather, and support prices - and "
-        "invite them to say where they farm and what they grow."
+        "sentence: you are AnnaData, a free farming advisor they can ask any "
+        "time. Then, in one more sentence, name two or three things worth asking "
+        "about - pests, fertiliser, weather, mandi prices - and invite them to "
+        "say where they farm and what they grow."
     ),
 }
+
+
+# A greeting is an opening, not an answer: the voice read 4-5 sentences of
+# introduction to "Hello" before the farmer could say anything.
+GREETING_LENGTH = ("At most two short sentences, about 30 words in all. "
+                   "End with one question, not two.")
+
+
+def greeting_language(query: str) -> str:
+    """The language a greeting is answered in.
+
+    "Hello", "Hi" and "Namaste" say nothing about the farmer's language, and
+    were answered in English - a long English introduction, read aloud, to a
+    farmer who speaks Hindi. Our farmers mostly type romanised Hindi, so a
+    greeting in Latin letters is answered in natural Hinglish. A greeting in
+    another script is answered in that script and language, as before.
+    """
+    if script_of(query) != "Latin":
+        return script_instruction(query)
+    return ("Reply in natural, simple HINGLISH: everyday Hindi written in Latin "
+            "letters, the way farmers text - for example \"Namaste! Main AnnaData "
+            "hoon, aapka kheti salahkar.\" Use this even if the farmer only wrote "
+            "\"Hello\" or \"Hi\". Do NOT reply in English, and do NOT use Devanagari.")
 
 
 def greeting_instruction(profile, continuing_session: bool = False, place=None) -> str:
@@ -469,8 +492,10 @@ def greet(query: str, profile, channel: str,
 
     Be warm and human. No lists, no bullet points, no formal announcements.
     Do NOT give farming advice they did not ask for.
+    {GREETING_LENGTH}
+    {"" if (channel or "").lower() == "sms" else "Do not mention texting or SMS: they are using the app."}
 
-    {script_instruction(query)}
+    {greeting_language(query)}
 
     Constraints:
     - {style}

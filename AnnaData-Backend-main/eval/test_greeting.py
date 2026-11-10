@@ -81,3 +81,31 @@ if failures:
     sys.exit(1)
 
 print("All greeting-mode checks passed")
+
+# --- The language and length of a greeting ----------------------------------
+# "Hello", "Hi" and "Namaste" were answered with a 4-5 sentence introduction
+# in English, read aloud in voice mode. A greeting in Latin letters is now
+# answered in short Hinglish; one in another script, in that script.
+import os  # noqa: E402
+os.environ.setdefault("GEMINI_API_KEY", "x")
+try:
+    import Agent  # noqa: E402
+except Exception as e:  # langchain absent
+    print(f"Agent not importable here ({type(e).__name__}); skipping the language checks")
+    Agent = None
+
+if Agent:
+    for said in ("Hello", "hi", "Namaste", "Hello, kaise ho?"):
+        told = Agent.greeting_language(said)
+        if "HINGLISH" not in told or "Do NOT reply in English" not in told:
+            failures.append(f"Hinglish for {said!r}")
+    if "Devanagari script" not in Agent.greeting_language("नमस्ते"):
+        failures.append("Hindi script keeps Hindi")
+    if "Bengali" not in Agent.greeting_language("নমস্কার"):
+        failures.append("Bengali keeps Bengali")
+    if "two short sentences" not in Agent.GREETING_LENGTH:
+        failures.append("greeting length")
+    print("Greeting language checks:", "FAILED" if failures else "passed")
+    if failures:
+        print(failures)
+        sys.exit(1)

@@ -376,7 +376,10 @@ def _farm_question(user_id, channel, profile, result):
     """
     name = result.location
     if (channel == "sms" or getattr(result, "place_source", None) != whereabouts.PHONE
-            or not name or result.missing_slots or "farm" in (result.tools_used or [])):
+            or not name or result.missing_slots
+            # A greeting already ends with its own question; a second one under
+            # it is two questions in a row, and a "haan" could mean either.
+            or {"farm", "greeting"} & set(result.tools_used or [])):
         return None
     key = whereabouts.asked_key(name)
     if key in ((profile or {}).get("farm_asked") or []):

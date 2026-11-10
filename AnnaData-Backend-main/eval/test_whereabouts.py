@@ -155,6 +155,10 @@ if Agent is not None:
         check("and nothing is stored as the farm yet", stored(user).get("location_text"), None)
         check("not even the state", stored(user).get("state"), None)
 
+        print("\n'hello' in a new chat, phone in Kharagpur")
+        r = ask(guest(), "hello")
+        check("a greeting carries no farm question under it", r["confirm_place"], None)
+
         print("\n... then 'haan'")
         r = ask(user, "haan")
         check("Kharagpur is saved as the farm", (stored(user).get("location_text"), stored(user).get("state")),
