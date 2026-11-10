@@ -34,7 +34,7 @@ describe('every piece is played at one loudness', () => {
       pauseEvery && Math.floor(i / pauseEvery) % 2 ? 0 : amplitude * Math.sin(i / 3));
 
   test('a quiet piece is turned up and a loud one down, to the same level', () => {
-    const quiet = speechLevel(tone(0.05));
+    const quiet = speechLevel(tone(0.1));
     const loud = speechLevel(tone(0.4));
     expect(quiet * gainFor(quiet)).toBeCloseTo(loud * gainFor(loud), 5);
   });

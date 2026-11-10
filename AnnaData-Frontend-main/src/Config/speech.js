@@ -119,29 +119,30 @@ const idle = new Set();
 // --- Loudness ---------------------------------------------------------------
 //
 // Every piece of an answer is a separate request to the voice model, and each
-// comes back at its own level - one sentence loud, the next noticeably quieter.
-// Played straight to the speakers, that was the loudness jumping about while
-// it spoke. And within a piece the voice itself swings 5-7 dB from word to
-// word, its sentence ends trailing off to -18 or -21 dBFS - measured on the
-// live voice, in 0.4 s windows. So everything heard goes through one chain:
+// can come back at its own level. Played straight to the speakers, one
+// sentence came out louder than the next. So everything heard goes through:
 //
-//   piece -> level      a gain set per piece from how loud it actually is
-//         -> evener     a gentle compressor: quiet words up, loud ones down
-//         -> limiter    catches peaks, so the raised level never clips
+//   piece -> level    one gain per piece, from how loud its first second is,
+//                     then held steady for the rest of the piece
+//         -> limiter  catches the odd peak, so the raised level never clips
 //         -> speakers
 //
-// The result is speech at one steady loudness, set high: as loud as it can be
-// without distorting. That is the most the phone's own volume control has to
-// work with, so the system volume alone decides how loud it is.
-const TARGET_LEVEL = 0.2; // the loudness of speech, as voiced RMS: about -14 dBFS
+// An earlier version also ran a fast compressor to even out word-to-word
+// loudness. Farmers heard that as the volume dropping and coming back within
+// every sentence: measured on the live voice, it moved the gain 3.8 dB every
+// 50 ms. This chain moves it 1.6 dB (the limiter's odd touch), brings a quiet
+// piece to within about 1 dB of the others, and puts speech at -12.7 dBFS
+// with peaks at -0.7: as loud as it goes without distorting, so the phone's
+// own volume control decides how loud it is.
+const TARGET_LEVEL = 0.32; // the loudness of speech, as voiced RMS: about -10 dBFS before limiting
 const SILENCE = 0.01; // a sample quieter than this (about -40 dBFS) is a pause
 const LEAST_GAIN = 0.5;
 const MOST_GAIN = 6; // about +15 dB: enough for the quietest piece Gemini returns
-const SETTLE = 0.08; // seconds: how fast the level moves to a new piece's
-const MAKEUP = 2.4; // +7.6 dB after the evener, back up to full loudness
+const MEASURE_SECONDS = 1; // the level is measured over this much of a piece, then held
+const SETTLE = 0.3; // seconds: how gently the level moves while it is being measured
 // The browser adds its own makeup gain after a compressor, the limiter
 // included, which pushed peaks past full scale. This takes it back off.
-const TRIM = 0.85;
+const TRIM = 0.88;
 
 let chain = null;
 
@@ -173,33 +174,17 @@ function output(ctx) {
   if (chain && chain.ctx === ctx) return chain;
   try {
     const level = ctx.createGain();
-    // Speech above -32 dBFS is compressed 6:1, over a soft knee, quickly enough
-    // to catch a single word. All the numbers here were chosen by playing the
-    // live voice through this chain in Chromium and measuring it: speech at
-    // -11.5 dBFS instead of -13.5, word-to-word spread 6.0 dB -> 4.4, a quiet
-    // piece among loud ones 9.9 dB -> 4.4, and peaks at -1.2 dBFS (no clipping).
-    const evener = ctx.createDynamicsCompressor();
-    evener.threshold.value = -32;
-    evener.knee.value = 12;
-    evener.ratio.value = 6;
-    evener.attack.value = 0.003;
-    evener.release.value = 0.1;
-    // The evener lowers the loud words more than the browser's own makeup gain
-    // gives back; this restores full loudness, and the limiter holds the peaks.
-    const makeup = ctx.createGain();
-    makeup.gain.value = MAKEUP;
     const limiter = ctx.createDynamicsCompressor();
-    // A limiter: anything over -4 dBFS is held there, almost at once.
-    limiter.threshold.value = -4;
+    // A limiter: anything over -3 dBFS is held there, almost at once, and
+    // let go slowly enough not to be heard working.
+    limiter.threshold.value = -3;
     limiter.knee.value = 0;
     limiter.ratio.value = 20;
     limiter.attack.value = 0.002;
-    limiter.release.value = 0.15;
+    limiter.release.value = 0.25;
     const trim = ctx.createGain();
     trim.gain.value = TRIM;
-    level.connect(evener);
-    evener.connect(makeup);
-    makeup.connect(limiter);
+    level.connect(limiter);
     limiter.connect(trim);
     trim.connect(ctx.destination);
     chain = { ctx, input: level, level, fresh: true };
@@ -211,20 +196,22 @@ function output(ctx) {
 }
 
 /**
- * Set the level for a chunk that will start playing at `at`. The piece's level
- * is measured over all of it heard so far, so it steadies within the first
- * second and does not chase the rise and fall of single words.
+ * Set the level for a chunk that will start playing at `at`. A piece's level
+ * is measured over its first MEASURE_SECONDS of audio and then held: following
+ * the rise and fall of single words is what made the volume pump.
  */
 function levelChunk(ctx, record, buffer, at) {
   const out = output(ctx);
   if (!out.level || !record) return out.input;
+  if (record.held) return out.input;
   const samples = buffer.getChannelData(0);
   const level = speechLevel(samples);
   if (level) {
-    const voiced = samples.length;
-    record.energy = (record.energy || 0) + level * level * voiced;
-    record.voiced = (record.voiced || 0) + voiced;
+    record.energy = (record.energy || 0) + level * level * samples.length;
+    record.voiced = (record.voiced || 0) + samples.length;
   }
+  record.heard = (record.heard || 0) + buffer.duration;
+  if (record.heard >= MEASURE_SECONDS) record.held = true;
   const gain = record.voiced ? gainFor(Math.sqrt(record.energy / record.voiced)) : null;
   if (gain) {
     const param = out.level.gain;
