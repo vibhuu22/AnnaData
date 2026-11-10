@@ -337,12 +337,21 @@ def format_uses(result: dict, pest: str | None = None) -> str:
             "is a transcription artefact and does NOT mean the row is about a "
             "different pest. These are the ONLY doses you may quote:",
         ]
+    # The register's rates are per hectare and its rows carry no unit, so the
+    # model was left to guess one: a Hindi answer quoted acephate's 666-1000 g
+    # per hectare as "प्रति एकड़" - two and a half times the registered dose.
+    lines.append(
+        "EVERY DOSE BELOW IS PER HECTARE, in grams (powders, granules) or ml "
+        "(liquids) of the product as sold, and every water volume is litres per "
+        "hectare. Say \"per hectare\" in the farmer's language. If you also give "
+        "a per-acre amount, divide by 2.5 - never write a per-hectare number as "
+        "per acre.")
     for u in uses:
         bits = [f"{u['product']} for {u['pest']} on {u['crop']}"]
         if u.get("dose_formulation"):
-            bits.append(f"dose {u['dose_formulation']}")
+            bits.append(f"dose {u['dose_formulation']} per hectare")
         if u.get("dilution"):
-            bits.append(f"in {u['dilution']}")
+            bits.append(f"in {u['dilution']} (litres of water per hectare)")
         if u.get("waiting_period"):
             bits.append(f"wait {u['waiting_period']} before harvest")
         lines.append(f"- {', '.join(bits)} [{u['source']}]")
@@ -391,9 +400,9 @@ def dose_lines(result: dict, limit: int = 3) -> list[str]:
 
         bits = [u["product"]]
         if dose:
-            bits.append(f"dose {dose}")
+            bits.append(f"dose {dose} per hectare")
         if dilution:
-            bits.append(f"in {dilution} litres of water")
+            bits.append(f"in {dilution} litres of water per hectare")
         waiting = _quantity(u.get("waiting_period"), max_length=20)
         if waiting:
             bits.append(f"wait {waiting} days before harvest")

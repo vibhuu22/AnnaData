@@ -259,6 +259,30 @@ class SentenceGuard:
 DOSE_HEADING = "Registered for this pest (CIB&RC):"
 
 
+def _product_skeleton(word: str) -> str:
+    # A Latin "c" before e, i or y is said "s" (acephate, cypermethrin), which is
+    # how the Indian scripts spell it; place_check's skeleton reads every c as k.
+    import place_check
+    return place_check.skeleton(re.sub(r"c(?=[eiy])", "s", word.lower()))
+
+
+def mentions(answer: str, product: str) -> bool:
+    """Whether the answer names this product, in any script.
+
+    A Hindi answer writes acephate as एसेफेट. Looking only for the Latin
+    spelling took that as "not mentioned" and appended the register's list
+    again, in English, under a Hindi answer that had already given the dose -
+    and voice mode read the English list aloud.
+    """
+    if product.lower() in answer.lower():
+        return True
+    target = _product_skeleton(product)
+    if len(target) < 3:
+        return False
+    import place_check
+    return any(_product_skeleton(w).startswith(target) for w in place_check._words(answer))
+
+
 def ensure_registered_doses(answer: str, doses: dict | None, pest: str | None) -> tuple[str, bool]:
     """Append the registered uses when they were matched but went unmentioned.
 
@@ -279,10 +303,9 @@ def ensure_registered_doses(answer: str, doses: dict | None, pest: str | None) -
     # A product is "mentioned" by its active ingredient, which is the first word
     # of the register's name - the answer writes "Carbendazim", the register
     # "Carbendazim 50%WP". Matching the whole string would never hit.
-    lowered = answer.lower()
     for use in uses:
         head = (use.get("product") or "").split()[0:1]
-        if head and head[0].lower() in lowered:
+        if head and mentions(answer, head[0]):
             return answer, False
 
     from knowledge import dose_lines  # local: knowledge imports nothing from here
