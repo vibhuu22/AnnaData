@@ -173,8 +173,31 @@ def speech_language(text: str) -> str:
     return SPEECH_LANGUAGES.get(script_of(text), "en-IN")
 
 
+# Words that mark Bengali written in Latin letters ("ami Kharagpur e thaki,
+# ekhon ki chash korbo?"). Chosen not to be Hindi words too: "ki" and "na" are
+# both, so they are left out. Two or more and the message is Bengali.
+_BENGALI_LATIN = re.compile(
+    r"\b(ami|amar|amra|amader|apni|apnar|tumi|tomar|ekhon|ekhane|okhane|thaki|"
+    r"korbo|korte|korun|kori|kore|koren|achhe|ache|achhi|achi|hobe|hoye|"
+    r"jonno|theke|kemon|bhalo|valo|kintu|ebong|bolun|dekhun|chash|"
+    r"chas|poka|legeche|lagche|nomoskar|nomoshkar|dhonnobad|dhanyabad)\b", re.I)
+
+
+def latin_bengali(text: str) -> bool:
+    """Whether a message in Latin letters is Bengali rather than Hinglish."""
+    words = {w.lower() for w in _BENGALI_LATIN.findall(text or "")}
+    return len(words) >= 2 or bool(words & {"nomoskar", "nomoshkar"})
+
+
 def script_instruction(query: str) -> str:
     script = script_of(query)
+    if script == "Latin" and latin_bengali(query):
+        # Answered in English before: "Namaskar, ami Kharagpur e thaki, ekhon ki
+        # chash korbo?" came back as an English paragraph.
+        return ("The farmer wrote BENGALI in the LATIN alphabet. Reply in BENGALI, "
+                "written in Latin letters the same way they wrote it (for example "
+                "\"Apnar dhane poka legeche, tahole...\"). Do NOT reply in English "
+                "or Hindi, and do NOT use Bengali or Devanagari script.")
     if script == "Latin":
         return ("The farmer wrote in the LATIN alphabet. You MUST reply in the "
                 "LATIN alphabet. If they wrote romanised Hindi or another Indian "
@@ -345,12 +368,13 @@ def answer_about_system(query: str, history, channel: str, profile=None) -> str:
     Constraints:
     - {style}
     - {script_instruction(query)}
+    - {NAME_IN_SCRIPTS}
     - Be warm and plain-spoken. This is a farmer asking what help is available,
       not an auditor. Offer, do not merely enumerate, and never end on a bare
       refusal where you have something useful to offer instead.
     """
 
-    return llm.invoke([HumanMessage(content=prompt)]).content.strip()
+    return fix_name(llm.invoke([HumanMessage(content=prompt)]).content.strip())
 
 
 def handle_correction(query: str, history, channel: str, place: str | None = None) -> str:
@@ -419,6 +443,23 @@ _GREETING_INSTRUCTION = {
 }
 
 
+# The service's name as each script writes it. Left to itself the model
+# transliterated "AnnaData" as अन्नाडेटा and আন্নাডাটা - a foreign word to a
+# Hindi or Bengali speaker, when the name is the word अन्नदाता itself.
+NAME_IN_SCRIPTS = ("Your name is AnnaData. Written in Devanagari it is अन्नदाता, "
+                   "in Bengali script অন্নদাতা, in Gurmukhi ਅੰਨਦਾਤਾ - never a "
+                   "letter-by-letter spelling of the English.")
+_NAME_MISSPELT = re.compile(r"अन्नाडेटा|अन्नाडाटा|आन्नाडाटा|आन्नाडेटा|अन्नाडेता|"
+                            r"আন্নাডাটা|আন্নাডেটা|অন্নাডাটা|অন্নাডেটা|আন্নাদাতা")
+
+
+def fix_name(text: str) -> str:
+    """Correct a letter-by-letter spelling of the name, whichever script."""
+    def repl(m):
+        return "অন্নদাতা" if "\u0980" <= m.group(0)[0] <= "\u09ff" else "अन्नदाता"
+    return _NAME_MISSPELT.sub(repl, text or "")
+
+
 # A greeting is an opening, not an answer: the voice read 4-5 sentences of
 # introduction to "Hello" before the farmer could say anything.
 GREETING_LENGTH = ("At most two short sentences, about 30 words in all. "
@@ -434,7 +475,7 @@ def greeting_language(query: str) -> str:
     greeting in Latin letters is answered in natural Hinglish. A greeting in
     another script is answered in that script and language, as before.
     """
-    if script_of(query) != "Latin":
+    if script_of(query) != "Latin" or latin_bengali(query):
         return script_instruction(query)
     return ("Reply in natural, simple HINGLISH: everyday Hindi written in Latin "
             "letters, the way farmers text - for example \"Namaste! Main AnnaData "
@@ -493,6 +534,7 @@ def greet(query: str, profile, channel: str,
     Be warm and human. No lists, no bullet points, no formal announcements.
     Do NOT give farming advice they did not ask for.
     {GREETING_LENGTH}
+    {NAME_IN_SCRIPTS}
     {"" if (channel or "").lower() == "sms" else "Do not mention texting or SMS: they are using the app."}
 
     {greeting_language(query)}
@@ -501,7 +543,7 @@ def greet(query: str, profile, channel: str,
     - {style}
     """
 
-    return llm.invoke([HumanMessage(content=prompt)]).content.strip()
+    return fix_name(llm.invoke([HumanMessage(content=prompt)]).content.strip())
 
 
 def acknowledge_statement(query: str, facts: dict, channel: str,

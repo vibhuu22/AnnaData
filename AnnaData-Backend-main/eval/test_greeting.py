@@ -109,3 +109,26 @@ if Agent:
     if failures:
         print(failures)
         sys.exit(1)
+
+# --- Bengali in Latin letters, and the name in each script ------------------
+# "Namaskar, ami Kharagpur e thaki, ekhon ki chash korbo?" was answered in
+# English, and "Nomoskar" in Hinglish. The name came out as अन्नाडेटा/আন্নাডাটা.
+if Agent:
+    bengali = ["Namaskar, ami Kharagpur e thaki, ekhon ki chash korbo?",
+               "amar dhane poka legeche ki korbo", "Nomoskar", "tumi kemon acho"]
+    hinglish = ["Gehu ki buwai kab karein?", "Kapas me sundi lag gayi hai, kya spray karu?",
+                "mujhe bolo kya karu", "khub achha hai", "hello"]
+    for t in bengali:
+        if not Agent.latin_bengali(t) or "BENGALI" not in Agent.script_instruction(t):
+            failures.append(f"Bengali in Latin letters: {t!r}")
+    for t in hinglish:
+        if Agent.latin_bengali(t):
+            failures.append(f"not Bengali: {t!r}")
+    if "BENGALI" not in Agent.greeting_language("Nomoskar"):
+        failures.append("a Bengali greeting is answered in Bengali")
+    if Agent.fix_name("मैं अन्नाडेटा हूँ") != "मैं अन्नदाता हूँ" or Agent.fix_name("আমি আন্নাডাটা") != "আমি অন্নদাতা":
+        failures.append("the name in Hindi and Bengali script")
+    print("Bengali and name checks:", "FAILED" if failures else "passed")
+    if failures:
+        print(failures)
+        sys.exit(1)
