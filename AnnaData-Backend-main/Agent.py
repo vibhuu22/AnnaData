@@ -269,15 +269,21 @@ def farewell_or_not(message_type: str, intent: str, query: str, history) -> str:
     """Whether a message the classifier called a farewell really ends the talk.
 
     It is the one message type with a consequence outside the reply: voice mode
-    stops listening on it. So it is kept only when nothing says otherwise. A
-    farewell naming a topic is asking for something. A bare "nahin" right after
-    we asked a question answers it - "is your farm near Kharagpur?" "nahin" -
-    and hanging up there would cut the farmer off mid-answer.
+    stops listening on it. A bare "nahin" right after we asked a question
+    answers it - "is your farm near Kharagpur?" "nahin" - and hanging up there
+    would cut the farmer off mid-answer.
+
+    The intent is deliberately NOT a reason to doubt it. It is read from the
+    rewritten query, which folds the conversation's topic in: "bas, aur kuch
+    nahi chahiye" after a wheat answer is rewritten "gehu ki buwai ke bare mein
+    aur jankari nahi chahiye" and reads as sowing. Checking it turned every
+    real goodbye after a farming answer back into a question - live, on the
+    first deploy. The classifier decides the message type from the farmer's own
+    words, and a goodbye that also asks for something ("dhanyavaad, ab gehu ka
+    bhav batao") it already calls a question.
     """
     if message_type != "farewell":
         return message_type
-    if intent != "general":
-        return "question"
     # Punctuation out by category: \w would also split नहीं at its vowel signs.
     words = "".join(" " if unicodedata.category(ch).startswith("P") else ch
                     for ch in (query or "").lower()).split()
