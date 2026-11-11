@@ -68,6 +68,9 @@ SARVAM_TYPES = {".webm": "audio/webm", ".ogg": "audio/ogg", ".m4a": "audio/mp4",
 def normalise(text: str) -> str:
     """Lower case, one form of each character, no punctuation, single spaces."""
     text = unicodedata.normalize("NFC", text or "").lower()
+    # Chandrabindu and anusvara are both accepted spellings of the same nasal in
+    # Hindi (करूँ / करूं, गेहूँ / गेहूं): a spelling choice, not a mishearing.
+    text = text.replace("ँ", "ं")
     # Devanagari danda and every other punctuation mark; keep letters, marks, digits.
     text = "".join(ch if unicodedata.category(ch)[0] in "LMN" else " " for ch in text)
     return re.sub(r"\s+", " ", text).strip()

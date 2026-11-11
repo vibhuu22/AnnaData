@@ -26,6 +26,7 @@ def check(name, got, want):
 print("Normalising")
 check("case, punctuation and the danda go", normalise("Gehu ki BUWAI kab karein?।"), "gehu ki buwai kab karein")
 check("Devanagari vowel signs survive", normalise("गेहूं की बुवाई"), "गेहूं की बुवाई")
+check("chandrabindu and anusvara spell one sound", normalise("क्या करूँ, गेहूँ"), normalise("क्या करूं, गेहूं"))
 
 print("\nError rates")
 check("identical is 0", wer("gehu ki buwai kab", "Gehu ki buwai kab?"), 0.0)
