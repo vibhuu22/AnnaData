@@ -42,9 +42,9 @@ def _text_of(chunk) -> str:
 class SentenceStreamer:
     """Collects streamed text and hands on each complete, guarded sentence."""
 
-    def __init__(self, on_text, gathered: dict | None = None):
+    def __init__(self, on_text, gathered: dict | None = None, doses: dict | None = None):
         self.on_text = on_text
-        self.guard = output_guards.SentenceGuard(gathered or {})
+        self.guard = output_guards.SentenceGuard(gathered or {}, doses)
         self.buffer = ""
         self.raw = []
 
@@ -87,9 +87,10 @@ class SentenceStreamer:
         return "".join(self.raw)
 
 
-def write(llm, prompt: str, on_text, gathered: dict | None = None) -> str:
+def write(llm, prompt: str, on_text, gathered: dict | None = None,
+          doses: dict | None = None) -> str:
     """llm.invoke, streamed. Returns the full text, exactly as invoke returns it."""
-    streamer = SentenceStreamer(on_text, gathered)
+    streamer = SentenceStreamer(on_text, gathered, doses)
     for chunk in llm.stream([HumanMessage(content=prompt)]):
         streamer.feed(_text_of(chunk))
     return streamer.finish()

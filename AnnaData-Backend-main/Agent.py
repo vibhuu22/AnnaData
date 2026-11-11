@@ -582,7 +582,8 @@ def acknowledge_statement(query: str, facts: dict, channel: str,
 
 
 def get_farming_advice(location, state, crop, gathered, farmer_query,
-                       channel: str = "web", history=None, on_text=None) -> str:
+                       channel: str = "web", history=None, on_text=None,
+                       doses=None) -> str:
     """Compose the final advisory from whatever data was gathered.
 
     Only tools that actually ran appear in the prompt. Padding the context with
@@ -667,7 +668,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     if on_text:
         # Each sentence is checked against the same evidence scrub() uses
         # before it is sent; scrub() still runs on the whole answer afterwards.
-        return answer_stream.write(llm, prompt, on_text, gathered)
+        return answer_stream.write(llm, prompt, on_text, gathered, doses)
     return llm.invoke([HumanMessage(content=prompt)]).content
 
 
@@ -1174,13 +1175,21 @@ def run_agent(
 
     final_response = extract_markdown_content(
         get_farming_advice(_location_label(where), facts["state"], facts["crop"],
-                           gathered, query, channel, history=history, on_text=on_text)
+                           gathered, query, channel, history=history, on_text=on_text,
+                           doses=raw.get("doses"))
     )
     # A price or a subsidy is a number a farmer acts on. If nothing retrieved
     # supports it, no sentence claiming one survives, whatever the model wrote.
     final_response, scrubbed = output_guards.scrub(final_response, gathered)
     if scrubbed:
         print("Removed an unsupported figure from the answer")
+
+    # A product the register listed only for OTHER pests never reaches the
+    # farmer, whatever the model made of the warning it was handed with them.
+    final_response, unmatched = output_guards.strip_unmatched_doses(
+        final_response, raw.get("doses"))
+    if unmatched:
+        print("Removed a dose for a pest the register did not match")
 
     # And the reverse: a registered dose the model was handed and left out.
     final_response, restored = output_guards.ensure_registered_doses(

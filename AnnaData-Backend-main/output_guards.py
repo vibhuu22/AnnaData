@@ -212,15 +212,33 @@ class SentenceGuard:
     after whatever little survived.
     """
 
-    def __init__(self, gathered: dict):
+    def __init__(self, gathered: dict, doses: dict | None = None):
         self.price = not gathered.get("msp")
         self.scheme = (gathered.get("kb") or "").startswith(KB_UNCOVERED)
+        # Products the register listed for the crop but NOT for this pest. A
+        # sentence naming one is dropped as it streams, as strip_unmatched_doses
+        # drops it from the whole answer.
+        self.unmatched = unmatched_products(doses)
+        self.figures = unmatched_figures(doses)
+        # After a dropped dose sentence, the rest of its paragraph about spraying
+        # goes too, as in strip_unmatched_doses. A new line ends the paragraph.
+        self.tainted = False
         self.kept = 0
         self.fallback = None
 
     def check(self, sentence: str) -> str | None:
         """The sentence to send (units corrected), or None to drop it."""
         sentence, _ = fix_units(sentence)
+        if self.unmatched:
+            if names_any(sentence, self.unmatched, self.figures):
+                self.fallback = self.fallback or DOSE_FALLBACK
+                self.tainted = not sentence.endswith("\n")
+                return None
+            if self.tainted and _follows_dose(sentence):
+                self.tainted = not sentence.endswith("\n")
+                return None
+            if "\n" in sentence:
+                self.tainted = False
         if FIGURE.search(sentence):
             if self.price and PRICE_SCHEME.search(sentence):
                 self.fallback = self.fallback or PRICE_FALLBACK
@@ -281,6 +299,121 @@ def mentions(answer: str, product: str) -> bool:
         return False
     import place_check
     return any(_product_skeleton(w).startswith(target) for w in place_check._words(answer))
+
+
+# --- a dose for a pest the register did not match -----------------------------
+#
+# When the register has nothing for the pest asked about - or no pest was named
+# at all, only a symptom - `approved_uses` still returns what is registered for
+# the crop, and `format_uses` hands it over under a WARNING that none of it may
+# be recommended. That warning was only a prompt. On production, asked "aloo ke
+# patte kaale pad rahe hain" (no disease named, and a week the weather rated
+# low for late blight), the model reasoned "black edges, so blight", found
+# Chlorothalonil in the list - registered for blight - and quoted its dose per
+# hectare. Measured, it was rare (once in seven runs), but a dose for a disease
+# nobody established is the one failure this system claims code prevents. So
+# it is prevented here: when the pest was not matched, no sentence naming a
+# product from that list survives, in any script.
+
+DOSE_FALLBACK = ("No registered treatment is on file for this exact problem, so no "
+                 "chemical can be named here. Please show the plant to your Krishi "
+                 "Vigyan Kendra or agriculture officer.")
+
+# Shorter heads ("Zinc") are ordinary words and would strip harmless advice.
+_MIN_HEAD = 5
+
+
+def unmatched_products(doses: dict | None) -> list[str]:
+    """Active-ingredient names from a crop-level list the pest did not match."""
+    if not doses or (doses.get("pest_matched") and doses.get("uses")):
+        return []
+    heads = []
+    for use in doses.get("uses") or []:
+        head = re.split(r"[\s\d%(]", (use.get("product") or "").strip())[0]
+        if len(head) >= _MIN_HEAD and head.lower() not in (h.lower() for h in heads):
+            heads.append(head)
+    return heads
+
+
+def unmatched_figures(doses: dict | None) -> list[str]:
+    """The dose amounts of those same rows, as the register writes them.
+
+    A sentence can carry the dose without the product - "875-1250 gram prati
+    hectare gholkar chhidkein" after the product was named in the sentence
+    before - and that is the same dose for an unestablished disease.
+    """
+    if not doses or (doses.get("pest_matched") and doses.get("uses")):
+        return []
+    figures = []
+    for use in doses.get("uses") or []:
+        amount = (use.get("dose_formulation") or "").strip()
+        # A range or a number of three or more digits; "2" or "14" alone would
+        # strip ordinary sentences about days and plants.
+        if re.fullmatch(r"\d[\d.,]*\s*[-–]\s*\d[\d.,]*|\d{3,}[\d.,]*", amount):
+            if amount not in figures:
+                figures.append(amount)
+    return figures
+
+
+# Sentences that only make sense beside the dose just removed: "this is a
+# registered treatment for blight", "do not harvest for 14 days after spraying".
+# Dropped only when they follow a removed sentence in the same paragraph, and
+# never when they ask the farmer something.
+DOSE_CONTEXT = re.compile(
+    r"registered|panjikrit|पंजीकृत|chhidkav|chhidkaav|छिड़काव|छिड़काव|spray|स्प्रे|"
+    r"before harvest|harvest|fasal na|katai|kataai|कटाई",
+    re.IGNORECASE)
+
+
+def _follows_dose(sentence: str) -> bool:
+    return bool(DOSE_CONTEXT.search(sentence)) and "?" not in sentence
+
+
+def _norm_range(text: str) -> str:
+    return re.sub(r"\s*[-–]\s*", "-", text)
+
+
+def names_any(text: str, heads: list[str], figures: list[str] = ()) -> bool:
+    if any(mentions(text, h) for h in heads):
+        return True
+    flat = _norm_range(text)
+    return any(_norm_range(f) in flat for f in figures)
+
+
+def strip_unmatched_doses(answer: str, doses: dict | None) -> tuple[str, bool]:
+    """Drop every sentence naming a product registered only for other pests.
+
+    Works line by line so a bulleted answer keeps its layout. Returns the
+    answer and whether anything was removed.
+    """
+    heads = unmatched_products(doses)
+    figures = unmatched_figures(doses)
+    if not answer or not heads:
+        return answer, False
+
+    removed = False
+    lines_out = []
+    for line in answer.split("\n"):
+        if not line.strip():
+            lines_out.append(line)
+            continue
+        kept, tainted = [], False
+        for s in _sentences(line):
+            if names_any(s, heads, figures):
+                tainted = removed = True
+            elif tainted and _follows_dose(s):
+                continue
+            else:
+                kept.append(s)
+        if kept:
+            lines_out.append(" ".join(kept))
+    if not removed:
+        return answer, False
+
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines_out)).strip()
+    if len(text) < 40:
+        return DOSE_FALLBACK, True
+    return text, True
 
 
 def ensure_registered_doses(answer: str, doses: dict | None, pest: str | None) -> tuple[str, bool]:
