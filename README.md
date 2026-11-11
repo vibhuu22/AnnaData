@@ -35,9 +35,10 @@ it, what has been measured, and what has not. Two companions go deeper:
 | Support prices | 20 commodities, 39 aliases |
 | Retrieval corpus | 86 chunks across 5 scheme documents, with a tuned similarity floor |
 | Photo diagnosis | Lesion bank over a controlled symptom vocabulary — built to abstain, not to classify |
+| Diagnosis from evidence | Up to three likely causes, ranked from photo, farmer's words, weather risk (JHULSACAST for potato late blight; TNAU guidance for rice and cotton) and soil. Context ranks, never confirms; rules unreviewed |
 | Voice | Recorded question in, spoken answer out, via the browser's own speech APIs |
 | Memory | Postgres profile + message history, shared across channels by phone number |
-| Evaluation | 38 machine-checkable cases in `eval/cases.yaml`, plus four deterministic test modules |
+| Evaluation | 41 machine-checkable cases in `eval/cases.yaml`, plus 23 test modules that need no model call |
 | Recurring infrastructure cost | **$0** — every tier in use is free; Gemini billing is the one thing worth paying for |
 | Farmers using it | **One.** Everything below the level of "does it behave correctly" is unmeasured |
 
@@ -105,6 +106,9 @@ AnnaData-Backend-main/
   planner.py           Intent → which tools to run. Plain data, no model call
   knowledge.py         Registered doses (structured) + document retrieval (pgvector)
   lesion_bank.py       Photo diagnosis by nearest labelled symptom reading
+  disease_risk.py      Weather risk per crop disease from published rules; soil lookalikes
+  diagnosis.py         Ranked likely causes from photo, words, weather and soil
+  soil_cache.py        Soil readings kept once fetched: memory, then Postgres; never expire
   output_guards.py     Strips price/scheme figures nothing retrieved supports
   units.py             Bigha → hectare, per state, refusing where the state is unknown
   msp.py               Minimum Support Prices, local and always answerable

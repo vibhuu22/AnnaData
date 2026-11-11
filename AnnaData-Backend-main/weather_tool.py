@@ -43,15 +43,37 @@ def _cache_key(lat, lon) -> tuple:
 
 
 def weather_openmeteo(lat, lon) -> str:
+    """The weather report as text, for the advisory prompt."""
+    return weather_reading(lat, lon)[0]
+
+
+def weather_series(lat, lon) -> dict | None:
+    """The same reading as numbers, or None when only the fallback answered."""
+    return weather_reading(lat, lon)[1]
+
+
+def weather_reading(lat, lon) -> tuple[str, dict | None]:
+    """The report text and the daily series it was written from.
+
+    Both come from one request and share one cache entry. The text is what the
+    prompt has always received; the series is what disease risk is computed
+    from, because thresholds on humidity and temperature cannot be checked
+    against a sentence. MET Norway's fallback has no daily humidity, so when it
+    answers the series is None and risk is reported as unknown rather than low.
+    """
     key = _cache_key(lat, lon)
     now = time.monotonic()
 
     with _cache_lock:
         hit = _cache.get(key)
         if hit and now - hit[0] < WEATHER_CACHE_TTL:
-            return hit[1]
+            return hit[1], hit[2]
 
-    report = _fetch_weather(lat, lon)
+    series = _fetch_series(lat, lon)
+    if isinstance(series, dict):
+        report = format_weather(series)
+    else:
+        report, series = series, None
 
     # Open-Meteo's limit is per IP and shared with everyone else on this host,
     # so being refused says nothing about our own usage and retrying will not
@@ -67,12 +89,19 @@ def weather_openmeteo(lat, lon) -> str:
         with _cache_lock:
             if len(_cache) >= _CACHE_MAX:
                 _cache.clear()
-            _cache[key] = (now, report)
+            _cache[key] = (now, report, series)
 
-    return report
+    return report, series
 
 
 def _fetch_weather(lat, lon) -> str:
+    """The report for a coordinate, uncached. Kept for existing callers."""
+    series = _fetch_series(lat, lon)
+    return format_weather(series) if isinstance(series, dict) else series
+
+
+def _fetch_series(lat, lon) -> dict | str:
+    """Open-Meteo's daily series around today, or the unavailable notice."""
     global _last_error
     today = date.today()
     start = today - timedelta(days=PAST_DAYS)
@@ -86,8 +115,14 @@ def _fetch_weather(lat, lon) -> str:
         # has no daily equivalent and drives disease pressure advice.
         "current": "temperature_2m,relative_humidity_2m,precipitation,"
                    "wind_speed_10m,weather_code",
+        # Daily humidity is what the disease risk rules count days against.
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,"
-                 "weathercode,windspeed_10m_max",
+                 "weathercode,windspeed_10m_max,"
+                 "relative_humidity_2m_mean,relative_humidity_2m_max",
+        # Hourly, because the published disease forecasting models count
+        # hours - JHULSACAST asks for so many hours at >= 90% humidity in a
+        # moving window, which no daily figure can answer.
+        "hourly": "temperature_2m,relative_humidity_2m",
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
         "timezone": "auto",
@@ -128,7 +163,11 @@ def _fetch_weather(lat, lon) -> str:
         return "Weather data unavailable (lookup failed)."
 
     _last_error = None
+    return series_from_response(data, lat, lon, today)
 
+
+def series_from_response(data: dict, lat, lon, today: date) -> dict | str:
+    """Open-Meteo's response as plain lists, with today located by date."""
     daily = data.get("daily")
     if not daily or not daily.get("time"):
         return f"Weather data unavailable (unexpected response: {data})."
@@ -138,13 +177,38 @@ def _fetch_weather(lat, lon) -> str:
     def series(key):
         return daily.get(key) or [None] * len(times)
 
-    tmax, tmin = series("temperature_2m_max"), series("temperature_2m_min")
-    precip, wind = series("precipitation_sum"), series("windspeed_10m_max")
-
     # Locate today by date string; fall back to the last past day available.
     today_str = today.isoformat()
     idx = times.index(today_str) if today_str in times else len(times) - FORECAST_DAYS - 1
     idx = max(0, min(idx, len(times) - 1))
+
+    hourly = data.get("hourly") or {}
+    hours = hourly.get("time") or []
+
+    return {
+        "lat": lat,
+        "lon": lon,
+        "dates": list(times),
+        "tmin": series("temperature_2m_min"),
+        "tmax": series("temperature_2m_max"),
+        "precip": series("precipitation_sum"),
+        "wind": series("windspeed_10m_max"),
+        "rh_mean": series("relative_humidity_2m_mean"),
+        "rh_max": series("relative_humidity_2m_max"),
+        # Local times as "YYYY-MM-DDTHH:MM", aligned with the two lists below.
+        "hours": list(hours),
+        "temp_hourly": hourly.get("temperature_2m") or [None] * len(hours),
+        "rh_hourly": hourly.get("relative_humidity_2m") or [None] * len(hours),
+        "current": data.get("current") or {},
+        "today_index": idx,
+    }
+
+
+def format_weather(s: dict) -> str:
+    """The report the advisory prompt has always received, from a series."""
+    lat, lon, idx = s["lat"], s["lon"], s["today_index"]
+    times, tmin, tmax = s["dates"], s["tmin"], s["tmax"]
+    precip, wind = s["precip"], s["wind"]
 
     def num(values, i, default=0.0):
         v = values[i] if 0 <= i < len(values) else None
@@ -165,7 +229,7 @@ def _fetch_weather(lat, lon) -> str:
     # Live conditions. Farmers ask what it is like right now, and a daily
     # aggregate cannot answer that - humidity especially, which has no daily
     # equivalent and is what drives fungal disease pressure.
-    current = data.get("current") or {}
+    current = s.get("current") or {}
     now_parts = []
     for key, unit, label in (
         ("temperature_2m", "C", "temperature"),

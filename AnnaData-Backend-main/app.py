@@ -343,6 +343,9 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         # Exactly what the farmer has not told us yet, so the caller can ask
         # for that one thing instead of a generic prompt.
         "missing_slots": result.missing_slots,
+        # The ranked likely causes behind a disease answer, with the reasons
+        # for each and whether one is settled; None for other questions.
+        "diagnosis": result.diagnosis,
         # The phone's place, when the farmer should be asked once whether it is
         # their farm. The caller words the question (asks.js), as it does the
         # other follow-up asks.
