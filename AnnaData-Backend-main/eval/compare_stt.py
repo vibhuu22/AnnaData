@@ -144,22 +144,35 @@ def load_clips() -> list[dict]:
         sys.exit(f"No {sheet}. Copy clips.example.csv to clips.csv and list your clips in it.")
     with sheet.open(encoding="utf-8-sig", newline="") as f:
         rows = [r for r in csv.DictReader(f) if (r.get("file") or "").strip()]
-    problems = []
+    # A sheet filled in ahead of the recordings is normal: rows whose file is
+    # not there yet are skipped and counted, so a first handful can be tested.
+    # A row that is wrong, not merely early, still stops the run.
+    problems, ready, waiting = [], [], []
     for r in rows:
         path = CLIPS / r["file"].strip()
         if path.suffix.lower() not in AUDIO:
             problems.append(f"{r['file']}: not an audio type this test sends ({', '.join(sorted(AUDIO))})")
-        elif not path.exists():
-            problems.append(f"{r['file']}: listed but not in {CLIPS}")
+            continue
         if not (r.get("reference") or "").strip():
             problems.append(f"{r['file']}: no reference text - nothing to score against")
+            continue
+        if not path.exists():
+            waiting.append(r["file"])
+            continue
         r["path"] = path
         r["terms"] = parse_terms(r.get("key_terms", ""))
+        ready.append(r)
     if problems:
         sys.exit("Fix clips.csv first:\n  " + "\n  ".join(problems))
     if not rows:
         sys.exit("clips.csv lists no clips.")
-    return rows
+    if waiting:
+        shown = ", ".join(waiting[:6]) + (f" and {len(waiting) - 6} more" if len(waiting) > 6 else "")
+        print(f"Not recorded yet, skipped ({len(waiting)} of {len(rows)}): {shown}")
+    if not ready:
+        sys.exit(f"None of the {len(rows)} listed recordings is in {CLIPS} yet. "
+                 "Save voice notes there under the names in clips.csv.")
+    return ready
 
 
 def main() -> None:
@@ -179,10 +192,10 @@ def main() -> None:
     if "sarvam" in engines and not key and not args.dry_run:
         sys.exit("SARVAM_API_KEY is not set. Add it to AnnaData-Backend-main/.env, or run --only gemini.")
     terms_total = sum(len(c["terms"]) for c in clips)
-    print(f"{len(clips)} clip(s), {terms_total} key term(s); engines: {', '.join(engines)}"
+    print(f"Testing {len(clips)} recording(s), {terms_total} key term(s); engines: {', '.join(engines)}"
           + (f" (Sarvam model {args.sarvam_model})" if "sarvam" in engines else ""))
     if args.dry_run:
-        print("Dry run: clips.csv and files are fine. No audio was sent.")
+        print("Dry run: the sheet is fine and these recordings are ready. No audio was sent.")
         return
 
     rows, summary = [], {e: {"wer": [], "cer": [], "kept": 0, "seconds": [], "errors": 0} for e in engines}
