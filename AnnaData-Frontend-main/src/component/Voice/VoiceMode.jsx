@@ -56,6 +56,15 @@ const LABELS = {
   paused: "Paused",
 };
 
+/**
+ * Whether this answer ends the voice conversation: the farmer said they need
+ * nothing more ("bas", "aur kuch nahi chahiye"), which the backend reports as
+ * a farewell. Anything else - including a plain "thanks" or "ok" - listens on.
+ */
+export function endsConversation(result) {
+  return Boolean(result) && !result.error && !result.needsSignIn && result.messageType === "farewell";
+}
+
 function rms(buffer) {
   let sum = 0;
   for (let i = 0; i < buffer.length; i += 1) sum += buffer[i] * buffer[i];
@@ -218,6 +227,8 @@ function VoiceMode({ onClose, micContext = null }) {
   const phaseRef = useRef(phase);
   const closedRef = useRef(false);
   const sendRef = useRef(send);
+  // Read after awaits inside respond(), which must not hold a stale onClose.
+  const onCloseRef = useRef(onClose);
   const turnRef = useRef(null);
   // Which turn is current. An answer still arriving for a turn the farmer has
   // talked over updates the text but never speaks over the new one.
@@ -228,6 +239,7 @@ function VoiceMode({ onClose, micContext = null }) {
   // Read once, when voice mode opens: the microphone is set up a single time.
   const micContextRef = useRef(micContext);
   sendRef.current = send;
+  onCloseRef.current = onClose;
 
   // The phase is read inside the audio loop and after awaits, which run before
   // React re-renders - so it is written to the ref at once, not on render.
@@ -303,14 +315,23 @@ function VoiceMode({ onClose, micContext = null }) {
       if (added >= 0 && !streamed.includes(DOSE_HEADING)) speaker.push(result.answer.slice(added));
     }
     // The one thing still missing, said aloud - a farmer in voice mode is not
-    // reading the screen. In the answer's own language.
-    const ask = followUpAsk({ ...result, response: result.answer });
+    // reading the screen. In the answer's own language. Never after a goodbye:
+    // asking for a district to someone who just said "bas" keeps them talking.
+    const done = endsConversation(result);
+    const ask = done ? null : followUpAsk({ ...result, response: result.answer });
     if (ask) speaker.push(ask.text);
 
     startSpeaking();
     const { ok, reason } = await speaker.finish();
     // Ended, paused, or talked over while it was being read: stay put.
     if (closedRef.current || phaseRef.current === "paused" || turn !== turnIdRef.current) return;
+    // The farmer said they were done, and has heard the goodbye: close voice
+    // mode rather than listen again to a phone being put away. The goodbye is
+    // in the chat behind it. If no voice could read it, closing still shows it.
+    if (done) {
+      onCloseRef.current();
+      return;
+    }
     if (!ok) {
       // No voice could be had at all: the answer is on screen, and listening
       // waits until the farmer has had time to read it.

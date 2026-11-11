@@ -318,9 +318,10 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         # to ask: "Tell us your village or district" under an answer for
         # Kharagpur is the question this replaced.
         place_known = bool(result.location) or result.latitude is not None
-        needs_location = not place_known and profile_store.should_ask_location(
-            profile_store.get_profile(user_id)
-        )
+        # Never under a goodbye: "tell us your district" to someone who has
+        # just said "bas" keeps a finished conversation going.
+        needs_location = (not place_known and result.message_type != "farewell"
+                          and profile_store.should_ask_location(profile_store.get_profile(user_id)))
         if needs_location:
             profile_store.mark_location_asked(user_id)
         confirm_place = _farm_question(user_id, channel, profile, result)
@@ -381,8 +382,9 @@ def _farm_question(user_id, channel, profile, result):
     if (channel == "sms" or getattr(result, "place_source", None) != whereabouts.PHONE
             or not name or result.missing_slots
             # A greeting already ends with its own question; a second one under
-            # it is two questions in a row, and a "haan" could mean either.
-            or {"farm", "greeting"} & set(result.tools_used or [])):
+            # it is two questions in a row, and a "haan" could mean either. And
+            # nothing is asked of a farmer who has just said goodbye.
+            or {"farm", "greeting", "farewell"} & set(result.tools_used or [])):
         return None
     key = whereabouts.asked_key(name)
     if key in ((profile or {}).get("farm_asked") or []):

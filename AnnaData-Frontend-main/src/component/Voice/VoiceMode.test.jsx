@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import VoiceMode, { wordAtFraction, wordAtChar } from './VoiceMode';
+import VoiceMode, { wordAtFraction, wordAtChar, endsConversation } from './VoiceMode';
 import { Context } from '../../Context/ContextProvider';
 import { Flow } from '../../Context/Flow';
 
@@ -39,6 +39,24 @@ test('End closes voice mode', async () => {
   const onClose = show();
   fireEvent.click(screen.getByRole('button', { name: 'End voice conversation' }));
   await waitFor(() => expect(onClose).toHaveBeenCalled());
+});
+
+describe('a goodbye ends the voice conversation', () => {
+  test('a farewell from the farmer ends it', () => {
+    expect(endsConversation({ answer: 'Theek hai, jab zarurat ho tab poochiye.', messageType: 'farewell' })).toBe(true);
+  });
+  test('a plain thanks, a question or a greeting listens on', () => {
+    expect(endsConversation({ answer: 'Aapka swagat hai.', messageType: 'smalltalk' })).toBe(false);
+    expect(endsConversation({ answer: 'Gehu ki buwai...', messageType: 'question' })).toBe(false);
+  });
+  test('an older backend that sends no message type listens on', () => {
+    expect(endsConversation({ answer: 'Gehu ki buwai...' })).toBe(false);
+  });
+  test('a failure or the sign-in limit is never read as goodbye', () => {
+    expect(endsConversation({ answer: '', messageType: 'farewell', error: new Error('x') })).toBe(false);
+    expect(endsConversation({ answer: 'Sign in', messageType: 'farewell', needsSignIn: true })).toBe(false);
+    expect(endsConversation(null)).toBe(false);
+  });
 });
 
 describe('subtitles follow the voice', () => {

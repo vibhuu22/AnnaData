@@ -25,6 +25,7 @@ import provenance
 import place_check
 import whereabouts
 import re
+import unicodedata
 
 
 # Where the year sits in the Indian cropping calendar. Advice is intensely
@@ -258,6 +259,31 @@ def answers_our_question(query: str, history: Optional[List[dict]]) -> bool:
         if turn.get("role") == "assistant":
             return "?" in (turn.get("content") or "")
     return False
+
+
+# A bare no: an answer to the question we asked, never a goodbye on its own.
+BARE_NO = {"no", "nope", "na", "nah", "nahi", "nahin", "nai", "nhi", "नहीं", "नही", "ना", "না", "নাহ"}
+
+
+def farewell_or_not(message_type: str, intent: str, query: str, history) -> str:
+    """Whether a message the classifier called a farewell really ends the talk.
+
+    It is the one message type with a consequence outside the reply: voice mode
+    stops listening on it. So it is kept only when nothing says otherwise. A
+    farewell naming a topic is asking for something. A bare "nahin" right after
+    we asked a question answers it - "is your farm near Kharagpur?" "nahin" -
+    and hanging up there would cut the farmer off mid-answer.
+    """
+    if message_type != "farewell":
+        return message_type
+    if intent != "general":
+        return "question"
+    # Punctuation out by category: \w would also split नहीं at its vowel signs.
+    words = "".join(" " if unicodedata.category(ch).startswith("P") else ch
+                    for ch in (query or "").lower()).split()
+    if words and all(w in BARE_NO for w in words) and answers_our_question(query, history):
+        return "question"
+    return "farewell"
 
 
 def style_for(channel: str, query: str = "") -> str:
@@ -993,6 +1019,11 @@ def run_agent(
     if message_type in ("smalltalk", "statement") and answers_our_question(query, history):
         message_type = "question"
 
+    # A goodbye that also asks for something is not a goodbye ("thanks, ab gehu
+    # ka bhav batao"), and a bare "nahin" to a question we asked is an answer,
+    # not "I am done" - ending voice mode on it would hang up mid-question.
+    message_type = farewell_or_not(message_type, intent, query, history)
+
     # Someone who photographs a diseased leaf is asking about it, whatever the
     # caption said - often there is no caption at all, and an empty message
     # classifies as smalltalk. The picture is the question.
@@ -1075,6 +1106,15 @@ def run_agent(
         return AgentResult(
             greet(query, seen, channel, continuing_session, place=where),
             tools_used=["greeting"], intent=intent, message_type=message_type, **facts
+        )
+
+    # The farmer is done. One warm closing line - the same one a "thanks, that's
+    # all" mid-conversation already got - and the message type goes back to the
+    # caller as "farewell", which is what tells voice mode to stop listening.
+    if message_type == "farewell":
+        return AgentResult(
+            greet(query, seen, channel, continuing_session=True, place=where),
+            tools_used=["farewell"], intent=intent, message_type="farewell", **facts
         )
 
     # Non-agricultural query: the parser already answered it. A photograph is

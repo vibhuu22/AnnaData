@@ -207,6 +207,9 @@ export async function ask({ text = "", history = [], image = null, audio = null,
       diagnosis: data.diagnosis || null,
       queryUsed: data.query_used || text,
       toolsUsed: data.tools_used || [],
+      // "question", "smalltalk", "farewell"... Voice mode ends the conversation
+      // on "farewell": the farmer said they need nothing more.
+      messageType: data.message_type || null,
       // "available", "none_registered" or "not_applicable". The one reliable
       // way to know an answer declined to name a dose: tools_used says "doses"
       // either way, because the register was consulted in both cases and simply
