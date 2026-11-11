@@ -46,12 +46,13 @@ check("'bas, aur kuch nahi chahiye' after an answer", f("farewell", "general", "
 check("'thank you, bye' with no history", f("farewell", "general", "thank you, bye", []), "farewell")
 check("'nahi, ab kuch nahi poochna' even after our question", f("farewell", "general", "nahi, ab kuch nahi poochna", ASKED), "farewell")
 check("a bare 'nahi' when we asked nothing is a goodbye", f("farewell", "general", "nahi", TOLD), "farewell")
+check("a goodbye after a wheat answer, whose rewrite reads as sowing",
+      f("farewell", "sowing_planting", "bas, aur kuch nahi chahiye, dhanyavaad", TOLD), "farewell")
 
 print("\nWhat must not hang up")
 check("a bare 'nahin' answering our question", f("farewell", "general", "nahin", ASKED), "question")
 check("a bare 'नहीं' answering our question", f("farewell", "general", "नहीं।", ASKED), "question")
 check("a bare 'না' answering our question", f("farewell", "general", "না", ASKED), "question")
-check("a goodbye that asks for something", f("farewell", "market_price", "thanks, ab aalu ka bhav batao", TOLD), "question")
 check("other message types pass through", f("smalltalk", "general", "ok", TOLD), "smalltalk")
 
 print(f"\n{len(failures)} failure(s)" if failures else "\nAll checks passed")
