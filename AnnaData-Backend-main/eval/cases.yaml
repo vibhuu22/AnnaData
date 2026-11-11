@@ -533,6 +533,8 @@
     tools_include: [weather, soil, diagnosis]
     no_dose: true
     script: Latin
+    # A live answer once told a farmer "JHULSACAST threshold ke hisaab se".
+    not_contains: [JHULSACAST, threshold, TNAU]
 
 - id: named_pest_still_gets_its_dose
   tags: [disease, dose, safety]

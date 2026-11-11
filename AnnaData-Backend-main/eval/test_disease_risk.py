@@ -52,14 +52,32 @@ def main() -> int:
     s = series([humid] * 14, [humid] * 7)
     got = dr.assess("potato", s, TODAY, state="West Bengal")
     check("two cool humid weeks in West Bengal: high", level(got, "late blight"), ("high", False))
-    check("the reason names the model it came from",
-          "JHULSACAST (West Bengal)" in reason(got, "late blight"), True)
+    pick = next(r for r in got if r["disease"] == "late blight")
+    check("the result records the model it came from", pick["model"], "JHULSACAST (West Bengal)")
+    check("the reason is in everyday words",
+          reason(got, "late blight"),
+          "the last week has been damp and mild for long enough that late blight "
+          "is likely to appear within 14 days")
 
     got = dr.assess("potato", s, TODAY, state="Uttar Pradesh")
     check("the same weather outside a validated state is one level lower",
           level(got, "late blight"), ("moderate", False))
-    check("and says the model was validated elsewhere",
-          "validated for" in reason(got, "late blight"), True)
+    pick = next(r for r in got if r["disease"] == "late blight")
+    check("and the note says the model was validated elsewhere",
+          (pick["note"] or "").startswith("model validated for"), True)
+
+    # A live answer told a farmer "JHULSACAST threshold ke hisaab se". The
+    # reason reaches the answer, so it must never carry a model's name or the
+    # word threshold, whatever the weather was.
+    jargon = ("jhulsacast", "threshold", "model", "tnau", "validated")
+    scenarios = [series([humid] * 14, [humid] * 7), series([hot] * 14, [hot] * 7),
+                 series([dry] * 14, [humid] * 7),
+                 series([day(tmin=14, tmax=22, humid_hours=14)] * 14,
+                        [day(tmin=14, tmax=22, humid_hours=14)] * 7)]
+    leaked = [r["reason"] for sc in scenarios for st in ("West Bengal", "Bihar", "Punjab")
+              for r in dr.assess("potato", sc, TODAY, state=st)
+              if any(w in r["reason"].lower() for w in jargon)]
+    check("no reason names a model, source or threshold", leaked, [])
 
     got = dr.assess("aloo", series([hot] * 14, [hot] * 7), TODAY, state="West Bengal")
     check("hot dry weeks: low (and 'aloo' is potato)", level(got, "late blight"), ("low", False))
