@@ -34,11 +34,13 @@ changing paginated responses preserve the previous cache and show an error. Pagi
 stops with an explicit error at the source's 10,000 offset boundary, rather than
 silently publishing a partial state. Coverage is limited to reporting markets.
 
-Each state is published in one transaction and read back for verification. Old
-commodity-specific cache entries for that state are removed in that transaction:
-the existing cloud reader would otherwise choose those entries ahead of the new
-whole-state snapshot. Only cache data for selected states is touched. A failed state
-does not prevent other states from refreshing; partial success is visible in the GUI.
+Each state is published in one transaction and read back for verification. Nothing
+is ever deleted: this publisher only inserts, so a bad run cannot destroy the only
+prices on file. Older commodity-specific entries are left in place as a fallback and
+simply lose on age, because the reader ranks cached entries by date before
+exactness and narrows a whole-state snapshot to the crop it was asked about. Only
+cache data for selected states is touched. A failed state does not prevent other
+states from refreshing; partial success is visible in the GUI.
 
 The `.runtime` folder contains settings, last-cycle status and bounded logs. No
 credentials are saved there. A localhost socket is reserved solely to prevent two
