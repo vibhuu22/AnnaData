@@ -1,3 +1,4 @@
+import { t } from '../../Config/uiLanguage';
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { Auth } from "../../Context/AuthProvider";
 import { saveProfile } from "../../Config/session";
@@ -94,7 +95,7 @@ function Onboarding({ onDone, editing = false }) {
   const [addingCrop, setAddingCrop] = useState(false);
   const [newCrop, setNewCrop] = useState("");
   const [area, setArea] = useState("");
-  const [areaUnit, setAreaUnit] = useState(user?.area_unit || "acre");
+  const [areaUnit, setAreaUnit] = useState(user?.area_unit || t("acre"));
   const [locating, setLocating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -192,7 +193,7 @@ function Onboarding({ onDone, editing = false }) {
       if (result?.user && setUser) setUser(result.user);
       setStep("farm");
     } catch (e) {
-      setError(e.message || "Could not save that. You can add it later.");
+      setError(e.message || t("Could not save that. You can add it later."));
     } finally {
       setBusy(false);
     }
@@ -216,19 +217,19 @@ function Onboarding({ onDone, editing = false }) {
       onboarded(result?.user);
       onDone?.();
     } catch (e) {
-      setError(e.message || "Could not save that. You can add it later.");
+      setError(e.message || t("Could not save that. You can add it later."));
       setBusy(false);
     }
   };
 
   const skip = (
     <button type="button" onClick={skipAll} disabled={busy} className={textButton}>
-      {editing ? "Close" : "Skip"}
+      {editing ? t("Close") : t("Skip")}
     </button>
   );
   const errorLine = error && (
     <p role="alert" className="text-sm text-red-700">
-      {error}
+      {t(error)}
     </p>
   );
 
@@ -236,44 +237,42 @@ function Onboarding({ onDone, editing = false }) {
     const masked = maskPhone(user?.phone || user?.user_id);
     return (
       <FlowScreen
-        label="About you"
+        label={t("About you")}
         top={
           <>
             <div className="text-sm text-soil-600">
-              {editing ? "Your details" : `Number confirmed${masked ? ` · ${masked}` : ""}`}
+              {editing ? t("Your details") : `${t("Number confirmed")}${masked ? ` · ${masked}` : ""}`}
             </div>
             {skip}
           </>
         }
         actions={
           <button type="button" onClick={saveAbout} disabled={busy} className={primaryButton}>
-            {busy ? "Saving…" : "Next: your farm"}
+            {busy ? t("Saving…") : t("Next: your farm")}
           </button>
         }
       >
         <StepBar step={1} />
         <div>
-          <h1 className="text-2xl font-bold leading-tight">About you</h1>
-          <p className="mt-2 text-sm text-soil-700">Everything here is optional.</p>
+          <h1 className="text-2xl font-bold leading-tight">{t("About you")}</h1>
+          <p className="mt-2 text-sm text-soil-700">{t("Everything here is optional.")}</p>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="name" className="text-sm font-semibold">
-            Your name
-          </label>
+          <label htmlFor="name" className="text-sm font-semibold">{t("Your name")}</label>
           <input
             id="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoComplete="name"
             maxLength={120}
-            placeholder="e.g. Ramesh Kumar"
+            placeholder={t("e.g. Ramesh Kumar")}
             className={`${fieldClass} h-[52px]`}
           />
         </div>
 
         <div className="flex flex-col gap-2">
-          <span className="text-sm font-semibold">Language you prefer</span>
+          <span className="text-sm font-semibold">{t("Language you prefer")}</span>
           <div className="flex flex-wrap gap-2">
             {LANGUAGES.map(({ code, label }) => (
               <Chip
@@ -282,33 +281,31 @@ function Onboarding({ onDone, editing = false }) {
                 active={language === code}
                 onClick={() => setLanguage(language === code ? "" : code)}
               >
-                {label}
+                {t(label)}
               </Chip>
             ))}
           </div>
-          <p className="text-xs text-soil-600">We always reply in the language you write in.</p>
+          <p className="text-xs text-soil-600">{t("We always reply in the language you write in.")}</p>
         </div>
 
         <div className="flex flex-col gap-2">
-          <span className="text-sm font-semibold">Are you part of a farmer group?</span>
+          <span className="text-sm font-semibold">{t("Are you part of a farmer group?")}</span>
           <div className="flex flex-wrap gap-2">
             {GROUPS.map(({ code, label }) => (
               <Chip key={code} active={group === code} onClick={() => setGroup(group === code ? "" : code)}>
-                {label}
+                {t(label)}
               </Chip>
             ))}
           </div>
           {group && group !== "none" && (
             <>
-              <label htmlFor="group-name" className="sr-only">
-                Group name
-              </label>
+              <label htmlFor="group-name" className="sr-only">{t("Group name")}</label>
               <input
                 id="group-name"
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
                 maxLength={120}
-                placeholder="Group name (optional)"
+                placeholder={t("Group name (optional)")}
                 className={`${fieldClass} h-12`}
               />
             </>
@@ -321,37 +318,33 @@ function Onboarding({ onDone, editing = false }) {
 
   return (
     <FlowScreen
-      label="Your farm"
+      label={t("Your farm")}
       top={
         <>
-          <BackLink onClick={() => setStep("about")}>Back</BackLink>
+          <BackLink onClick={() => setStep("about")}>{t("Back")}</BackLink>
           {skip}
         </>
       }
       actions={
         <button type="button" onClick={saveFarm} disabled={busy} className={primaryButton}>
-          {busy ? "Saving…" : "Save farm details"}
+          {busy ? t("Saving…") : t("Save farm details")}
         </button>
       }
     >
       <StepBar step={2} />
       <div>
-        <h1 className="text-2xl font-bold leading-tight">Your farm</h1>
-        <p className="mt-2 text-sm text-soil-700">
-          Optional. It lets us answer for your district and crops without asking every time.
-        </p>
+        <h1 className="text-2xl font-bold leading-tight">{t("Your farm")}</h1>
+        <p className="mt-2 text-sm text-soil-700">{t("Optional. It lets us answer for your district and crops without asking every time.")}</p>
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="district" className="text-sm font-semibold">
-          District
-        </label>
+        <label htmlFor="district" className="text-sm font-semibold">{t("District")}</label>
         <div className="flex gap-2">
           <input
             id="district"
             value={district}
             onChange={(e) => setDistrict(e.target.value)}
-            placeholder="e.g. Paschim Medinipur"
+            placeholder={t("e.g. Paschim Medinipur")}
             className={`${fieldClass} h-12 flex-1`}
           />
           <button
@@ -364,31 +357,27 @@ function Onboarding({ onDone, editing = false }) {
               <circle cx="12" cy="11" r="3" />
               <path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11z" />
             </svg>
-            {locating ? "Finding…" : "Use location"}
+            {locating ? t("Finding…") : t("Use location")}
           </button>
         </div>
-        {state && <p className="text-xs text-soil-600">State: {state}</p>}
+        {state && <p className="text-xs text-soil-600">{t("State:")} {t(state)}</p>}
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="text-sm font-semibold">What are you growing?</span>
+        <span className="text-sm font-semibold">{t("What are you growing?")}</span>
         <div className="flex flex-wrap gap-2">
           {[...CROPS, ...extraCrops].map((crop) => (
             <Chip key={crop} active={crops.includes(crop)} onClick={() => toggleCrop(crop)}>
-              {title(crop)}
+              {t(title(crop))}
             </Chip>
           ))}
           {!addingCrop && (
-            <Chip active={false} onClick={() => setAddingCrop(true)}>
-              + Other
-            </Chip>
+            <Chip active={false} onClick={() => setAddingCrop(true)}>{t("+ Other")}</Chip>
           )}
         </div>
         {addingCrop && (
           <div className="flex gap-2">
-            <label htmlFor="new-crop" className="sr-only">
-              Another crop
-            </label>
+            <label htmlFor="new-crop" className="sr-only">{t("Another crop")}</label>
             <input
               id="new-crop"
               value={newCrop}
@@ -396,26 +385,21 @@ function Onboarding({ onDone, editing = false }) {
               onChange={(e) => setNewCrop(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addCrop())}
               maxLength={40}
-              placeholder="e.g. chilli"
+              placeholder={t("e.g. chilli")}
               className={`${fieldClass} h-12 flex-1`}
             />
-            <button type="button" onClick={addCrop} className="h-12 shrink-0 rounded-[10px] bg-leaf-600 px-4 text-sm font-semibold text-white">
-              Add
-            </button>
+            <button type="button" onClick={addCrop} className="h-12 shrink-0 rounded-[10px] bg-leaf-600 px-4 text-sm font-semibold text-white">{t("Add")}</button>
           </div>
         )}
         {askedAbout.length > 0 && (
           <p className="text-xs text-soil-600">
-            {askedAbout.map(title).join(", ")} {askedAbout.length === 1 ? "is" : "are"} already picked from the
-            question you asked.
+            {t(askedAbout.length === 1 ? "{crops} is already picked from the question you asked." : "{crops} are already picked from the question you asked.", { crops: askedAbout.map((crop) => t(title(crop))).join(", ") })}
           </p>
         )}
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="area" className="text-sm font-semibold">
-          How much land?
-        </label>
+        <label htmlFor="area" className="text-sm font-semibold">{t("How much land?")}</label>
         <div className="flex gap-2">
           <input
             id="area"
@@ -425,9 +409,7 @@ function Onboarding({ onDone, editing = false }) {
             placeholder="2"
             className={`${fieldClass.replace("w-full ", "")} h-12 w-24 shrink-0`}
           />
-          <label htmlFor="unit" className="sr-only">
-            Unit of land area
-          </label>
+          <label htmlFor="unit" className="sr-only">{t("Unit of land area")}</label>
           <select
             id="unit"
             value={areaUnit}
@@ -436,17 +418,15 @@ function Onboarding({ onDone, editing = false }) {
           >
             {UNITS.map((unit) => (
               <option key={unit} value={unit}>
-                {unit}
+                {t(unit)}
               </option>
             ))}
           </select>
         </div>
-        {areaUnit === "bigha" && (
+        {areaUnit === t("bigha") && (
           // A bigha is a different area in nearly every state, so without one
           // the backend refuses to convert rather than guessing.
-          <p className="text-xs text-soil-600">
-            A bigha is a different size in each state — we use your district to convert it.
-          </p>
+          <p className="text-xs text-soil-600">{t("A bigha is a different size in each state — we use your district to convert it.")}</p>
         )}
       </div>
       {errorLine}

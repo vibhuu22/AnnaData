@@ -1,7 +1,9 @@
+import { t } from '../../Config/uiLanguage';
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { Auth } from "../../Context/AuthProvider";
 import { requestCode, verifyCode, verifyWidgetToken } from "../../Config/session";
 import * as msg91 from "../../Config/msg91";
+import Ankur from '../Brand/Ankur';
 import {
   BackLink,
   FlowScreen,
@@ -125,7 +127,7 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
       setProblem(null);
       setStep("code");
     } catch (e) {
-      setError(e.message || "Could not send the code.");
+      setError(e.message || t("Could not send the code."));
       if (e.status === 429) setProblem({ kind: "limit", detail: e.message, wait: e.retryAfter });
       if (e.retryAfter) setCooldown(e.retryAfter);
     } finally {
@@ -145,7 +147,7 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
       signedIn(data);
       onVerified?.(data);
     } catch (e) {
-      setError(e.message || "That code did not work.");
+      setError(e.message || t("That code did not work."));
       setProblem({ kind: e.status === 429 ? "limit" : "wrong", detail: e.message, wait: e.retryAfter });
       setCode("");
       codeRef.current?.focus();
@@ -156,15 +158,15 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
 
   const errorLine = error && (
     <p role="alert" className="text-sm text-red-700">
-      {error}
+      {t(error)}
     </p>
   );
 
   if (step === "phone") {
     return (
       <FlowScreen
-        label={saving ? "Save your farm" : "Sign in"}
-        top={onBack && <BackLink onClick={onBack}>{saving ? "Back to answer" : "Back"}</BackLink>}
+        label={saving ? t("Save your farm") : t("Sign in")}
+        top={onBack && <BackLink onClick={onBack}>{saving ? t("Back to answer") : t("Back")}</BackLink>}
         actions={
           <>
             <button
@@ -173,29 +175,26 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
               disabled={!phoneLooksRight || busy || cooldown > 0}
               className={primaryButton}
             >
-              {busy ? "Sending…" : cooldown > 0 ? `Wait ${clock(cooldown)}` : "Send code"}
+              {busy ? t("Sending…") : cooldown > 0 ? t("Wait {time}", { time: clock(cooldown) }) : t("Send code")}
             </button>
             {saving && onBack && (
-              <button type="button" onClick={onBack} className={`${textButton} self-center`}>
-                Not now — keep asking without saving
-              </button>
+              <button type="button" onClick={onBack} className={`${textButton} self-center`}>{t("Not now — keep asking without saving")}</button>
             )}
           </>
         }
       >
         {saving && <StepLabels at={0} />}
-        <h1 className="text-2xl font-bold leading-tight">
-          {saving ? "Save your farm and your questions" : "Sign in"}
+        <Ankur className="mx-auto h-44 w-44 sm:h-48 sm:w-48" />
+        <h1 className="text-center text-3xl font-bold leading-tight">
+          {saving ? t("Save your farm and your questions") : t("Sign in")}
         </h1>
-        <p className="text-base text-soil-700">
+        <p className="text-center text-base text-soil-700">
           {saving
-            ? `First, confirm your mobile number. We will send a ${codeLength}-digit code by SMS. After that, answers come for your own district and crops, and your questions stay saved.`
-            : `We will send a ${codeLength}-digit code by SMS to confirm it is you.`}
+            ? t("First, confirm your mobile number. We will send a {digits}-digit code by SMS. After that, answers come for your own district and crops, and your questions stay saved.", { digits: codeLength })
+            : t("We will send a {digits}-digit code by SMS to confirm it is you.", { digits: codeLength })}
         </p>
         <form id="phone-form" onSubmit={askForCode} className="flex flex-col gap-2">
-          <label htmlFor="phone" className="text-sm font-semibold">
-            Mobile number
-          </label>
+          <label htmlFor="phone" className="text-sm font-semibold">{t("Mobile number")}</label>
           <div className="flex gap-2">
             <span className="flex h-14 select-none items-center rounded-[10px] border-[1.5px] border-soil-400 bg-soil-50 px-3.5 text-lg">
               +91
@@ -213,9 +212,7 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
               className={`${fieldClass} h-14 flex-1 text-lg tracking-wide`}
             />
           </div>
-          <p className="text-sm text-soil-600">
-            Use the number you text us from — your SMS questions and this app share one history.
-          </p>
+          <p className="text-sm text-soil-600">{t("Use the number you text us from — your SMS questions and this app share one history.")}</p>
           {/* MSG91 draws its captcha here, when the widget has one switched on. */}
           {useMsg91 && <div id={msg91.CAPTCHA_ID} className="min-h-0" />}
           {errorLine}
@@ -237,8 +234,8 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
     );
     return (
       <FlowScreen
-        label="Code not arriving"
-        top={<BackLink onClick={() => setStep("code")}>Back to code</BackLink>}
+        label={t("Code not arriving")}
+        top={<BackLink onClick={() => setStep("code")}>{t("Back to code")}</BackLink>}
         actions={
           <button
             type="button"
@@ -248,45 +245,41 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
               setError("");
             }}
             className={secondaryButton}
-          >
-            Use a different number
-          </button>
+          >{t("Use a different number")}</button>
         }
       >
-        <h1 className="text-2xl font-bold leading-tight">Code not arriving?</h1>
+        <h1 className="text-2xl font-bold leading-tight">{t("Code not arriving?")}</h1>
         {problem?.kind === "wrong" &&
           card(
-            "That code does not match",
-            `${problem.detail ? `${problem.detail}. ` : ""}Check the latest SMS — an older code stops working when a new one is sent.`,
+            t("That code does not match"),
+            `${problem.detail ? `${problem.detail}. ` : ""}${t("Check the latest SMS — an older code stops working when a new one is sent.")}`,
             true
           )}
         {problem?.kind === "limit" &&
           card(
-            "Too many codes requested",
-            `You can ask for 5 codes an hour.${problem.wait ? ` Try again in ${clock(problem.wait)}.` : ""}${
-              SMS_NUMBER ? ` Meanwhile you can text your question to ${SMS_NUMBER} — that does not need a code.` : ""
-            }`,
+            t("Too many codes requested"),
+            `${t("You can ask for 5 codes an hour.")} ${problem.wait ? t("Try again in {time}.", { time: clock(problem.wait) }) : ""} ${SMS_NUMBER ? t("Meanwhile you can text your question to {number} — that does not need a code.", { number: SMS_NUMBER }) : ""}`,
             true
           )}
         {useMsg91
           ? card(
-              "The SMS may be delayed",
-              "Codes usually arrive within a minute. If none comes in 2 minutes, go back and tap Resend — it may come as a voice call instead.",
+              t("The SMS may be delayed"),
+              t("Codes usually arrive within a minute. If none comes in 2 minutes, go back and tap Resend — it may come as a voice call instead."),
               !problem
             )
           : card(
-              "Our sending phone may be offline",
-              "If no code arrives in 2 minutes, the problem is most likely on our side, not your number. SMS answers use the same phone, so please try again later.",
+              t("Our sending phone may be offline"),
+              t("If no code arrives in 2 minutes, the problem is most likely on our side, not your number. SMS answers use the same phone, so please try again later."),
               !problem
             )}
-        {card("Code expired", `Codes work for ${CODE_TTL_MINUTES} minutes. Ask for a new one.`)}
+        {card(t("Code expired"), t("Codes work for {minutes} minutes. Ask for a new one.", { minutes: CODE_TTL_MINUTES }))}
       </FlowScreen>
     );
   }
 
   return (
     <FlowScreen
-      label="Enter the code"
+      label={t("Enter the code")}
       top={
         <BackLink
           onClick={() => {
@@ -294,24 +287,21 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
             setCode("");
             setError("");
           }}
-        >
-          Change number
-        </BackLink>
+        >{t("Change number")}</BackLink>
       }
       actions={
         <button type="submit" form="code-form" disabled={code.length !== codeLength || busy} className={primaryButton}>
-          {busy ? "Checking…" : saving ? "Verify and continue" : "Sign in"}
+          {busy ? t("Checking…") : saving ? t("Verify and continue") : t("Sign in")}
         </button>
       }
     >
-      <h1 className="text-3xl font-bold leading-tight">Enter the code</h1>
+      <h1 className="text-3xl font-bold leading-tight">{t("Enter the code")}</h1>
       <p className="text-lg text-soil-700">
-        We sent a {codeLength}-digit code by SMS to <strong className="text-soil-900">{spaced(digits)}</strong>. It can
-        take up to a minute to arrive.
+        {t("We sent a {digits}-digit code by SMS to {number}. It can take up to a minute to arrive.", { digits: codeLength, number: spaced(digits) })}
       </p>
       <form id="code-form" onSubmit={submitCode} className="flex flex-col gap-2">
         <label htmlFor="code" className="text-sm font-semibold">
-          {codeLength}-digit code
+          {t("{digits}-digit code", { digits: codeLength })}
         </label>
         <input
           id="code"
@@ -326,28 +316,24 @@ function SignIn({ purpose = "signin", onBack, onVerified }) {
           placeholder={Array(codeLength).fill("•").join(" ")}
           className={`${fieldClass} h-16 text-center text-3xl tracking-[0.4em] placeholder:tracking-[0.2em]`}
         />
-        <p className="text-sm text-soil-600">The code works for {CODE_TTL_MINUTES} minutes.</p>
+        <p className="text-sm text-soil-600">{t("The code works for {minutes} minutes.", { minutes: CODE_TTL_MINUTES })}</p>
         {errorLine}
         {fellBack && transport !== "msg91" && (
-          <p className="rounded-lg bg-grain-50 px-3 py-2 text-xs text-grain-700">
-            MSG91 could not be used ({fellBack}), so this code was sent from AnnaData's own number.
+          <p className="rounded-lg bg-leaf-50 px-3 py-2 text-xs text-leaf-800">
+            {t("MSG91 could not be used ({reason}), so this code was sent from AnnaData's own number.", { reason: fellBack })}
           </p>
         )}
         {transport === "console" && (
           // Development only. Without this the code is in a server log and
           // nobody testing locally can find it.
-          <p className="rounded-lg bg-grain-50 px-3 py-2 text-xs text-grain-700">
-            No SMS gateway is configured, so the code was printed to the backend log instead of being sent.
-          </p>
+          <p className="rounded-lg bg-leaf-50 px-3 py-2 text-xs text-leaf-800">{t("No SMS gateway is configured, so the code was printed to the backend log instead of being sent.")}</p>
         )}
       </form>
       <div className="flex flex-col items-start gap-1">
         <button type="button" onClick={askForCode} disabled={cooldown > 0 || busy} className={textButton}>
-          {cooldown > 0 ? `Resend code in ${clock(cooldown)}` : "Resend code"}
+          {cooldown > 0 ? t("Resend code in {time}", { time: clock(cooldown) }) : t("Resend code")}
         </button>
-        <button type="button" onClick={() => setStep("trouble")} className={`${textButton} underline`}>
-          Code not arriving?
-        </button>
+        <button type="button" onClick={() => setStep("trouble")} className={`${textButton} underline`}>{t("Code not arriving?")}</button>
       </div>
     </FlowScreen>
   );

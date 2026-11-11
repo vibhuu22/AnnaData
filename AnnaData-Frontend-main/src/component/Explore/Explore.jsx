@@ -1,3 +1,4 @@
+import { t } from '../../Config/uiLanguage';
 import React from "react";
 import {
   FaBug, FaCamera, FaIndianRupeeSign, FaScaleBalanced, FaCloudRain, FaSeedling, FaFlask, FaLandmark, FaVolumeHigh,
@@ -38,8 +39,8 @@ function Explore({ onAsk, onPhoto, onListen, listening }) {
   return (
     <div className="mx-auto flex w-full max-w-[42rem] flex-col gap-4 px-4 py-6">
       <div>
-        <h1 className="text-2xl font-bold leading-tight text-soil-900">Explore</h1>
-        <p className="mt-1 text-base text-soil-700">Tap a question to ask it, or the speaker to hear it.</p>
+        <h1 className="text-2xl font-bold leading-tight text-soil-900">{t("Explore")}</h1>
+        <p className="mt-1 text-base text-soil-700">{t("Tap a question to ask it, or the speaker to hear it.")}</p>
       </div>
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {TOPICS.map(({ title, icon: Icon, ask, hear }) => {
@@ -47,19 +48,19 @@ function Explore({ onAsk, onPhoto, onListen, listening }) {
           return (
             <li key={title} className="glass-soft flex flex-col items-center gap-2 rounded-[20px] px-3 pb-2 pt-4 text-center">
               <Icon aria-hidden="true" className="h-9 w-9 text-leaf-700" />
-              <h2 className="text-base font-bold leading-tight text-soil-900">{title}</h2>
+              <h2 className="text-base font-bold leading-tight text-soil-900">{t(title)}</h2>
               <button
                 type="button"
                 onClick={() => (ask ? onAsk(ask) : onPhoto())}
                 className="flex min-h-[44px] w-full items-center justify-center rounded-xl bg-white/80 px-2 py-1.5 text-sm font-medium leading-snug text-leaf-800 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600"
               >
-                {ask ? `“${ask}”` : "Open the camera"}
+                {ask ? `“${ask}”` : t("Open the camera")}
               </button>
               {onListen && (
                 <button
                   type="button"
                   onClick={() => onListen(spoken)}
-                  aria-label={`Listen: ${spoken}`}
+                  aria-label={`${t("Listen")}: ${spoken}`}
                   className={`grid h-11 w-11 place-items-center rounded-full transition-colors hover:bg-white/80 ${
                     listening === spoken ? "bg-white text-leaf-700" : "text-soil-800"
                   }`}

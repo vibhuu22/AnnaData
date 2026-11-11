@@ -1,3 +1,4 @@
+import { t } from '../../Config/uiLanguage';
 import React, { useContext } from "react";
 import { FaHouse, FaCompass, FaNewspaper, FaBars, FaMicrophone } from "react-icons/fa6";
 import { Context } from "../../Context/ContextProvider";
@@ -35,22 +36,22 @@ function BottomNav({ onTalk }) {
 
   return (
     <nav
-      aria-label="Main"
+      aria-label={t("Main")}
       className="glass fixed inset-x-0 bottom-0 z-20 !border-x-0 !border-b-0 pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       <div className="mx-auto flex h-16 max-w-[30rem] items-center justify-around px-2">
-        {tab("Home", <FaHouse />, atHome, () => goHome?.())}
-        {tab("Explore", <FaCompass />, screen === "explore", () => setScreen?.("explore"))}
+        {tab(t("Home"), <FaHouse />, atHome, () => goHome?.())}
+        {tab(t("Explore"), <FaCompass />, screen === "explore", () => setScreen?.("explore"))}
         <button
           type="button"
           onClick={onTalk}
-          aria-label="Talk"
+          aria-label={t("Talk")}
           className="-mt-8 grid h-[4.5rem] w-[4.5rem] shrink-0 place-items-center rounded-full bg-leaf-600 text-white shadow-lift transition-colors hover:bg-leaf-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-leaf-200 focus-visible:ring-offset-2"
         >
           <FaMicrophone aria-hidden="true" className="h-7 w-7" />
         </button>
-        {tab("News", <FaNewspaper />, screen === "news", () => setScreen?.("news"))}
-        {tab("More", <FaBars />, false, () => setMenuOpen?.(true))}
+        {tab(t("News"), <FaNewspaper />, screen === "news", () => setScreen?.("news"))}
+        {tab(t("More"), <FaBars />, false, () => setMenuOpen?.(true))}
       </div>
     </nav>
   );

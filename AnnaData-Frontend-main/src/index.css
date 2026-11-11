@@ -491,8 +491,8 @@ body { margin: 0; padding-top: env(safe-area-inset-top, 0px); }
 .ankur[data-phase="listening"] .ankur-img { transform: scale(calc(1 + var(--level) * 0.08)) rotate(-2deg); }
 .ankur[data-phase="thinking"] .ankur-img { animation: ankur-sway 2.2s ease-in-out infinite; transition: none; }
 .ankur[data-phase="speaking"] .ankur-img { animation: ankur-bob 0.46s ease-in-out infinite; transition: none; }
-.ankur[data-phase="paused"] .ankur-img,
-.ankur[data-phase="starting"] .ankur-img { filter: saturate(0.45); opacity: 0.85; }
+.ankur:not(.ankur-posed)[data-phase="paused"] .ankur-img,
+.ankur:not(.ankur-posed)[data-phase="starting"] .ankur-img { filter: saturate(0.45); opacity: 0.85; }
 .ankur-rings, .ankur-dots { position: absolute; inset: 0; pointer-events: none; }
 .ankur-rings i {
   position: absolute; inset: 0; border-radius: 9999px; border: 3px solid theme("colors.leaf.400"); opacity: 0;

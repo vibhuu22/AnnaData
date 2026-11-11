@@ -1,3 +1,4 @@
+import { t, uiLocale } from './uiLanguage';
 import { useEffect, useState } from "react";
 
 /**
@@ -116,7 +117,7 @@ export function nextWetDay(daily) {
 }
 
 export function describeDay(date, index) {
-  if (index === 0) return "today";
-  if (index === 1) return "tomorrow";
-  return date.toLocaleDateString("en-IN", { weekday: "long" });
+  if (index === 0) return t("today");
+  if (index === 1) return t("tomorrow");
+  return date.toLocaleDateString(uiLocale(), { weekday: "long" });
 }

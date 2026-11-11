@@ -1,3 +1,4 @@
+import { t } from '../Config/uiLanguage';
 import { useEffect, useState } from 'react';
 
 export default function AppStatus() {
@@ -19,11 +20,11 @@ export default function AppStatus() {
       window.removeEventListener('appinstalled', installed);
     };
   }, []);
-  if (offline) return <p role="status" className="shrink-0 bg-grain-50 px-4 py-2 text-center text-sm text-soil-800">You’re offline. Reconnect to send a question or sign in.</p>;
+  if (offline) return <p role="status" className="shrink-0 bg-grain-50 px-4 py-2 text-center text-sm text-soil-800">{t("You’re offline. Reconnect to send a question or sign in.")}</p>;
   if (!installPrompt) return null;
   return <button className="min-h-touch shrink-0 bg-leaf-50 px-4 py-2 text-sm font-semibold text-leaf-800" onClick={async () => {
     const prompt = installPrompt;
     setInstallPrompt(null);
     try { await prompt.prompt(); } catch { /* Browser installation remains available. */ }
-  }}>Add AnnaData to your home screen</button>;
+  }}>{t("Add AnnaData to your home screen")}</button>;
 }

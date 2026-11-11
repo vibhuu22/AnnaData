@@ -4,9 +4,28 @@ import { Auth } from '../../Context/AuthProvider';
 import { fetchNews } from '../../Config/session';
 
 import { getCoordinates } from '../../Config/Gemini';
+import { speak, stopSpeaking } from '../../Config/speech';
+
+jest.mock('../../Config/speech', () => ({ speak: jest.fn(), stopSpeaking: jest.fn(), unlockAudio: jest.fn() }));
 
 jest.mock('../../Config/session', () => ({ fetchNews: jest.fn() }));
 jest.mock('../../Config/Gemini', () => ({ getCoordinates: jest.fn(() => Promise.resolve(null)) }));
+
+test('Listen speaks the real headline in its language; Stop and leaving cancel playback', async () => {
+  getCoordinates.mockResolvedValue(null);
+  fetchNews.mockResolvedValue({ place: 'India', items: [
+    { title: 'किसानों के लिए समाचार', lang: 'hi', source: 'Publisher', link: 'https://example.org/listen' },
+  ] });
+  speak.mockImplementation(() => new Promise(() => {}));
+  const view = render(<Auth.Provider value={{ user: null }}><News /></Auth.Provider>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Listen: किसानों के लिए समाचार' }));
+  expect(speak).toHaveBeenCalledWith('किसानों के लिए समाचार', 'hi-IN');
+  fireEvent.click(screen.getByRole('button', { name: 'Stop: किसानों के लिए समाचार' }));
+  expect(screen.getByRole('button', { name: 'Listen: किसानों के लिए समाचार' })).toBeInTheDocument();
+  const calls = stopSpeaking.mock.calls.length;
+  view.unmount();
+  expect(stopSpeaking.mock.calls.length).toBe(calls + 1);
+});
 
 test("headlines for the farmer's state, opening the publisher, marked as unchecked", async () => {
   fetchNews.mockResolvedValue({ place: 'Haryana', items: [

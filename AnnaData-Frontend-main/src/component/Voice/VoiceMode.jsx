@@ -1,9 +1,11 @@
+import { t } from '../../Config/uiLanguage';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
 import { createSpeaker, stopSpeaking, unlockAudio, speechProgress, speakingLevel } from "../../Config/speech";
 import { currentAvatar, posesOf } from "../../Config/avatar";
 import { followUpAsk } from "../../Config/asks";
+import LanguageToggle from "../Brand/LanguageToggle";
 import { primaryButton } from "../Flow/ui";
 
 /**
@@ -131,7 +133,7 @@ function Companion({ avatar, phase, boxRef }) {
     ? "think"
     : phase === "speaking"
     ? (mouth === "open" ? "talk-open" : "talk-half")
-    : "hello";
+    : phase === "sorry" && poses.sorry ? "sorry" : "hello";
 
   return (
     <div ref={boxRef} className={`ankur${poses ? " ankur-posed" : ""}`} data-phase={phase}>
@@ -312,7 +314,7 @@ function VoiceMode({ onClose, micContext = null }) {
     if (!ok) {
       // No voice could be had at all: the answer is on screen, and listening
       // waits until the farmer has had time to read it.
-      pause(`${reason} The answer is written below.`);
+      pause(`${reason} ${t("The answer is written below.")}`);
       return;
     }
     turnRef.current();
@@ -510,9 +512,9 @@ function VoiceMode({ onClose, micContext = null }) {
   };
 
   const hint = {
-    listening: "Tap Done when you have finished",
-    speaking: "Tap Talk to interrupt",
-    paused: needsSignIn ? "" : "Tap to talk",
+    listening: t("Tap Done when you have finished"),
+    speaking: t("Tap Talk to interrupt"),
+    paused: needsSignIn ? "" : t("Tap to talk"),
     thinking: "",
     starting: "",
   }[phase];
@@ -521,38 +523,38 @@ function VoiceMode({ onClose, micContext = null }) {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Voice conversation"
+      aria-label={t("Voice conversation")}
       className="body fixed inset-0 z-50 flex flex-col bg-gradient-to-b from-leaf-50 via-white to-white text-soil-900"
     >
       <div className="flex items-center justify-between px-5 pt-4">
-        <span className="text-base font-bold">AnnaData</span>
-        <span className="rounded-pill bg-white/80 px-3 py-1 text-xs font-semibold text-leaf-800 shadow-card">Voice</span>
+        <span className="text-base font-bold">AnnaData</span><LanguageToggle />
+        <span className="rounded-pill bg-white/80 px-3 py-1 text-xs font-semibold text-leaf-800 shadow-card">{t("Voice")}</span>
       </div>
 
-      <div className="flex flex-grow flex-col items-center justify-center gap-6 px-6">
+      <div className="flex min-h-0 flex-grow flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-4">
         <button
           type="button"
           onClick={tapOrb}
-          aria-label={hint || LABELS[phase]}
+          aria-label={t(hint || LABELS[phase])}
           className="rounded-full focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-leaf-200"
         >
           {/* Ankur, the voice companion: grows with the farmer's voice while
               listening, sways while thinking, bobs while it talks. */}
-          <Companion avatar={avatar} phase={phase} boxRef={orbRef} />
+          <Companion avatar={avatar} phase={phase === "paused" && notice && !notice.startsWith("Tap the circle") ? "sorry" : phase} boxRef={orbRef} />
         </button>
-        <div className="flex flex-col items-center gap-1 text-center" aria-live="polite">
-          <div className="text-2xl font-bold">{LABELS[phase]}</div>
-          {hint && <div className="text-sm text-soil-600">{hint}</div>}
+        <div className="order-first flex flex-col items-center gap-2 text-center" aria-live="polite">
+          <div className="text-3xl font-bold">{t(LABELS[phase])}</div>
+          {hint && <div className="text-sm text-soil-600">{t(hint)}</div>}
         </div>
 
         <div className="flex w-full max-w-[28rem] flex-col gap-3">
           {heard && (
             <p className="text-center text-base text-soil-700">
-              <span className="mr-1.5 text-xs uppercase tracking-wide text-soil-600">heard</span>
+              <span className="mr-1.5 text-xs uppercase tracking-wide text-soil-600">{t("heard")}</span>
               {heard}
             </p>
           )}
-          {notice && !needsSignIn && <p className="text-center text-sm font-semibold text-soil-800">{notice}</p>}
+          {notice && !needsSignIn && <p className="text-center text-sm font-semibold text-soil-800">{t(notice)}</p>}
           {needsSignIn && (
             <div className="flex flex-col gap-2 rounded-xl bg-soil-50 p-4 text-left">
               <p className="text-sm text-soil-800">{notice}</p>
@@ -563,9 +565,7 @@ function VoiceMode({ onClose, micContext = null }) {
                   openFlow("save");
                 }}
                 className={`${primaryButton} !min-h-touch !text-base`}
-              >
-                Confirm your number
-              </button>
+              >{t("Confirm your number")}</button>
             </div>
           )}
           {phase === "speaking" && <Subtitles />}
@@ -577,7 +577,9 @@ function VoiceMode({ onClose, micContext = null }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-center gap-6 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-3 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2">
+        <button type="button" onClick={onClose} className="min-h-touch rounded-full bg-leaf-50 px-4 font-semibold text-leaf-900">{t("Keyboard")}</button>
+        {phase === "listening" && <button type="button" onClick={() => pause()} className="min-h-touch rounded-full bg-leaf-50 px-4 font-semibold text-leaf-900">{t("Pause")}</button>}
         {/* One button whose job follows the moment: while it speaks, Talk
             interrupts it and listens; while it listens, Pause; when paused,
             Talk again. */}
@@ -585,7 +587,7 @@ function VoiceMode({ onClose, micContext = null }) {
           type="button"
           onClick={tapOrb}
           disabled={phase === "thinking" || phase === "starting" || needsSignIn}
-          aria-label={phase === "listening" ? "Done, send it" : phase === "speaking" ? "Interrupt and talk" : "Talk"}
+          aria-label={phase === "listening" ? t("Done, send it") : phase === "speaking" ? t("Interrupt and talk") : t("Talk")}
           className="flex h-16 items-center justify-center gap-2 rounded-full bg-leaf-600 px-6 text-base font-semibold text-white shadow-card hover:bg-leaf-700 disabled:opacity-40"
         >
           {phase === "listening" ? (
@@ -599,13 +601,13 @@ function VoiceMode({ onClose, micContext = null }) {
               <path d="M12 17v5" />
             </svg>
           )}
-          {phase === "listening" ? "Done" : "Talk"}
+          {phase === "listening" ? t("Done") : t("Talk")}
         </button>
         <button
           type="button"
           onClick={onClose}
-          aria-label="End voice conversation"
-          className="grid h-16 w-16 place-items-center rounded-full bg-soil-900 text-white shadow-lift"
+          aria-label={t("End voice conversation")}
+          className="absolute left-5 top-20 grid h-11 w-11 place-items-center rounded-full bg-leaf-50 text-leaf-900"
         >
           <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
             <path d="M6 6l12 12" />

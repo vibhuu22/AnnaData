@@ -15,6 +15,21 @@ const mount = () => render(
 );
 const SIGNED_IN_ONLY = ['/auth/me', '/history', '/profile', '/auth/signout'];
 
+test('switching the real app to Hindi preserves the draft, request and English answer', async () => {
+  mount();
+  const draft = screen.getByLabelText('Your question');
+  fireEvent.change(draft, { target: { value: 'When should I sow wheat?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'इंटरफ़ेस हिंदी में बदलें' }));
+  expect(screen.getByRole('heading', { name: 'आपके खेत में क्या हो रहा है?' })).toBeInTheDocument();
+  expect(screen.getByLabelText('आपका सवाल')).toBe(draft);
+  expect(draft).toHaveValue('When should I sow wheat?');
+  fireEvent.click(screen.getByRole('button', { name: 'भेजें' }));
+  await screen.findByText('This is a simulated advisory answer.');
+  const request = fetch.mock.calls.find(([url]) => new URL(url).pathname === '/agent');
+  expect(JSON.parse(request[1].body).query).toBe('When should I sow wheat?');
+  fireEvent.click(screen.getByRole('button', { name: 'Switch interface to English' }));
+});
+
 beforeEach(() => {
   clearToken();
   resetGuestId();

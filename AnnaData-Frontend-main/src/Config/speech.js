@@ -1,3 +1,4 @@
+import { t } from './uiLanguage';
 import { getApiUrl } from "./api";
 import { askHeaders } from "./session";
 
@@ -605,7 +606,7 @@ export function createSpeaker(lang) {
  * Resolves when it finishes, is stopped, or cannot start: { ok, reason }.
  */
 export async function speak(markdown, lang) {
-  if (!speakableText(markdown)) return { ok: false, reason: "Nothing to read." };
+  if (!speakableText(markdown)) return { ok: false, reason: t("Nothing to read.") };
   const speaker = createSpeaker(lang);
   speaker.push(markdown);
   return speaker.finish();
@@ -619,8 +620,8 @@ export async function speak(markdown, lang) {
  * should tell the farmer, not crash.
  */
 async function speakOnDevice(text, lang) {
-  if (!SUPPORTED) return { ok: false, reason: "This browser cannot read text aloud." };
-  if (!text) return { ok: false, reason: "Nothing to read." };
+  if (!SUPPORTED) return { ok: false, reason: t("This browser cannot read text aloud.") };
+  if (!text) return { ok: false, reason: t("Nothing to read.") };
   const mine = session;
 
   const voices = await loadVoices();
@@ -628,7 +629,7 @@ async function speakOnDevice(text, lang) {
   if (!voice) {
     return {
       ok: false,
-      reason: `No ${lang} voice is installed on this device, so the answer cannot be read aloud.`,
+      reason: t("No {lang} voice is installed on this device, so the answer cannot be read aloud.", { lang }),
     };
   }
 
@@ -654,7 +655,7 @@ async function speakOnDevice(text, lang) {
       // "interrupted" is what cancel() raises when the farmer presses stop, or
       // starts a second answer playing. That is not a failure to report.
       if (e.error === "interrupted" || e.error === "canceled") return resolve({ ok: true });
-      resolve({ ok: false, reason: `Could not read the answer aloud (${e.error}).` });
+      resolve({ ok: false, reason: t("Could not read the answer aloud ({error}).", { error: e.error }) });
     };
     window.speechSynthesis.speak(utterance);
   });

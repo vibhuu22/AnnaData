@@ -204,6 +204,7 @@ export async function ask({ text = "", history = [], image = null, audio = null,
       answer: data.answer || "No response from agent.",
       transcript: data.transcript || "",
       vision: data.vision || null,
+      diagnosis: data.diagnosis || null,
       queryUsed: data.query_used || text,
       toolsUsed: data.tools_used || [],
       // "available", "none_registered" or "not_applicable". The one reliable

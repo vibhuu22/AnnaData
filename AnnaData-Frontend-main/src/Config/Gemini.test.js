@@ -31,6 +31,14 @@ test('the follow-up asks come back, as SMS gets them', async () => {
   expect(result.needsLocation).toBe(true);
 });
 
+test('the backend diagnosis reaches the UI unchanged', async () => {
+  const diagnosis = { settled: null, candidates: [{ name: 'Late blight' }] };
+  fetch.mockResolvedValue({ ok: true, status: 200, headers: { get: () => null },
+    json: async () => ({ answer: 'Please send a clearer photo.', diagnosis }) });
+  const result = await ask({ text: 'What is this?' });
+  expect(result.diagnosis).toEqual(diagnosis);
+});
+
 test('a question is not held up waiting for a location prompt', async () => {
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { getCurrentPosition: jest.fn() } });
   Object.defineProperty(navigator, 'permissions', {

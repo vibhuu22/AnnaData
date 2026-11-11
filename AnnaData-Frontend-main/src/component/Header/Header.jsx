@@ -1,9 +1,11 @@
+import { t } from '../../Config/uiLanguage';
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { Auth } from "../../Context/AuthProvider";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
 import { maskPhone } from "../Flow/ui";
 import AnkurMark from "../Brand/AnkurMark";
+import LanguageToggle from '../Brand/LanguageToggle';
 
 /** The letter on a farmer's avatar: their name's first, else a person icon. */
 function initial(user) {
@@ -49,9 +51,9 @@ function Profile({ onSignIn }) {
       <button
         type="button"
         onClick={onSignIn}
-        aria-label="Sign in"
-        title="Sign in"
-        className="grid h-10 w-10 place-items-center rounded-full border-[1.5px] border-soil-400 bg-white/60 text-soil-700 transition-colors hover:border-leaf-600 hover:text-leaf-700"
+        aria-label={t("Sign in")}
+        title={t("Sign in")}
+        className="grid h-11 w-11 place-items-center rounded-full border-[1.5px] border-soil-400 bg-white/60 text-soil-700 transition-colors hover:border-leaf-600 hover:text-leaf-700"
       >
         <PersonIcon />
       </button>
@@ -69,40 +71,34 @@ function Profile({ onSignIn }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label="Your account"
+        aria-label={t("Your account")}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="grid h-10 w-10 place-items-center rounded-full bg-leaf-600 text-base font-bold text-white shadow-sm ring-2 ring-white/70 transition-transform hover:scale-105"
+        className="grid h-11 w-11 place-items-center rounded-full bg-leaf-600 text-base font-bold text-white shadow-sm ring-2 ring-white/70 transition-transform hover:scale-105"
       >
         {letter || <PersonIcon size={18} />}
       </button>
       {open && (
-        <div role="menu" aria-label="Your account" className="glass absolute right-0 top-12 z-30 w-64 rounded-2xl p-2 shadow-lift">
+        <div role="menu" aria-label={t("Your account")} className="glass absolute right-0 top-12 z-30 w-64 rounded-2xl p-2 shadow-lift">
           <div className="flex items-center gap-3 px-3 pb-2 pt-1.5">
             <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-leaf-600 font-bold text-white">
               {letter || <PersonIcon size={18} />}
             </span>
             <span className="flex min-w-0 flex-col">
-              <span className="truncate text-sm font-semibold text-soil-900">{user.name || "Your account"}</span>
+              <span className="truncate text-sm font-semibold text-soil-900">{user.name || t("Your account")}</span>
               <span className="text-xs text-soil-600">{maskPhone(user.phone || user.user_id)}</span>
               {user.district && <span className="truncate text-xs text-soil-600">{user.district}</span>}
             </span>
           </div>
           <div className="my-1 border-t border-soil-200" />
           {openFlow && (
-            <button type="button" role="menuitem" onClick={choose(() => openFlow("profile"))} className={item}>
-              Your farm
-            </button>
+            <button type="button" role="menuitem" onClick={choose(() => openFlow("profile"))} className={item}>{t("Your farm")}</button>
           )}
           {goHome && (
-            <button type="button" role="menuitem" onClick={choose(goHome)} className={item}>
-              Home
-            </button>
+            <button type="button" role="menuitem" onClick={choose(goHome)} className={item}>{t("Home")}</button>
           )}
           {signOut && (
-            <button type="button" role="menuitem" onClick={choose(signOut)} className={`${item} text-red-700 hover:bg-red-50`}>
-              Sign out
-            </button>
+            <button type="button" role="menuitem" onClick={choose(signOut)} className={`${item} text-red-700 hover:bg-red-50`}>{t("Sign out")}</button>
           )}
         </div>
       )}
@@ -139,7 +135,7 @@ function Header({ onSignIn }) {
               <button
                 type="button"
                 onClick={goHome}
-                aria-label="Back to home"
+                aria-label={t("Back to home")}
                 className="-ml-2 grid h-touch w-touch shrink-0 place-items-center rounded-full text-soil-900 hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600"
               >
                 <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -147,7 +143,7 @@ function Header({ onSignIn }) {
                 </svg>
               </button>
             )}
-            <button type="button" onClick={goHome} className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900" aria-label="AnnaData — home">
+            <button type="button" onClick={goHome} className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900" aria-label={t("AnnaData — home")}>
               <AnkurMark />
               AnnaData
             </button>
@@ -158,7 +154,7 @@ function Header({ onSignIn }) {
             AnnaData
           </span>
         )}
-        <Profile onSignIn={onSignIn} />
+        <div className="flex items-center gap-2"><LanguageToggle /><Profile onSignIn={onSignIn} /></div>
       </div>
     </header>
   );

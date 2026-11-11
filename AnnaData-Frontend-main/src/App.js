@@ -6,6 +6,7 @@ import SaveFlow from "./component/Flow/SaveFlow";
 import AppStatus from "./component/AppStatus";
 import { Auth } from "./Context/AuthProvider";
 import { Flow } from "./Context/Flow";
+import { useUiLanguage } from './Config/uiLanguage';
 
 /**
  * The chat, for everybody, and the full-screen steps on top of it.
@@ -17,6 +18,8 @@ import { Flow } from "./Context/Flow";
  * from "Not now" or from a finished profile lands exactly where they were.
  */
 function App() {
+  const language = useUiLanguage();
+  React.useEffect(() => { document.documentElement.lang = language; }, [language]);
   const { checking } = useContext(Auth);
   const [flow, setFlow] = useState(null);
 
