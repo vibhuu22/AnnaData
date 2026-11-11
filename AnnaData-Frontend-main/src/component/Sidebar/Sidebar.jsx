@@ -1,8 +1,9 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useContext, useEffect } from "react";
 import { IoIosMenu } from "react-icons/io";
 import { FaRightFromBracket } from "react-icons/fa6";
 import { Context } from "../../Context/ContextProvider";
 import { Auth } from "../../Context/AuthProvider";
+import { useAreaWeather, nextWetDay, describeDay } from "../../Config/areaWeather";
 
 /**
  * Where the farmer is, and what the sky is going to do about it.
@@ -26,24 +27,6 @@ import { Auth } from "../../Context/AuthProvider";
  * The farmer asks the question.
  */
 
-/** The first day in the forecast carrying meaningful rain, if there is one. */
-function nextWetDay(daily) {
-  if (!daily || !daily.rain_sum || !daily.time) return null;
-  for (let i = 0; i < daily.rain_sum.length; i += 1) {
-    // Below a millimetre is dew and rounding, not something to plan around.
-    if (daily.rain_sum[i] >= 1) {
-      return { date: new Date(daily.time[i]), mm: daily.rain_sum[i], index: i };
-    }
-  }
-  return null;
-}
-
-function describeDay(date, index) {
-  if (index === 0) return "today";
-  if (index === 1) return "tomorrow";
-  return date.toLocaleDateString("en-IN", { weekday: "long" });
-}
-
 const svg = (paths) => (
   <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     {paths}
@@ -58,113 +41,21 @@ const ICONS = {
 
 function Sidebar() {
   // Open by default on a wide screen, where it is a panel; closed on a phone,
-  // where it is a drawer over the chat.
-  const [extended, setExtended] = useState(
-    () => typeof window !== "undefined" && window.innerWidth >= 1024
-  );
-  const { newChat, goHome, setScreen, screen, chats = [], openChat, currentChatId } = useContext(Context);
+  // where it is a drawer over the chat, opened from the bottom bar's "More".
+  // The state lives in the context because that button is not in this file.
+  const {
+    newChat, goHome, setScreen, screen, chats = [], openChat, currentChatId,
+    menuOpen: extended = false, setMenuOpen: setExtended = () => {},
+  } = useContext(Context);
   const { user, signOut } = useContext(Auth);
 
-  const [weatherData, setWeatherData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [locationName, setLocationName] = useState("");
-  // Weather is only fetched once the farmer has said yes to location - never
-  // by springing the browser's permission dialog on page load, which on a
-  // phone (where this panel is hidden) arrived with no explanation at all.
-  const [askToLocate, setAskToLocate] = useState(false);
-  const [locateTick, setLocateTick] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchWeather = async (lat, lon) => {
-      try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,rain_sum,showers_sum,precipitation_probability_mean&forecast_days=7&timezone=Asia%2FKolkata`;
-
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        setWeatherData(data);
-        setLoading(false);
-      } catch (e) {
-        setError("Could not fetch weather data.");
-        setLoading(false);
-        console.error("Failed to fetch weather data:", e);
-      }
-    };
-
-    const getReverseGeocode = async (lat, lon) => {
-      try {
-        const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-
-        if (data.address) {
-          const { city, village, town, state_district, state } = data.address;
-          // The district is the unit that matters: it is what a mandi price is
-          // quoted for, and what the backend resolves a farm to.
-          const place =
-            village || town || city || state_district || data.display_name.split(",")[0];
-          setLocationName([place, state].filter(Boolean).join(", "));
-        } else {
-          setLocationName("");
-        }
-      } catch (e) {
-        console.error("Failed to get location name:", e);
-        setLocationName("");
-      }
-    };
-
-    const locate = () => navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          fetchWeather(latitude, longitude);
-          getReverseGeocode(latitude, longitude);
-        },
-        (err) => {
-          setError("Location permission denied or unavailable.");
-          setLoading(false);
-          console.error("Geolocation error:", err);
-        }
-      );
-
-    if (!navigator.geolocation) {
-      setError("Geolocation is not supported by your browser.");
-      setLoading(false);
-      return undefined;
-    }
-    (async () => {
-      // A tap on "Show weather for my area" is the farmer's yes.
-      if (locateTick > 0) {
-        setAskToLocate(false);
-        setLoading(true);
-        return locate();
-      }
-      try {
-        const status = await navigator.permissions?.query({ name: "geolocation" });
-        if (cancelled) return;
-        if (status && status.state !== "granted") {
-          setAskToLocate(true);
-          setLoading(false);
-          return;
-        }
-      } catch (e) {
-        /* no Permissions API: ask on a tap rather than guess */
-        setAskToLocate(true);
-        setLoading(false);
-        return;
-      }
-      locate();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [locateTick]);
+  // Where the farmer is and the weather there, shared with the home screen.
+  const area = useAreaWeather();
+  const weatherData = area.status === "ready" ? area.data : null;
+  const loading = area.status === "loading" || area.status === "idle";
+  const error = area.status === "error" ? area.error : null;
+  const locationName = area.place;
+  const askToLocate = area.status === "ask";
 
   // Close the drawer on a phone after anything is chosen in it; on a wide
   // screen it is a panel, not an overlay, and stays as the farmer left it.
@@ -194,18 +85,21 @@ function Sidebar() {
 
   return (
     <div className="flex">
-      {/* The menu button on a phone, where the sidebar is a drawer. */}
-      <div className="fixed left-0 top-0 z-50 p-2 lg:hidden">
-        <button
-          type="button"
-          onClick={() => setExtended((prev) => !prev)}
-          aria-label={extended ? "Close menu" : "Open menu"}
-          aria-expanded={extended}
-          className="grid h-touch w-touch place-items-center rounded-full text-soil-800 hover:bg-white/60"
-        >
-          <IoIosMenu className="h-7 w-7" />
-        </button>
-      </div>
+      {/* On a phone the drawer opens from the bottom bar's "More"; this
+          corner button exists only while it is open, to close it. */}
+      {extended && (
+        <div className="fixed left-0 top-0 z-50 p-2 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setExtended(false)}
+            aria-label="Close menu"
+            aria-expanded
+            className="grid h-touch w-touch place-items-center rounded-full text-soil-800 hover:bg-white/60"
+          >
+            <IoIosMenu className="h-7 w-7" />
+          </button>
+        </div>
+      )}
 
       {/* Tapping anywhere outside the open drawer closes it. */}
       {extended && (
@@ -291,7 +185,7 @@ function Sidebar() {
                 {askToLocate && !error && (
                   <button
                     type="button"
-                    onClick={() => setLocateTick((n) => n + 1)}
+                    onClick={area.locate}
                     className="mt-2 min-h-touch text-left text-sm font-semibold text-leaf-700 underline-offset-4 hover:underline"
                   >
                     Show weather for my area

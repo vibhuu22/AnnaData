@@ -1,9 +1,10 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import Main, { revealCut } from './Main';
 import { Auth } from '../../Context/AuthProvider';
 import { Context } from '../../Context/ContextProvider';
 import { Flow } from '../../Context/Flow';
 import { rateAnswer } from '../../Config/session';
+import { speak } from '../../Config/speech';
 
 jest.mock('../../Config/session', () => ({ saveProfile: jest.fn(), rateAnswer: jest.fn(() => Promise.resolve({ stored: true })) }));
 jest.mock('../../Config/speech', () => ({
@@ -287,9 +288,69 @@ describe('explore and news', () => {
     </Auth.Provider>
   );
 
-  test('an explore topic starts a chat with its question', () => {
+  test('an explore tile starts a chat with its example question', () => {
     at('explore');
-    fireEvent.click(screen.getByRole('button', { name: /Mandi prices/ }));
+    expect(screen.getByRole('heading', { name: 'Mandi prices' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '“Aaj gehu ka mandi bhav kya hai?”' }));
     expect(send).toHaveBeenCalledWith({ text: 'Aaj gehu ka mandi bhav kya hai?', image: undefined });
+  });
+
+  test('an explore tile reads its example aloud, without asking it', () => {
+    at('explore');
+    fireEvent.click(screen.getByRole('button', { name: 'Listen: Aaj gehu ka mandi bhav kya hai?' }));
+    expect(speak).toHaveBeenCalledWith('Aaj gehu ka mandi bhav kya hai?', 'hi-IN');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test('explore carries the bottom bar, whose microphone opens voice mode', () => {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: jest.fn(() => new Promise(() => {})) },
+    });
+    at('explore');
+    const bar = screen.getByRole('navigation', { name: 'Main' });
+    fireEvent.click(within(bar).getByRole('button', { name: 'Talk' }));
+    expect(screen.getByRole('dialog', { name: 'Voice conversation' })).toBeInTheDocument();
+    delete navigator.mediaDevices;
+  });
+});
+
+describe('the ask screen, new parts', () => {
+  test('an example can be heard before it is asked', () => {
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Listen: Gehu ki buwai kab karein?' }));
+    expect(speak).toHaveBeenCalledWith('Gehu ki buwai kab karein?', 'hi-IN');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test('the bottom bar opens the menu from "More"', () => {
+    const setMenuOpen = jest.fn();
+    render(
+      <Auth.Provider value={{ user: null }}>
+        <Context.Provider value={{ thread: [], responses: [], chats: [], screen: 'ask', input: '', setInput: jest.fn(), send, setMenuOpen, focusId: null, loading: false }}>
+          <Flow.Provider value={openFlow}>
+            <Main />
+          </Flow.Provider>
+        </Context.Provider>
+      </Auth.Provider>
+    );
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: 'More' }));
+    expect(setMenuOpen).toHaveBeenCalledWith(true);
+  });
+
+  test('recent chats appear on the front door and open', () => {
+    const openChat = jest.fn();
+    render(
+      <Auth.Provider value={{ user: null }}>
+        <Context.Provider value={{ thread: [], responses: [], chats: [{ id: 'c1', title: 'Gehu ki buwai kab karein?' }], openChat, screen: 'ask', input: '', setInput: jest.fn(), send, focusId: null, loading: false }}>
+          <Flow.Provider value={openFlow}>
+            <Main />
+          </Flow.Provider>
+        </Context.Provider>
+      </Auth.Provider>
+    );
+    const recent = screen.getByRole('region', { name: 'Recent chats' });
+    fireEvent.click(within(recent).getByRole('button', { name: 'Gehu ki buwai kab karein?' }));
+    expect(openChat).toHaveBeenCalledWith('c1');
   });
 });

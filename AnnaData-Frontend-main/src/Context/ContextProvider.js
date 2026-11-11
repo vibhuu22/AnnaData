@@ -147,6 +147,12 @@ const ContextProvider = (props) => {
    * chat's turns are on screen or sent to the agent as context.
    */
   const [screen, setScreen] = useState("ask");
+  // The menu: a panel on a wide screen (open by default), a drawer on a phone
+  // (closed). Kept here rather than in the sidebar because on a phone it is
+  // opened from the bottom bar's "More".
+  const [menuOpen, setMenuOpen] = useState(
+    () => typeof window !== "undefined" && window.innerWidth >= 1024
+  );
   const [currentChatId, setCurrentChatId] = useState(null);
   const screenRef = useRef(screen);
   const chatRef = useRef(currentChatId);
@@ -381,6 +387,8 @@ const ContextProvider = (props) => {
     openChat,
     screen,
     setScreen,
+    menuOpen,
+    setMenuOpen,
     startNewQuestion,
     openTurn,
     goHome,

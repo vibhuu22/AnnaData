@@ -122,11 +122,9 @@ function Header({ onSignIn }) {
 
   return (
     <header className="glass sticky top-0 z-20 w-full !border-x-0 !border-t-0">
-      {/*
-        pl-16 below the large breakpoint, because the sidebar's menu button is
-        position:fixed at the top-left corner and floats above this bar.
-      */}
-      <div className="mx-auto flex max-w-[900px] items-center justify-between gap-3 py-2 pl-16 pr-4 lg:pl-5">
+      {/* On a phone the menu opens from the bottom bar's "More", so nothing
+          floats over this bar's left edge any more. */}
+      <div className="mx-auto flex max-w-[900px] items-center justify-between gap-3 py-2 pl-4 pr-4 lg:pl-5">
         {canGoHome ? (
           <button type="button" onClick={goHome} className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900" aria-label="AnnaData — home">
             <AnkurMark />
