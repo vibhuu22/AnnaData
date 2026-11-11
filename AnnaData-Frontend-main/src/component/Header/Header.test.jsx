@@ -43,6 +43,54 @@ test("a farmer sees their initial, and a menu with who is signed in, their farm,
   expect(signOut).toHaveBeenCalled();
 });
 
+function at(view, { user = null, responses = [] } = {}) {
+  return render(
+    <Auth.Provider value={{ user, signOut }}>
+      <Context.Provider value={{ screen: view, goHome, responses }}>
+        <Flow.Provider value={openFlow}>
+          <Header onSignIn={onSignIn} />
+        </Flow.Provider>
+      </Context.Provider>
+    </Auth.Provider>
+  );
+}
+
+describe('the way back home', () => {
+  beforeEach(() => goHome.mockClear());
+
+  test('a guest in a chat has a back arrow that goes home', () => {
+    // A chat has no bottom bar on a phone, so this arrow is the way out.
+    at('chat', { responses: [{ id: '1' }] });
+    fireEvent.click(screen.getByRole('button', { name: 'Back to home' }));
+    expect(goHome).toHaveBeenCalled();
+  });
+
+  test('the name goes home from a chat too, for a guest', () => {
+    at('chat', { responses: [{ id: '1' }] });
+    fireEvent.click(screen.getByRole('button', { name: 'AnnaData — home' }));
+    expect(goHome).toHaveBeenCalled();
+  });
+
+  test('outside a chat the name goes home but there is no back arrow', () => {
+    at('explore');
+    expect(screen.queryByRole('button', { name: 'Back to home' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'AnnaData — home' }));
+    expect(goHome).toHaveBeenCalled();
+  });
+
+  test('already home, there is nothing to go back to', () => {
+    at('ask');
+    expect(screen.queryByRole('button', { name: 'AnnaData — home' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Back to home' })).not.toBeInTheDocument();
+  });
+
+  test("a signed-in farmer on the ask screen can still reach their welcome screen", () => {
+    at('ask', { user: { name: 'Sita' }, responses: [{ id: '1' }] });
+    fireEvent.click(screen.getByRole('button', { name: 'AnnaData — home' }));
+    expect(goHome).toHaveBeenCalled();
+  });
+});
+
 test('the menu closes on a tap outside and on Escape', () => {
   show({ name: 'Sita', phone: '+919876543210' });
   fireEvent.click(screen.getByRole('button', { name: 'Your account' }));
