@@ -1,3 +1,4 @@
+import { t } from '../../Config/uiLanguage';
 import React, { useContext, useEffect } from "react";
 import { IoIosMenu } from "react-icons/io";
 import { FaRightFromBracket } from "react-icons/fa6";
@@ -73,14 +74,14 @@ function Sidebar() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [extended]);
+  }, [extended, setExtended]);
 
   const wet = weatherData ? nextWetDay(weatherData.daily) : null;
   const nav = [
-    { key: "home", label: "Home", icon: ICONS.home, action: goHome, active: screen === "home" },
-    { key: "new", label: "New chat", icon: ICONS.plus, action: newChat, active: screen === "ask" },
-    { key: "explore", label: "Explore", icon: ICONS.compass, action: () => setScreen("explore"), active: screen === "explore" },
-    { key: "news", label: "News", icon: ICONS.news, action: () => setScreen("news"), active: screen === "news" },
+    { key: "home", label: t("Home"), icon: ICONS.home, action: goHome, active: screen === "home" },
+    { key: "new", label: t("New chat"), icon: ICONS.plus, action: newChat, active: screen === "ask" },
+    { key: "explore", label: t("Explore"), icon: ICONS.compass, action: () => setScreen("explore"), active: screen === "explore" },
+    { key: "news", label: t("News"), icon: ICONS.news, action: () => setScreen("news"), active: screen === "news" },
   ];
 
   return (
@@ -92,7 +93,7 @@ function Sidebar() {
           <button
             type="button"
             onClick={() => setExtended(false)}
-            aria-label="Close menu"
+            aria-label={t("Close menu")}
             aria-expanded
             className="grid h-touch w-touch place-items-center rounded-full text-soil-800 hover:bg-white/60"
           >
@@ -105,7 +106,7 @@ function Sidebar() {
       {extended && (
         <button
           type="button"
-          aria-label="Close menu"
+          aria-label={t("Close menu")}
           tabIndex={-1}
           onClick={() => setExtended(false)}
           className="fixed inset-0 z-30 bg-soil-900/20 backdrop-blur-[2px] lg:hidden"
@@ -123,7 +124,7 @@ function Sidebar() {
             <button
               type="button"
               onClick={() => setExtended((prev) => !prev)}
-              aria-label={extended ? "Collapse sidebar" : "Expand sidebar"}
+              aria-label={extended ? t("Collapse sidebar") : t("Expand sidebar")}
               aria-expanded={extended}
               className="grid h-touch w-touch place-items-center rounded-full text-soil-800 hover:bg-white/70"
             >
@@ -152,8 +153,8 @@ function Sidebar() {
 
           <div className="mt-4 min-h-0 flex-grow overflow-y-auto">
             {extended && chats.length > 0 && (
-              <section aria-label="Recent chats">
-                <h2 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-soil-600">Recent chats</h2>
+              <section aria-label={t("Recent chats")}>
+                <h2 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-soil-600">{t("Recent chats")}</h2>
                 <ul className="flex flex-col gap-0.5">
                   {chats.slice(0, 30).map((chat) => (
                     <li key={chat.id}>
@@ -177,8 +178,8 @@ function Sidebar() {
 
             {extended && (
               <section className="glass-soft mt-4 rounded-2xl p-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-soil-600">Your area</h2>
-                {loading && <p className="mt-2 text-sm text-soil-600">Finding your area…</p>}
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-soil-600">{t("Your area")}</h2>
+                {loading && <p className="mt-2 text-sm text-soil-600">{t("Finding your area…")}</p>}
                 {/* Not an error state. A farmer who declined the location
                     prompt has not broken anything - the agent asks for a
                     district in the conversation instead. */}
@@ -187,14 +188,10 @@ function Sidebar() {
                     type="button"
                     onClick={area.locate}
                     className="mt-2 min-h-touch text-left text-sm font-semibold text-leaf-700 underline-offset-4 hover:underline"
-                  >
-                    Show weather for my area
-                  </button>
+                  >{t("Show weather for my area")}</button>
                 )}
                 {error && (
-                  <p className="mt-2 text-sm text-soil-600">
-                    Location unavailable — mention your district in the question and the answer will use it.
-                  </p>
+                  <p className="mt-2 text-sm text-soil-600">{t("Location unavailable — mention your district in the question and the answer will use it.")}</p>
                 )}
                 {!loading && !error && weatherData && (
                   <>
@@ -204,8 +201,7 @@ function Sidebar() {
                         {Math.round(weatherData.current_weather.temperature)}°C
                       </span>
                       {weatherData.daily?.temperature_2m_max?.[0] != null && (
-                        <span className="ml-2 text-soil-600">
-                          today {Math.round(weatherData.daily.temperature_2m_min[0])}–
+                        <span className="ml-2 text-soil-600">{t("today")}{" "}{Math.round(weatherData.daily.temperature_2m_min[0])}–
                           {Math.round(weatherData.daily.temperature_2m_max[0])}°
                         </span>
                       )}
@@ -213,13 +209,11 @@ function Sidebar() {
                     <p className="mt-2 border-t border-white/80 pt-2 text-sm text-soil-700">
                       {wet ? (
                         <>
-                          <span className="font-semibold text-soil-900">Rain {describeDay(wet.date, wet.index)}</span>, about{" "}
-                          {wet.mm.toFixed(0)} mm
-                        </>
+                          <span className="font-semibold text-soil-900">{t("Rain")}{" "}{describeDay(wet.date, wet.index)}</span>{t(", about")}{" "}
+                          {wet.mm.toFixed(0)} {t("mm")}</>
                       ) : (
                         <>
-                          <span className="font-semibold text-soil-900">No rain expected</span> in the next seven days
-                        </>
+                          <span className="font-semibold text-soil-900">{t("No rain expected")}</span>{t("in the next seven days")}</>
                       )}
                     </p>
                   </>
@@ -235,7 +229,7 @@ function Sidebar() {
             <div className="mt-3 border-t border-white/80 pt-3">
               {extended && (
                 <>
-                  <p className="truncate px-3 text-sm font-semibold text-soil-900">{user?.name || "Your account"}</p>
+                  <p className="truncate px-3 text-sm font-semibold text-soil-900">{user?.name || t("Your account")}</p>
                   <p className="truncate px-3 text-xs text-soil-600">
                     {[user?.district, user?.phone].filter(Boolean).join(" · ")}
                   </p>
@@ -244,12 +238,12 @@ function Sidebar() {
               <button
                 type="button"
                 onClick={choose(signOut)}
-                aria-label={extended ? undefined : "Sign out"}
-                title={extended ? undefined : "Sign out"}
+                aria-label={extended ? undefined : t("Sign out")}
+                title={extended ? undefined : t("Sign out")}
                 className="mt-1 flex min-h-touch w-full items-center gap-3 rounded-2xl px-3 text-left text-sm text-soil-800 transition-colors hover:bg-white/60"
               >
                 <FaRightFromBracket className="h-4 w-4 shrink-0" />
-                {extended && "Sign out"}
+                {extended && t("Sign out")}
               </button>
             </div>
           )}

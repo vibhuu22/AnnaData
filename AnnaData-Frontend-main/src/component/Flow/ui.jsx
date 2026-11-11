@@ -1,4 +1,6 @@
+import { t } from '../../Config/uiLanguage';
 import React from "react";
+import LanguageToggle from '../Brand/LanguageToggle';
 
 /**
  * The pieces every full-screen step shares, from the wireframes: a way back at
@@ -49,7 +51,7 @@ export function FlowScreen({ label, top, children, actions }) {
       className="body relative flex min-h-screen w-full flex-col text-soil-900"
     >
       <div className="glass-soft mx-auto my-0 flex w-full max-w-[30rem] flex-grow flex-col gap-5 px-5 pb-6 pt-4 sm:my-6 sm:rounded-[28px] sm:px-6">
-        {top && <div className="flex items-center justify-between gap-3">{top}</div>}
+        <div className="flex flex-wrap items-center justify-between gap-3">{top}<LanguageToggle /></div>
         {children}
         <div className="flex-grow" />
         {actions && <div className="sticky bottom-0 -mx-1 flex flex-col gap-2 px-1 pb-[env(safe-area-inset-bottom,0px)] pt-2">{actions}</div>}
@@ -63,7 +65,7 @@ const STEPS = ["Confirm number", "About you", "Your farm"];
 /** "Confirm number · About you · Your farm", on the number screens. */
 export function StepLabels({ at }) {
   return (
-    <ol className="flex flex-wrap items-center gap-x-1.5 text-xs text-soil-600" aria-label="Steps">
+    <ol className="flex flex-wrap items-center gap-x-1.5 text-xs text-soil-600" aria-label={t("Steps")}>
       {STEPS.map((label, index) => (
         <li key={label} className="flex items-center gap-1.5">
           {index > 0 && <span aria-hidden="true">·</span>}
@@ -71,7 +73,7 @@ export function StepLabels({ at }) {
             aria-current={index === at ? "step" : undefined}
             className={index === at ? "font-bold text-soil-900" : undefined}
           >
-            {label}
+            {t(label)}
           </span>
         </li>
       ))}
@@ -84,7 +86,7 @@ export function StepBar({ step, of = 2 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="text-xs font-bold text-soil-700">
-        Step {step} of {of}
+        {t("Step {step} of {of}", { step, of })}
       </div>
       <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${of}, minmax(0, 1fr))` }} aria-hidden="true">
         {Array.from({ length: of }, (_, i) => (

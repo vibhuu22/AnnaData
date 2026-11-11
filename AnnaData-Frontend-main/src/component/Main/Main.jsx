@@ -1,3 +1,4 @@
+import { t } from '../../Config/uiLanguage';
 import React, { useContext, useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Context } from "../../Context/ContextProvider";
 import { Auth } from "../../Context/AuthProvider";
@@ -10,7 +11,7 @@ import VoiceMode from "../Voice/VoiceMode";
 import Explore from "../Explore/Explore";
 import News from "../News/News";
 import BottomNav from "../BottomNav/BottomNav";
-import AnkurMark from "../Brand/AnkurMark";
+import Ankur from "../Brand/Ankur";
 import { FaVolumeHigh } from "react-icons/fa6";
 import { useAreaWeather, nextWetDay, describeDay } from "../../Config/areaWeather";
 import { primaryButton, textButton, SMS_NUMBER } from "../Flow/ui";
@@ -63,7 +64,8 @@ function Rate() {
   if (rated) {
     return (
       <p className="mt-2 text-xs text-soil-600" role="status">
-        {rated === "up" ? "Thanks — glad it helped." : "Thanks for telling us. This helps us fix answers."}
+        {rated === "up" && <Ankur pose="success" className="inline-block h-14 w-14" />}
+        {rated === "up" ? t("Thanks — glad it helped.") : t("Thanks for telling us. This helps us fix answers.")}
       </p>
     );
   }
@@ -71,14 +73,14 @@ function Rate() {
     "grid h-touch w-touch place-items-center rounded-full text-soil-600 transition-colors hover:bg-soil-100 hover:text-soil-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600";
   return (
     <div className="mt-1 flex items-center gap-1">
-      <span className="mr-1 text-xs text-soil-600">Was this useful?</span>
-      <button type="button" onClick={() => send(true)} aria-label="Yes, useful" className={button}>
+      <span className="mr-1 text-xs text-soil-600">{t("Was this useful?")}</span>
+      <button type="button" onClick={() => send(true)} aria-label={t("Yes, useful")} className={button}>
         <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M7 10v11H4V10z" />
           <path d="M7 10l4-7a2 2 0 0 1 3 2l-1 5h6a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 2H7" />
         </svg>
       </button>
-      <button type="button" onClick={() => send(false)} aria-label="No, not useful" className={button}>
+      <button type="button" onClick={() => send(false)} aria-label={t("No, not useful")} className={button}>
         <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M17 14V3h3v11z" />
           <path d="M17 14l-4 7a2 2 0 0 1-3-2l1-5H5a2 2 0 0 1-2-2l2-7a2 2 0 0 1 2-2h10" />
@@ -105,7 +107,7 @@ function FollowUpAsk({ ask, onReply }) {
   };
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border-[1.5px] border-dashed border-soil-300 px-3.5 py-2.5 text-sm text-soil-800">
-      <span>{state === "shared" ? "Thanks — your next answers will use your location." : ask.text}</span>
+      <span>{state === "shared" ? t("Thanks — your next answers will use your location.") : ask.text}</span>
       {ask.slot === "location" && state !== "shared" && (
         <button
           type="button"
@@ -113,7 +115,7 @@ function FollowUpAsk({ ask, onReply }) {
           disabled={state === "asking"}
           className="inline-flex min-h-touch items-center gap-1.5 font-semibold text-leaf-700 underline-offset-4 hover:underline"
         >
-          {state === "asking" ? "Finding you…" : state === "unavailable" ? "Location unavailable — type it instead" : "Use my location"}
+          {state === "asking" ? t("Finding you…") : state === "unavailable" ? t("Location unavailable — type it instead") : t("Use my location")}
         </button>
       )}
       {/* The farm question: one tap answers it, in the answer's language. */}
@@ -189,7 +191,7 @@ function SentMedia({ file, kind }) {
   useEffect(() => () => url && URL.revokeObjectURL(url), [url]);
   if (!url) return null;
   return kind === "image" ? (
-    <img src={url} alt="Sent by the farmer" className="max-h-44 w-full rounded-xl object-cover" />
+    <img src={url} alt={t("Sent by the farmer")} className="max-h-44 w-full rounded-xl object-cover" />
   ) : (
     <audio controls src={url} className="h-9 w-full" />
   );
@@ -250,7 +252,7 @@ function Badge({ kind }) {
       <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
         {badge.icon}
       </svg>
-      {badge.text}
+      {t(badge.text)}
     </span>
   );
 }
@@ -281,18 +283,13 @@ function Pending({ startedAt }) {
 
   return (
     <div className="flex items-start gap-3 py-1" role="status" aria-live="polite">
-      <div className="wait-mark shrink-0" aria-hidden="true">
-        अ
-      </div>
+      <Ankur pose="think" />
       <div className="flex min-w-0 flex-col gap-1 pt-1">
-        <span className="wait-shimmer text-base font-semibold">{line}…</span>
+        <span className="wait-shimmer text-base font-semibold">{t(line)}…</span>
         <span className="text-xs text-soil-500" aria-hidden="true">
-          {seconds > 0 ? `${seconds}s · ` : ""}usually 5 to 20 seconds
-        </span>
+          {seconds > 0 ? `${seconds}s · ` : ""}{t("usually 5 to 20 seconds")}</span>
         {elapsed >= SLOW_AFTER_MS && (
-          <p className="glass-soft mt-2 rounded-xl px-3.5 py-3 text-sm text-soil-700">
-            Some answers take up to a couple of minutes. Please keep this page open — the answer will appear here.
-          </p>
+          <p className="glass-soft mt-2 rounded-xl px-3.5 py-3 text-sm text-soil-700">{t("Some answers take up to a couple of minutes. Please keep this page open — the answer will appear here.")}</p>
         )}
       </div>
     </div>
@@ -425,7 +422,7 @@ function Main() {
   const writingCard = (text) => (
     <div className="card-read flex min-w-0 flex-col gap-2.5 rounded-[22px] border border-white p-4" aria-busy="true">
       <Answer markdown={text} doseStatus={null} />
-      <span className="wait-shimmer text-xs font-semibold">Writing…</span>
+      <span className="wait-shimmer text-xs font-semibold">{t("Writing…")}</span>
     </div>
   );
   const autoSpokenRef = useRef(new Set());
@@ -573,17 +570,16 @@ function Main() {
   }
 
   const smsLine = SMS_NUMBER
-    ? `No smartphone? Text your question to ${SMS_NUMBER}.`
-    : "No smartphone? AnnaData also answers by SMS.";
+    ? t("No smartphone? Text your question to {number}.", { number: SMS_NUMBER })
+    : t("No smartphone? AnnaData also answers by SMS.");
 
   const notices = (
     <>
       {offline && (
         <div className="mx-auto mb-2 w-full max-w-[750px] rounded-xl border-[1.5px] border-dashed border-soil-600 px-4 py-3" role="alert">
-          <div className="text-sm font-bold text-soil-900">No internet connection</div>
-          <div className="text-sm text-soil-700">
-            Your question has not been sent.{" "}
-            {SMS_NUMBER ? `Text it to ${SMS_NUMBER} instead — SMS works without internet.` : "SMS works without internet."}
+          <div className="text-sm font-bold text-soil-900">{t("No internet connection")}</div>
+          <div className="text-sm text-soil-700">{t("Your question has not been sent.")}{" "}
+            {SMS_NUMBER ? t("Text it to {number} instead — SMS works without internet.", { number: SMS_NUMBER }) : t("SMS works without internet.")}
           </div>
         </div>
       )}
@@ -593,18 +589,18 @@ function Main() {
         clearSelectedImage={() => setSelectedImage(null)}
         clearSelectedAudio={() => {}}
       />
-      {speechError && <p className="mb-2 text-center text-sm text-grain-700">{speechError}</p>}
+      {speechError && <p className="mb-2 text-center text-sm text-grain-700">{t(speechError)}</p>}
     </>
   );
 
   const photoButton = (size) => (
     <label
       htmlFor="image-upload"
-      title="Add a photo of the crop"
+      title={t("Add a photo of the crop")}
       className={`grid ${size} shrink-0 cursor-pointer place-items-center rounded-full bg-white/80 text-soil-900 hover:bg-white focus-within:ring-2 focus-within:ring-leaf-600`}
     >
       <CameraIcon />
-      <span className="sr-only">Add a photo of the crop</span>
+      <span className="sr-only">{t("Add a photo of the crop")}</span>
       <input id="image-upload" type="file" accept="image/*" onChange={handleImageChange} className="sr-only" />
     </label>
   );
@@ -616,31 +612,29 @@ function Main() {
       <div className="mx-auto flex w-full max-w-[30rem] flex-grow flex-col gap-4 px-5 pb-5 pt-5">
         {/* Ankur greets; the question stays the screen's heading. */}
         <div className="flex items-center gap-3">
-          <AnkurMark className="h-14 w-14 shrink-0" />
+          <Ankur className="h-24 w-24" />
           <div>
-            <p className="text-sm text-soil-700">Namaskar{user?.name ? `, ${user.name}` : ""}</p>
-            <h1 className="text-2xl font-bold leading-tight text-soil-900">What is happening in your field?</h1>
+            <p className="text-sm text-soil-700">{t("Namaskar")}{user?.name ? `, ${user.name}` : ""}</p>
+            <h1 className="text-2xl font-bold leading-tight text-soil-900">{t("What is happening in your field?")}</h1>
           </div>
         </div>
-        <p className="text-base text-soil-700">
-          Ask in your own words — Hindi, Hinglish, Bengali, Punjabi or English. Free, and no sign-up needed to ask.
-        </p>
+        <p className="text-base text-soil-700">{t("Ask in your own words — Hindi, Hinglish, Bengali, Punjabi or English. Free, and no sign-up needed to ask.")}</p>
 
         {/* The weather where they are, once location is allowed - the same
             reading as the menu's "Your area", fetched once for both. */}
         {weather?.current_weather && (
           <p className="glass-soft rounded-2xl px-4 py-2.5 text-sm text-soil-800">
             <span className="font-semibold text-soil-900">
-              {area.place || "Your area"} · {Math.round(weather.current_weather.temperature)}°C
+              {area.place || t("Your area")} · {Math.round(weather.current_weather.temperature)}°C
             </span>
             {" · "}
-            {wet ? `rain ${describeDay(wet.date, wet.index)}, about ${wet.mm.toFixed(0)} mm` : "no rain expected this week"}
+            {wet ? t("rain {day}, about {mm} mm", { day: describeDay(wet.date, wet.index), mm: wet.mm.toFixed(0) }) : t("no rain expected this week")}
           </p>
         )}
 
         {/* Each example can be tapped to ask, or heard first. */}
         <div className="flex flex-col gap-2">
-          <div className="text-sm font-semibold text-soil-700">Tap to ask, or listen</div>
+          <div className="text-sm font-semibold text-soil-700">{t("Tap to ask, or listen")}</div>
           {EXAMPLES.map((text) => (
             <div key={text} className="glass-soft flex items-center gap-1 rounded-2xl py-1 pl-4 pr-1">
               <button
@@ -653,7 +647,7 @@ function Main() {
               <button
                 type="button"
                 onClick={() => listen(text)}
-                aria-label={`Listen: ${text}`}
+                aria-label={`${t("Listen")}: ${text}`}
                 className={`grid h-11 w-11 shrink-0 place-items-center rounded-full transition-colors hover:bg-white/80 ${
                   listening === text ? "bg-white text-leaf-700" : "text-soil-800"
                 }`}
@@ -665,8 +659,8 @@ function Main() {
         </div>
 
         {chats.length > 0 && (
-          <section aria-label="Recent chats" className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-soil-700">Recent chats</h2>
+          <section aria-label={t("Recent chats")} className="flex flex-col gap-2">
+            <h2 className="text-sm font-semibold text-soil-700">{t("Recent chats")}</h2>
             {chats.slice(0, 3).map((chat) => (
               <button
                 key={chat.id}
@@ -688,12 +682,12 @@ function Main() {
           <button
             type="button"
             onClick={openVoice}
-            aria-label="Talk to AnnaData"
+            aria-label={t("Talk to AnnaData")}
             className="grid h-20 w-20 place-items-center rounded-full bg-leaf-600 text-white shadow-lift transition-colors hover:bg-leaf-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-leaf-200 focus-visible:ring-offset-2"
           >
             <MicIcon size={34} />
           </button>
-          <div className="text-sm font-semibold text-soil-900">Tap to talk</div>
+          <div className="text-sm font-semibold text-soil-900">{t("Tap to talk")}</div>
         </div>
 
         {/* On a phone the screen is taller than the window; pinned just
@@ -703,9 +697,7 @@ function Main() {
           {notices}
           <form onSubmit={handleSend} className="glass flex items-end gap-2 rounded-[28px] p-2 shadow-lift">
             {photoButton("h-11 w-11")}
-            <label htmlFor="q" className="sr-only">
-              Your question
-            </label>
+            <label htmlFor="q" className="sr-only">{t("Your question")}</label>
             <textarea
               id="q"
               rows={1}
@@ -714,13 +706,13 @@ function Main() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) handleSend(e);
               }}
-              placeholder="Or type your question…"
+              placeholder={t("Or type your question…")}
               className="min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-2 py-2.5 text-base text-soil-900 outline-none placeholder:text-soil-600"
             />
             <button
               type="submit"
               disabled={loading || !canSend}
-              aria-label="Send"
+              aria-label={t("Send")}
               className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-leaf-600 text-white transition-colors hover:bg-leaf-700 disabled:bg-soil-300"
             >
               <SendIcon />
@@ -752,26 +744,34 @@ function Main() {
                               if (speakingId === turn.id) hush();
                               else readAloud(turn);
                             }}
-                            aria-label={speakingId === turn.id ? "Stop reading the answer" : "Listen to this answer"}
+                            aria-label={speakingId === turn.id ? t("Stop reading the answer") : t("Listen to this answer")}
                             className="ml-auto inline-flex min-h-touch min-w-touch items-center gap-1.5 rounded-[10px] border-[1.5px] border-soil-400 bg-white px-2.5 text-sm font-semibold text-soil-900 hover:bg-soil-50"
                           >
                             {speakingId === turn.id ? <StopIcon size={16} /> : <SpeakerIcon />}
-                            {speakingId === turn.id ? "Stop" : "Listen"}
+                            {speakingId === turn.id ? t("Stop") : t("Listen")}
                           </button>
                         )}
                       </div>
                     )}
+                    {(turn.vision || turn.diagnosis || turn.mediaKind === "image") && (
+                      <h2 className="text-lg font-bold text-soil-900">
+                        {typeof turn.diagnosis?.settled === "string" && turn.diagnosis.settled.trim()
+                          ? <>{t("Identified cause")}: {turn.diagnosis.settled}</>
+                          : t("Possible causes")}
+                      </h2>
+                    )}
+                    {kind === "refusal" && <Ankur pose="sorry" />}
                     {turn.vision && (
                       <p className="text-sm text-soil-700">
-                        <span className="font-semibold text-soil-900">From the photo: </span>
+                        <span className="font-semibold text-soil-900">{t("From the photo:")}{" "}</span>
                         {[
                           turn.vision.crop !== "unknown" && turn.vision.crop,
                           turn.vision.stage !== "unknown" && turn.vision.stage,
-                          turn.vision.pest !== "unknown" && `${turn.vision.pest} (${turn.vision.confidence} confidence)`,
+                          turn.vision.pest !== "unknown" && `${turn.vision.pest} (${t("{level} confidence", { level: t(turn.vision.confidence || "low") })})`,
                           turn.vision.severity !== "unknown" && turn.vision.severity,
                         ]
                           .filter(Boolean)
-                          .join(" · ") || "nothing identifiable"}
+                          .join(" · ") || t("nothing identifiable")}
                       </p>
                     )}
                     <Answer markdown={turn.response} doseStatus={turn.doseStatus} />
@@ -789,7 +789,7 @@ function Main() {
                       rather than buried in an answer that reads as odd. */}
                   {turn.transcript && (
                     <p className="text-soil-700">
-                      <span className="mr-2 text-xs uppercase tracking-wide text-soil-600">heard</span>
+                      <span className="mr-2 text-xs uppercase tracking-wide text-soil-600">{t("heard")}</span>
                       {turn.transcript}
                     </p>
                   )}
@@ -808,6 +808,7 @@ function Main() {
                   writingCard(turn.response)
                 ) : turn.failed ? (
                   <div className="card-read rounded-[22px] border-[1.5px] border-red-200 p-4 text-base text-red-800" role="alert">
+                    <Ankur pose="sorry" />
                     {turn.response}
                   </div>
                 ) : turn.live && !revealed.has(turn.id) && !turn.failed && !turn.needsSignIn ? (
@@ -837,34 +838,24 @@ function Main() {
           {latestAnswered && !user && (limited || !saveDismissed) && (
             <div className="glass-soft flex flex-col gap-2.5 rounded-[20px] p-4">
               <h2 className="text-base font-bold text-soil-900">
-                {limited ? "Confirm your number to keep asking" : "Get answers for your own farm"}
+                {limited ? t("Confirm your number to keep asking") : t("Get answers for your own farm")}
               </h2>
-              <p className="text-sm text-soil-700">
-                Confirm your number once, then tell us your district and crops. Your questions stay saved too.
-              </p>
+              <p className="text-sm text-soil-700">{t("Confirm your number once, then tell us your district and crops. Your questions stay saved too.")}</p>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => openFlow("save")} className={`${primaryButton} !min-h-touch flex-1 !text-base`}>
-                  Add farm details
-                </button>
+                <button type="button" onClick={() => openFlow("save")} className={`${primaryButton} !min-h-touch flex-1 !text-base`}>{t("Add farm details")}</button>
                 {!limited && (
-                  <button type="button" onClick={() => setSaveDismissed(true)} className={`${textButton} px-3`}>
-                    Not now
-                  </button>
+                  <button type="button" onClick={() => setSaveDismissed(true)} className={`${textButton} px-3`}>{t("Not now")}</button>
                 )}
               </div>
             </div>
           )}
           {latestAnswered && user && needsOnboarding && !saveDismissed && (
             <div className="glass-soft flex flex-col gap-2.5 rounded-[20px] p-4">
-              <h2 className="text-base font-bold text-soil-900">Finish your farm details</h2>
-              <p className="text-sm text-soil-700">Add your district and crops so answers fit your own field.</p>
+              <h2 className="text-base font-bold text-soil-900">{t("Finish your farm details")}</h2>
+              <p className="text-sm text-soil-700">{t("Add your district and crops so answers fit your own field.")}</p>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => openFlow("profile")} className={`${primaryButton} !min-h-touch flex-1 !text-base`}>
-                  Add farm details
-                </button>
-                <button type="button" onClick={() => setSaveDismissed(true)} className={`${textButton} px-3`}>
-                  Not now
-                </button>
+                <button type="button" onClick={() => openFlow("profile")} className={`${primaryButton} !min-h-touch flex-1 !text-base`}>{t("Add farm details")}</button>
+                <button type="button" onClick={() => setSaveDismissed(true)} className={`${textButton} px-3`}>{t("Not now")}</button>
               </div>
             </div>
           )}
@@ -878,22 +869,20 @@ function Main() {
         {notices}
         <form onSubmit={handleSend} className="glass mx-auto flex w-full max-w-[42rem] items-center gap-2 rounded-[30px] p-2 shadow-lift">
           {photoButton("h-11 w-11")}
-          <label htmlFor="followup" className="sr-only">
-            Ask a follow-up
-          </label>
+          <label htmlFor="followup" className="sr-only">{t("Ask a follow-up")}</label>
           <input
             id="followup"
             onChange={(e) => setInput(e.target.value)}
             value={input}
             type="text"
-            placeholder="Ask a follow-up…"
+            placeholder={t("Ask a follow-up…")}
             className="h-11 min-w-0 flex-1 bg-transparent px-2 text-base text-soil-900 outline-none placeholder:text-soil-600"
           />
           {canSend ? (
             <button
               type="submit"
               disabled={loading}
-              aria-label="Send"
+              aria-label={t("Send")}
               className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-leaf-600 text-white hover:bg-leaf-700 disabled:bg-soil-300"
             >
               <SendIcon />
@@ -902,7 +891,7 @@ function Main() {
             <button
               type="button"
               onClick={openVoice}
-              aria-label="Talk to AnnaData"
+              aria-label={t("Talk to AnnaData")}
               className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-leaf-600 text-white hover:bg-leaf-700"
             >
               <MicIcon size={22} />

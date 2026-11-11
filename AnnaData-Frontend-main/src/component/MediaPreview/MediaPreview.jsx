@@ -1,3 +1,4 @@
+import { t } from '../../Config/uiLanguage';
 import React, { useEffect, useState } from "react";
 import { X } from "lucide-react";
 
@@ -33,10 +34,11 @@ function MediaPreview({ selectedImage, selectedAudio, clearSelectedImage, clearS
     <div className="flex items-center space-x-4 p-2 bg-white rounded-t-lg border-t border-gray-200 w-full max-w-[750px] mx-auto mt-2">
       {imageUrl && (
         <div className="relative">
-          <img src={imageUrl} alt="Selected Preview" className="h-24 w-auto rounded-lg object-cover" />
+          <img src={imageUrl} alt={t("Selected Preview")} className="h-24 w-auto rounded-lg object-cover" />
           <button
             onClick={clearSelectedImage}
-            className="absolute -top-2 -right-2 bg-white rounded-full p-1 shadow-md"
+            aria-label={t("Remove photo")}
+            className="absolute -top-2 -right-2 bg-white rounded-full min-h-touch min-w-touch grid place-items-center shadow-md"
           >
             <X size={16} className="text-gray-600" />
           </button>
@@ -48,7 +50,8 @@ function MediaPreview({ selectedImage, selectedAudio, clearSelectedImage, clearS
           <audio controls src={audioUrl} className="h-8" />
           <button
             onClick={clearSelectedAudio}
-            className="absolute -top-2 -right-2 bg-white rounded-full p-1 shadow-md"
+            aria-label={t("Remove audio")}
+            className="absolute -top-2 -right-2 bg-white rounded-full min-h-touch min-w-touch grid place-items-center shadow-md"
           >
             <X size={16} className="text-gray-600" />
           </button>

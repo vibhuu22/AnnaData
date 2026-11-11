@@ -36,6 +36,22 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = jest.fn();
 });
 
+test.each([null, { settled: null }, { settled: false }, { settled: '' }])('an unsettled photo never gets a disease heading (%j)', (diagnosis) => {
+  show([{ id: 'photo', prompt: 'What is this?', response: 'Please send a clearer photo.',
+    vision: { crop: 'potato', pest: 'late blight', confidence: 'high' }, diagnosis }]);
+  expect(screen.getByRole('heading', { name: 'Possible causes' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: /late blight/i })).not.toBeInTheDocument();
+});
+
+test('a settled backend cause may be named without removing dose or source evidence', () => {
+  show([{ id: 'photo', prompt: 'What is this?', response: 'Use the registered dose per hectare.',
+    diagnosis: { settled: 'Late blight' }, doseStatus: 'available', toolsUsed: ['doses', 'image'] }]);
+  expect(screen.getByRole('heading', { name: 'Identified cause: Late blight' })).toBeInTheDocument();
+  expect(screen.getByText('Approved dose')).toBeInTheDocument();
+  expect(screen.getByText(/CIB&RC approved-use list/)).toBeInTheDocument();
+  expect(screen.getByText(/per hectare/)).toBeInTheDocument();
+});
+
 describe('the ask screen', () => {
   test('asks what is happening in the field, with examples that send', () => {
     show();

@@ -1,3 +1,4 @@
+import { t } from '../../Config/uiLanguage';
 import React from "react";
 
 /**
@@ -19,13 +20,13 @@ const LABELS = {
 };
 
 export function sourceText(tools) {
-  return (tools || []).filter((t) => LABELS[t]).map((t) => LABELS[t]).join(" · ");
+  return (tools || []).filter((t) => LABELS[t]).map((tool) => t(LABELS[tool])).join(" · ");
 }
 
 function Sources({ tools }) {
   const text = sourceText(tools);
   if (!text) return null;
-  return <p className="mt-3 text-xs text-soil-600">Source: {text}</p>;
+  return <p className="mt-3 text-xs text-soil-600">{t("Source:")}{" "}{text}</p>;
 }
 
 export default Sources;
