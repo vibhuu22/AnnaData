@@ -25,7 +25,7 @@ INTENTS = (
 # every message was treated as a request for advice, so a farmer stating where
 # they farm got a lecture on sowing and a farmer asking how we know their soil
 # got a description of laboratory titration.
-MESSAGE_TYPES = "question, statement, meta, correction, smalltalk"
+MESSAGE_TYPES = "question, statement, meta, correction, smalltalk, farewell"
 
 
 def extract_farm_info(farmer_input: str, original: str | None = None) -> dict:
@@ -86,7 +86,8 @@ def extract_farm_info(farmer_input: str, original: str | None = None) -> dict:
                         "statement = telling us something about themselves or their farm, not asking anything. "
                         "meta = asking about the assistant itself - how it knows something, where its data comes from, what it can do, who it is. "
                         "correction = objecting to or correcting the previous reply. "
-                        "smalltalk = greeting, thanks, or unrelated chatter.",
+                        "smalltalk = greeting, thanks, or unrelated chatter. "
+                        "farewell = saying they are finished and need nothing more - bye, bas, that's all, ab kuch nahi chahiye, aur kuch nahi poochna, dhanyavaad bas itna hi, ধন্যবাদ আর কিছু লাগবে না. A plain thanks or ok, with nothing saying they are done, is smalltalk, not farewell; a bare no answering our question is not farewell either.",
         ),
         ResponseSchema(
             name="intent",

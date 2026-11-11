@@ -62,7 +62,9 @@ VALID_INTENTS = set(TOOLS_FOR_INTENT)
 # A message's kind decides how to respond at all, before its topic decides what
 # to look up. Treating every message as a request for advice is what made the
 # assistant lecture farmers who were simply telling it something.
-VALID_MESSAGE_TYPES = {"question", "statement", "meta", "correction", "smalltalk"}
+# farewell: the farmer is done ("bas", "aur kuch nahi"). Answered like a closing
+# smalltalk line, and sent back to the caller so voice mode can stop listening.
+VALID_MESSAGE_TYPES = {"question", "statement", "meta", "correction", "smalltalk", "farewell"}
 
 
 def normalise_message_type(value: str | None) -> str:
