@@ -264,8 +264,15 @@ def _assess_hourly(model: dict, series: dict, today: date, state: str | None) ->
     own_region = (state or "").strip().lower() in model["states"]
     where = ", ".join(sorted(s.title() for s in model["states"]))
 
-    base = {"disease": model["disease"], "model": model["model"], "source": model["source"],
-            "reviewed": model["reviewed"], "forecast": False}
+    # `reason` is written for the farmer: it reaches the answer, so it says what
+    # the weather has been like, never a model's name or a threshold - a live
+    # answer told a farmer "JHULSACAST threshold ke hisaab se". Which model
+    # decided it, and any caveat about where it was validated, go in their own
+    # fields for the API and for reviewers.
+    disease = model["disease"]
+    note = None if own_region else f"model validated for {where}, not this state"
+    base = {"disease": disease, "model": model["model"], "source": model["source"],
+            "reviewed": model["reviewed"], "forecast": False, "note": note}
 
     met_now = [_option_met(o, days, past_end, by_day, rain_by_day) for o in model["options"]]
     if all(m is None for m in met_now):
@@ -274,10 +281,8 @@ def _assess_hourly(model: dict, series: dict, today: date, state: str | None) ->
 
     if any(met_now):
         level = "high" if own_region else "moderate"
-        reason = (f"the last days met the {model['model']} threshold for late blight, "
-                  f"which predicts it {model['lead']}")
-        if not own_region:
-            reason += f"; that model was validated for {where}, not this state"
+        reason = (f"the last week has been damp and mild for long enough that "
+                  f"{disease} is likely to appear {model['lead']}")
         return {**base, "level": level, "reason": reason}
 
     # Not met on observed days. Does the forecast reach it within 7 days? Here
@@ -289,20 +294,20 @@ def _assess_hourly(model: dict, series: dict, today: date, state: str | None) ->
     for end in range(past_end + 1, min(last, past_end + 7) + 1):
         if any(_option_met({**o, "persist_days": 1}, days, end, by_day, rain_by_day)
                for o in model["options"]):
+            ahead = end - past_end
             return {**base, "level": "moderate", "forecast": True,
-                    "reason": f"the forecast reaches the humidity and temperature "
-                              f"threshold of {model['model']} by {days[end]}"
-                              + ("" if own_region else
-                                 f"; that model was validated for {where}, not this state")}
+                    "reason": f"the next {ahead} day{'s' if ahead != 1 else ''} are "
+                              f"forecast to be damp and mild enough to favour {disease}"}
 
     closeness = [c for c in (_hours_short(o, days, past_end, by_day) for o in model["options"])
                  if c is not None]
     if closeness and max(closeness) >= NEAR_MISS:
         return {**base, "level": "moderate",
-                "reason": f"humid, mild hours over the last days came close to the "
-                          f"{model['model']} threshold without reaching it"}
+                "reason": f"the last week has been fairly damp and mild, close to "
+                          f"what {disease} needs"}
     return {**base, "level": "low",
-            "reason": f"the last days stayed well short of the {model['model']} threshold"}
+            "reason": f"the last week has not been damp and mild for long enough "
+                      f"to favour {disease}"}
 
 
 def _assess_daily(rule: dict, series: dict, today: date) -> dict:
