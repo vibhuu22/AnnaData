@@ -6,3 +6,7 @@
 .venv/
 __pycache__/
 *.pyc
+# Never upload: farmer conversation exports and local data, both gitignored.
+# data/ is read only by the offline loader tools, never by the running app.
+conversations_export*.json
+data/
