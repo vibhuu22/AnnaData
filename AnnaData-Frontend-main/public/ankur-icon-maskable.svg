@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="AnnaData - Ankur">
+  <!-- Master Ankur, flat. Leaf-green tile; body in Ankur tan; sprout in light
+       leaf so it reads on the dark green. Everything sits inside the central
+       80% so the same drawing survives the maskable crop. -->
+  <rect width="512" height="512" fill="#1F6B45"/>
+  <g fill="#B57E48">
+    <ellipse cx="146" cy="318" rx="27" ry="48" transform="rotate(18 146 318)"/>
+    <ellipse cx="378" cy="226" rx="27" ry="52" transform="rotate(38 378 226)"/>
+    <ellipse cx="220" cy="438" rx="30" ry="22"/>
+    <ellipse cx="292" cy="438" rx="30" ry="22"/>
+  </g>
+  <path d="M256 124 C330 124 376 204 376 292 C376 376 324 436 256 436 C188 436 136 376 136 292 C136 204 182 124 256 124 Z" fill="#C8935A"/>
+  <path d="M256 128 C257.5 118 257.5 110 254.5 102" fill="none" stroke="#A8DDB4" stroke-width="9" stroke-linecap="round"/>
+  <path d="M254.5 103 C239 81 207 76 188 90 C200 112 232 117 254.5 103 Z" fill="#7CC08F"/>
+  <path d="M256.5 103 C273.5 73 312.5 64 333 79 C319.5 110 282 117 256.5 103 Z" fill="#A8DDB4"/>
+  <ellipse cx="190" cy="306" rx="21" ry="13" fill="#E9958C" opacity="0.75"/>
+  <ellipse cx="322" cy="306" rx="21" ry="13" fill="#E9958C" opacity="0.75"/>
+  <circle cx="214" cy="266" r="14" fill="#2A2721"/>
+  <circle cx="298" cy="266" r="14" fill="#2A2721"/>
+  <circle cx="218" cy="261" r="4.5" fill="#FFFFFF"/>
+  <circle cx="302" cy="261" r="4.5" fill="#FFFFFF"/>
+  <path d="M238 304 Q256 320 274 304" fill="none" stroke="#2A2721" stroke-width="8" stroke-linecap="round"/>
+</svg>

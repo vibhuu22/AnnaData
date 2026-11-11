@@ -5,8 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="AnnaData" />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/icon-192.png" />
-    <link rel="icon" type="image/png" href="%PUBLIC_URL%/icon-192.png" />
+    <!-- Ankur. The SVG favicon is the seed and sprout alone (no face at 16 px);
+         the PNG is for browsers without SVG favicons. iOS rounds the touch
+         icon itself, so it is the full-bleed drawing. -->
+    <link rel="icon" type="image/svg+xml" href="%PUBLIC_URL%/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="%PUBLIC_URL%/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/apple-touch-icon.png" />
     <meta name="theme-color" content="#1F6B45" />
     <meta
       name="description"
