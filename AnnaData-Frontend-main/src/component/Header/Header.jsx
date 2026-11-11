@@ -113,12 +113,20 @@ function Profile({ onSignIn }) {
 /**
  * The title bar: the name on the left and the farmer's profile on the right.
  *
- * The name takes a signed-in farmer back to their home screen.
+ * The name goes home from anywhere that is not already home. Inside a chat a
+ * back arrow comes first as well: on a phone a chat has no bottom bar (its own
+ * composer sits there), and the menu button that used to float in the corner
+ * moved to that bar's "More" - so without the arrow a guest who had asked one
+ * question had no way back at all.
  */
 function Header({ onSignIn }) {
   const { user } = useContext(Auth) || {};
   const { screen, goHome, responses } = useContext(Context) || {};
-  const canGoHome = Boolean(user && responses?.length && screen !== "home" && goHome);
+  // A signed-in farmer's home is their welcome screen, reachable even from the
+  // ask screen; everyone else's home is the ask screen itself.
+  const atHome = screen === "home" || (screen === "ask" && !(user && responses?.length));
+  const canGoHome = Boolean(goHome && !atHome);
+  const inChat = Boolean(goHome && screen === "chat");
 
   return (
     <header className="glass sticky top-0 z-20 w-full !border-x-0 !border-t-0">
@@ -126,10 +134,24 @@ function Header({ onSignIn }) {
           floats over this bar's left edge any more. */}
       <div className="mx-auto flex max-w-[900px] items-center justify-between gap-3 py-2 pl-4 pr-4 lg:pl-5">
         {canGoHome ? (
-          <button type="button" onClick={goHome} className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900" aria-label="AnnaData — home">
-            <AnkurMark />
-            AnnaData
-          </button>
+          <div className="flex items-center gap-1">
+            {inChat && (
+              <button
+                type="button"
+                onClick={goHome}
+                aria-label="Back to home"
+                className="-ml-2 grid h-touch w-touch shrink-0 place-items-center rounded-full text-soil-900 hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-600"
+              >
+                <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 5l-7 7 7 7" />
+                </svg>
+              </button>
+            )}
+            <button type="button" onClick={goHome} className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900" aria-label="AnnaData — home">
+              <AnkurMark />
+              AnnaData
+            </button>
+          </div>
         ) : (
           <span className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900">
             <AnkurMark />
