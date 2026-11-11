@@ -9,3 +9,6 @@ __pycache__/
 # the database. No need to carry 6 MB of government PDFs in the repo.
 data/
 conversations_export*.json
+
+# Speech test output: transcripts of farmers' voices.
+eval/stt_results/

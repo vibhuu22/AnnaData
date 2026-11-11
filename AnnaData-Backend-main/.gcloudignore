@@ -10,3 +10,6 @@ __pycache__/
 # data/ is read only by the offline loader tools, never by the running app.
 conversations_export*.json
 data/
+# Speech test clips (farmers' voices) and their transcripts.
+eval/stt_clips/
+eval/stt_results/
