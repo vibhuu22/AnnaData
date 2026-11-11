@@ -131,7 +131,8 @@ test('a guest asks, saves their farm in two steps, comes back, and signs out', a
   expect(await screen.findAllByText('This is a simulated advisory answer.')).not.toHaveLength(0);
 
   fireEvent.click(screen.getByRole('button', { name: 'AnnaData — home' }));
-  fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Sign out' }));
+  fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Your account' }));
+  fireEvent.click(within(screen.getByRole('banner')).getByRole('menuitem', { name: 'Sign out' }));
   await screen.findByRole('heading', { name: 'What is happening in your field?' });
   expect(getToken()).toBe('');
   expect(screen.queryByText('This is a simulated advisory answer.')).not.toBeInTheDocument();
