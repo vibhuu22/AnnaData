@@ -499,6 +499,13 @@ def fix_name(text: str) -> str:
 GREETING_LENGTH = ("At most two short sentences, about 30 words in all. "
                    "End with one question, not two.")
 
+# A goodbye ends the conversation - in voice mode the microphone closes right
+# after it is read. The greeting's closing question ("kya main aur madad kar
+# sakti hoon?") was being asked and then hung up on, so a goodbye asks nothing.
+FAREWELL_LENGTH = ("One short sentence, about 20 words. Do NOT ask any question "
+                   "and do NOT offer more help in a question: they have said "
+                   "goodbye, and the conversation ends with this line.")
+
 
 def greeting_language(query: str) -> str:
     """The language a greeting is answered in.
@@ -544,7 +551,7 @@ def greeting_instruction(profile, continuing_session: bool = False, place=None) 
 
 
 def greet(query: str, profile, channel: str,
-          continuing_session: bool = False, place=None) -> str:
+          continuing_session: bool = False, place=None, farewell: bool = False) -> str:
     """Answer a greeting by saying what this service can actually do.
 
     A greeting previously fell through to the advice path and produced a
@@ -567,7 +574,7 @@ def greet(query: str, profile, channel: str,
 
     Be warm and human. No lists, no bullet points, no formal announcements.
     Do NOT give farming advice they did not ask for.
-    {GREETING_LENGTH}
+    {FAREWELL_LENGTH if farewell else GREETING_LENGTH}
     {NAME_IN_SCRIPTS}
     {"" if (channel or "").lower() == "sms" else "Do not mention texting or SMS: they are using the app."}
 
@@ -1119,7 +1126,7 @@ def run_agent(
     # caller as "farewell", which is what tells voice mode to stop listening.
     if message_type == "farewell":
         return AgentResult(
-            greet(query, seen, channel, continuing_session=True, place=where),
+            greet(query, seen, channel, continuing_session=True, place=where, farewell=True),
             tools_used=["farewell"], intent=intent, message_type="farewell", **facts
         )
 

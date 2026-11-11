@@ -55,5 +55,28 @@ check("a bare 'नहीं' answering our question", f("farewell", "general", "
 check("a bare 'না' answering our question", f("farewell", "general", "না", ASKED), "question")
 check("other message types pass through", f("smalltalk", "general", "ok", TOLD), "smalltalk")
 
+print("\nThe goodbye line asks nothing")
+
+
+class _Said:
+    def __init__(self):
+        self.prompts = []
+
+    def invoke(self, messages):
+        self.prompts.append(messages[0].content)
+        return type("R", (), {"content": "Theek hai, jab zarurat ho phir message karna."})()
+
+
+said = _Said()
+real_llm, Agent.llm = Agent.llm, said
+try:
+    Agent.greet("bas, aur kuch nahi chahiye", None, "voice", continuing_session=True, farewell=True)
+    Agent.greet("thanks", None, "voice", continuing_session=True)
+finally:
+    Agent.llm = real_llm
+check("a goodbye is told not to ask a question", "Do NOT ask any question" in said.prompts[0], True)
+check("and not to end with one", "End with one question" in said.prompts[0], False)
+check("a plain thanks keeps the greeting's one question", "End with one question" in said.prompts[1], True)
+
 print(f"\n{len(failures)} failure(s)" if failures else "\nAll checks passed")
 sys.exit(1 if failures else 0)
