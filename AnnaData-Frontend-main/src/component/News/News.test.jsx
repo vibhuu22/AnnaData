@@ -59,6 +59,26 @@ test('the state the phone is in, when location is allowed, over the profile\'s',
   expect(screen.getByText(/in West Bengal/)).toHaveTextContent('where you are now');
 });
 
+test('when every news source failed, it says so instead of "no news"', async () => {
+  getCoordinates.mockResolvedValue(null);
+  fetchNews.mockResolvedValue({ place: 'India', state: '', from: null, items: [], unavailable: true });
+  render(<Auth.Provider value={{ user: null }}><News /></Auth.Provider>);
+  await screen.findByText(/could not be fetched right now/);
+  expect(screen.queryByText(/No farming news found/)).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+});
+
+test('earlier headlines shown because the sources failed are marked as earlier', async () => {
+  getCoordinates.mockResolvedValue(null);
+  fetchNews.mockResolvedValue({
+    place: 'India', state: '', from: null, stale: true, cached: true,
+    items: [{ title: 'Aloo ke bhav gire', link: 'https://e.example/1', source: 'E', published: '2026-11-10T00:00:00+00:00', lang: 'hi' }],
+  });
+  render(<Auth.Provider value={{ user: null }}><News /></Auth.Provider>);
+  await screen.findByRole('link', { name: /Aloo ke bhav/ });
+  expect(screen.getByText(/Showing earlier headlines/)).toBeInTheDocument();
+});
+
 test('a state picked from the list replaces the location\'s', async () => {
   getCoordinates.mockResolvedValue({ latitude: 22.34, longitude: 87.3 });
   fetchNews.mockResolvedValue({ place: 'West Bengal', state: 'West Bengal', from: 'location', items: [] });

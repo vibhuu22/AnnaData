@@ -138,8 +138,17 @@ function News() {
       )}
       {(error || (data && data.items.length === 0)) && <Ankur pose="sorry" className="h-28 w-28 self-center" />}
       {error && <p role="alert" className="glass-soft rounded-2xl p-4 text-sm text-soil-800">{t(error)}</p>}
+      {/* "unavailable": every news source refused just now - not the same as
+          a week with no farming stories, and not worth "Try All India". */}
       {data && data.items.length === 0 && (
-        <p className="glass-soft rounded-2xl p-4 text-sm text-soil-800">{t("No farming news found for this week. Try All India.")}</p>
+        <p className="glass-soft rounded-2xl p-4 text-sm text-soil-800">
+          {data.unavailable
+            ? t("The news could not be fetched right now. Try again in a few minutes.")
+            : t("No farming news found for this week. Try All India.")}
+        </p>
+      )}
+      {data && data.stale && data.items.length > 0 && (
+        <p role="status" className="text-sm text-soil-700">{t("Showing earlier headlines; the latest could not be fetched.")}</p>
       )}
 
       {(error || (data && data.items.length === 0)) && <button type="button" onClick={() => setRetry((n) => n + 1)} className="min-h-touch self-start rounded-full border border-leaf-600 px-5 font-semibold text-leaf-800">{t("Try again")}</button>}
