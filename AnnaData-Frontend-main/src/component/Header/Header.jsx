@@ -3,6 +3,7 @@ import { Auth } from "../../Context/AuthProvider";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
 import { maskPhone } from "../Flow/ui";
+import AnkurMark from "../Brand/AnkurMark";
 
 /** The letter on a farmer's avatar: their name's first, else a person icon. */
 function initial(user) {
@@ -128,12 +129,12 @@ function Header({ onSignIn }) {
       <div className="mx-auto flex max-w-[900px] items-center justify-between gap-3 py-2 pl-16 pr-4 lg:pl-5">
         {canGoHome ? (
           <button type="button" onClick={goHome} className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900" aria-label="AnnaData — home">
-            <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-[10px] bg-leaf-600 text-sm font-bold text-white">अ</span>
+            <AnkurMark />
             AnnaData
           </button>
         ) : (
           <span className="flex min-h-touch items-center gap-2.5 text-lg font-bold tracking-tight text-soil-900">
-            <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-[10px] bg-leaf-600 text-sm font-bold text-white">अ</span>
+            <AnkurMark />
             AnnaData
           </span>
         )}
