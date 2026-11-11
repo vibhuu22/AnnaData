@@ -1423,6 +1423,34 @@ before Phase 1, because soil now returns faster than the weather request
 beside it. Only the first question from a new place (rounded to about 110 m)
 pays the Earth Engine cost, which was about 2 s for points not seen before.
 
+### A dose the register never matched, quoted anyway
+
+Live on production, a farmer wrote "aloo ke patte kaale pad rahe hain": a
+symptom, no disease named, in a week the weather rated low for late blight.
+The SMS answer quoted Chlorothalonil at 875–1250 g per hectare. The first
+suspicion, that extraction had turned the symptom into the pest "blight", was
+tested and was wrong: across repeated runs the pest came back "unknown", and
+the conversation history did not change that.
+
+The real path was the crop-level fallback. With no pest matched,
+`approved_uses` returned everything registered for potato. `format_uses`
+handed that list over under a WARNING not to recommend any of it, and that
+warning was only a prompt. The model reasoned "black edges, so blight" and
+found a blight product in the list. Measured locally, this happened 0 times in
+5; the production case was 1 in 2. It is rare, but it is exactly the failure
+this system claims code prevents.
+
+Two changes. The crop-level list is no longer shown when the pest is
+unmatched: a list the model must not use has no business in the prompt.
+`output_guards.strip_unmatched_doses` (whole answers) and `SentenceGuard`
+(streamed answers) also drop any sentence naming one of those products in any
+script, or carrying one of their dose figures. Later sentences in the same
+paragraph that only made sense beside the dose go too, such as "this is a
+registered treatment for blight" or "do not harvest for 14 days after
+spraying". The production answer, replayed through it, keeps its hedged
+identification and its question and loses everything that implied a
+treatment. The six dose cases still pass against the live model.
+
 ## 4. Two kinds of memory
 
 Deliberately separate, because they have different lifetimes:

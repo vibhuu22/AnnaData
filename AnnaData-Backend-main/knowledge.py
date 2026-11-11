@@ -312,14 +312,20 @@ def format_uses(result: dict, pest: str | None = None) -> str:
                 "local Krishi Vigyan Kendra or agriculture officer.")
 
     if not result.get("pest_matched"):
-        target = f"'{pest}'" if pest else "the pest asked about"
-        lines = [
-            f"WARNING: nothing is registered for {target} on this crop. "
-            "The uses below are registered for DIFFERENT pests and must NOT be "
-            "recommended for the one asked about. Say plainly that you have no "
-            "approved treatment for this pest and refer the farmer to their "
-            "Krishi Vigyan Kendra. The list is context only:",
-        ]
+        # The crop's other registered uses used to be listed here "as context
+        # only", under a warning not to recommend them. On production the model
+        # once took that list as an answer: asked about blackening potato leaves,
+        # with no disease named, it quoted Chlorothalonil's dose for blight. A
+        # list the model must not use has no business in the prompt, so it is
+        # no longer shown; output_guards.strip_unmatched_doses still checks the
+        # answer against these rows in case a name arrives from memory.
+        target = f"'{pest}'" if pest else "the problem described"
+        return (f"Nothing is registered on file for {target} on this crop. Do NOT "
+                "state any product name or dose, not even one you know or one "
+                "registered on this crop for something else. Say plainly that you "
+                "have no approved treatment on record for this, give the practical "
+                "measures that need no chemical, and refer the farmer to their "
+                "Krishi Vigyan Kendra or agriculture officer.")
     else:
         # Naming the pest here, and saying the match was already made, is what
         # stops the model re-adjudicating it from the register's own text. That
