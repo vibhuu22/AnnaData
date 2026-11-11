@@ -2,6 +2,7 @@ import React, { useCallback, useContext, useEffect, useRef, useState } from "rea
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
 import { createSpeaker, stopSpeaking, unlockAudio, speechProgress } from "../../Config/speech";
+import { currentAvatar } from "../../Config/avatar";
 import { followUpAsk } from "../../Config/asks";
 import { primaryButton } from "../Flow/ui";
 
@@ -138,6 +139,7 @@ function VoiceMode({ onClose, micContext = null }) {
   const [needsSignIn, setNeedsSignIn] = useState(false);
 
   const orbRef = useRef(null);
+  const [avatar] = useState(currentAvatar);
   const streamRef = useRef(null);
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
@@ -467,7 +469,13 @@ function VoiceMode({ onClose, micContext = null }) {
           aria-label={hint || LABELS[phase]}
           className="rounded-full focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-leaf-200"
         >
-          <div ref={orbRef} className="voice-orb" data-phase={phase} />
+          {/* Ankur, the voice companion: grows with the farmer's voice while
+              listening, sways while thinking, bobs while it talks. */}
+          <div ref={orbRef} className="ankur" data-phase={phase}>
+            <span className="ankur-rings" aria-hidden="true"><i /><i /><i /></span>
+            <img src={avatar.src} alt="" className="ankur-img" draggable={false} />
+            <span className="ankur-dots" aria-hidden="true"><i /><i /><i /></span>
+          </div>
         </button>
         <div className="flex flex-col items-center gap-1 text-center" aria-live="polite">
           <div className="text-2xl font-bold">{LABELS[phase]}</div>
