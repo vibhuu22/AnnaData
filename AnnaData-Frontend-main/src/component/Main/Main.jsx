@@ -9,6 +9,10 @@ import Home from "../Home/Home";
 import VoiceMode from "../Voice/VoiceMode";
 import Explore from "../Explore/Explore";
 import News from "../News/News";
+import BottomNav from "../BottomNav/BottomNav";
+import AnkurMark from "../Brand/AnkurMark";
+import { FaVolumeHigh } from "react-icons/fa6";
+import { useAreaWeather, nextWetDay, describeDay } from "../../Config/areaWeather";
 import { primaryButton, textButton, SMS_NUMBER } from "../Flow/ui";
 import { speak, stopSpeaking, isSpeechSupported, unlockAudio } from "../../Config/speech";
 import { followUpAsk } from "../../Config/asks";
@@ -381,7 +385,10 @@ function Reveal({ text, settled, onDone, onGrow, children }) {
 function Main() {
   const {
     send, thread, loading, setInput, input, screen, responses, focusId, newChat,
+    chats = [], openChat,
   } = useContext(Context);
+  const area = useAreaWeather();
+  const [listening, setListening] = useState(null);
   const { user, needsOnboarding } = useContext(Auth);
   const openFlow = useContext(Flow);
 
@@ -523,30 +530,46 @@ function Main() {
   const canSend = Boolean(input.trim() || selectedImage);
   const voice = voiceOpen && <VoiceMode micContext={micContext} onClose={() => setVoiceOpen(false)} />;
 
+  /** Read a starting question aloud, for a farmer who would rather hear it. */
+  const listen = async (text) => {
+    unlockAudio();
+    stopSpeaking();
+    setListening(text);
+    const result = await speak(text, "hi-IN");
+    if (result && !result.ok) setSpeechError(result.reason);
+    setListening((current) => (current === text ? null : current));
+  };
+
+  // Every screen but the chat itself carries the phone's bottom bar; the
+  // padding keeps content clear of it (none on a wide screen, where it hides).
+  const withNav = (content) => (
+    <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto pb-24 lg:pb-0">
+      {voice}
+      {content}
+      <BottomNav onTalk={openVoice} />
+    </div>
+  );
+
   if (screen === "explore" || screen === "news") {
-    return (
-      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto">
-        {screen === "explore" ? (
-          <Explore
-            onAsk={(text) => {
-              newChat();
-              submit({ text });
-            }}
-            onPhoto={newChat}
-          />
-        ) : (
-          <News />
-        )}
-      </div>
+    return withNav(
+      screen === "explore" ? (
+        <Explore
+          onAsk={(text) => {
+            newChat();
+            submit({ text });
+          }}
+          onPhoto={newChat}
+          onListen={listen}
+          listening={listening}
+        />
+      ) : (
+        <News />
+      )
     );
   }
 
   if (screen === "home" && user && responses.length > 0) {
-    return (
-      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto">
-        <Home />
-      </div>
-    );
+    return withNav(<Home />);
   }
 
   const smsLine = SMS_NUMBER
@@ -587,72 +610,124 @@ function Main() {
   );
 
   if (screen === "ask") {
-    return (
-      <div className="flex min-h-0 w-full flex-grow flex-col overflow-y-auto">
-        {voice}
-        <div className="mx-auto flex w-full max-w-[30rem] flex-grow flex-col gap-4 px-5 pb-5 pt-6">
-          <h1 className="text-2xl font-bold leading-tight text-soil-900">What is happening in your field?</h1>
-          <p className="text-base text-soil-700">
-            Ask in your own words — Hindi, Hinglish, Bengali, Punjabi or English. Free, and no sign-up needed to ask.
+    const weather = area.status === "ready" ? area.data : null;
+    const wet = weather ? nextWetDay(weather.daily) : null;
+    return withNav(
+      <div className="mx-auto flex w-full max-w-[30rem] flex-grow flex-col gap-4 px-5 pb-5 pt-5">
+        {/* Ankur greets; the question stays the screen's heading. */}
+        <div className="flex items-center gap-3">
+          <AnkurMark className="h-14 w-14 shrink-0" />
+          <div>
+            <p className="text-sm text-soil-700">Namaskar{user?.name ? `, ${user.name}` : ""}</p>
+            <h1 className="text-2xl font-bold leading-tight text-soil-900">What is happening in your field?</h1>
+          </div>
+        </div>
+        <p className="text-base text-soil-700">
+          Ask in your own words — Hindi, Hinglish, Bengali, Punjabi or English. Free, and no sign-up needed to ask.
+        </p>
+
+        {/* The weather where they are, once location is allowed - the same
+            reading as the menu's "Your area", fetched once for both. */}
+        {weather?.current_weather && (
+          <p className="glass-soft rounded-2xl px-4 py-2.5 text-sm text-soil-800">
+            <span className="font-semibold text-soil-900">
+              {area.place || "Your area"} · {Math.round(weather.current_weather.temperature)}°C
+            </span>
+            {" · "}
+            {wet ? `rain ${describeDay(wet.date, wet.index)}, about ${wet.mm.toFixed(0)} mm` : "no rain expected this week"}
           </p>
-          <div className="flex flex-col gap-2">
-            <div className="text-sm font-semibold text-soil-700">For example</div>
-            {EXAMPLES.map((text) => (
+        )}
+
+        {/* Each example can be tapped to ask, or heard first. */}
+        <div className="flex flex-col gap-2">
+          <div className="text-sm font-semibold text-soil-700">Tap to ask, or listen</div>
+          {EXAMPLES.map((text) => (
+            <div key={text} className="glass-soft flex items-center gap-1 rounded-2xl py-1 pl-4 pr-1">
               <button
-                key={text}
                 type="button"
                 onClick={() => submit({ text })}
-                className="glass-soft flex min-h-[48px] items-center rounded-2xl px-4 py-2.5 text-left text-sm text-soil-900 transition-transform hover:-translate-y-0.5"
+                className="flex min-h-[44px] flex-1 items-center py-1.5 text-left text-sm text-soil-900"
               >
                 {text}
               </button>
-            ))}
-          </div>
-
-          <div className="min-h-4 flex-grow" />
-
-          <div className="flex flex-col items-center gap-2">
-            <button
-              type="button"
-              onClick={openVoice}
-              aria-label="Talk to AnnaData"
-              className="grid h-20 w-20 place-items-center rounded-full bg-leaf-600 text-white shadow-lift transition-colors hover:bg-leaf-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-leaf-200 focus-visible:ring-offset-2"
-            >
-              <MicIcon size={34} />
-            </button>
-            <div className="text-sm font-semibold text-soil-900">Tap to talk</div>
-          </div>
-
-          <div className="chat-composer">
-            {notices}
-            <form onSubmit={handleSend} className="glass flex items-end gap-2 rounded-[28px] p-2 shadow-lift">
-              {photoButton("h-11 w-11")}
-              <label htmlFor="q" className="sr-only">
-                Your question
-              </label>
-              <textarea
-                id="q"
-                rows={1}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) handleSend(e);
-                }}
-                placeholder="Or type your question…"
-                className="min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-2 py-2.5 text-base text-soil-900 outline-none placeholder:text-soil-600"
-              />
               <button
-                type="submit"
-                disabled={loading || !canSend}
-                aria-label="Send"
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-leaf-600 text-white transition-colors hover:bg-leaf-700 disabled:bg-soil-300"
+                type="button"
+                onClick={() => listen(text)}
+                aria-label={`Listen: ${text}`}
+                className={`grid h-11 w-11 shrink-0 place-items-center rounded-full transition-colors hover:bg-white/80 ${
+                  listening === text ? "bg-white text-leaf-700" : "text-soil-800"
+                }`}
               >
-                <SendIcon />
+                <FaVolumeHigh aria-hidden="true" className="h-[18px] w-[18px]" />
               </button>
-            </form>
-          </div>
-          <p className="text-center text-xs text-soil-600">{smsLine}</p>
+            </div>
+          ))}
         </div>
+
+        {chats.length > 0 && (
+          <section aria-label="Recent chats" className="flex flex-col gap-2">
+            <h2 className="text-sm font-semibold text-soil-700">Recent chats</h2>
+            {chats.slice(0, 3).map((chat) => (
+              <button
+                key={chat.id}
+                type="button"
+                onClick={() => openChat?.(chat.id)}
+                className="glass-soft flex min-h-[44px] items-center truncate rounded-2xl px-4 py-2.5 text-left text-sm text-soil-900"
+              >
+                {chat.title}
+              </button>
+            ))}
+          </section>
+        )}
+
+        <div className="min-h-4 flex-grow" />
+
+        {/* On a phone the bottom bar carries the microphone; this one is for
+            a wide screen, where there is no bottom bar. */}
+        <div className="hidden flex-col items-center gap-2 lg:flex">
+          <button
+            type="button"
+            onClick={openVoice}
+            aria-label="Talk to AnnaData"
+            className="grid h-20 w-20 place-items-center rounded-full bg-leaf-600 text-white shadow-lift transition-colors hover:bg-leaf-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-leaf-200 focus-visible:ring-offset-2"
+          >
+            <MicIcon size={34} />
+          </button>
+          <div className="text-sm font-semibold text-soil-900">Tap to talk</div>
+        </div>
+
+        {/* On a phone the screen is taller than the window; pinned just
+            above the bottom bar, the typing box stays in view without
+            scrolling. A wide screen has no bar and lets it sit in flow. */}
+        <div className="chat-composer sticky bottom-0 z-10 lg:static">
+          {notices}
+          <form onSubmit={handleSend} className="glass flex items-end gap-2 rounded-[28px] p-2 shadow-lift">
+            {photoButton("h-11 w-11")}
+            <label htmlFor="q" className="sr-only">
+              Your question
+            </label>
+            <textarea
+              id="q"
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) handleSend(e);
+              }}
+              placeholder="Or type your question…"
+              className="min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-2 py-2.5 text-base text-soil-900 outline-none placeholder:text-soil-600"
+            />
+            <button
+              type="submit"
+              disabled={loading || !canSend}
+              aria-label="Send"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-leaf-600 text-white transition-colors hover:bg-leaf-700 disabled:bg-soil-300"
+            >
+              <SendIcon />
+            </button>
+          </form>
+        </div>
+        <p className="text-center text-xs text-soil-600">{smsLine}</p>
       </div>
     );
   }
