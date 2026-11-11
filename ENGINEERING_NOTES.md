@@ -1364,6 +1364,65 @@ faster for long answers so none takes more than about six seconds - because the
 backend's sentence-sized pieces made short answers appear all at once. What
 needs the whole answer (badge, Listen, rating, offers) waits until it is done.
 
+### Diagnosis from evidence, not from one picture
+
+A disease question produced one name or "the picture is not enough". The
+evidence that separates causes never met in one place: the weather reached the
+prompt as a paragraph the model was told to leave out of pest answers, soil was
+not fetched for disease questions at all, and nothing worked out whether the
+last week had actually been blast weather.
+
+Three pieces, all plain code with no model call:
+
+- **`disease_risk.py`** holds published rules as data. Potato late blight uses
+  ICAR-CPRI's JHULSACAST, which counts hours: the West Bengal version wants a
+  7-day window with at least 105 hours at 90% humidity or more and 150 hours
+  between 7.2 and 26.6 C, holding for 7 days running. That needs hourly data,
+  so the weather request now asks for hourly temperature and humidity, and the
+  report text is unchanged byte for byte (`eval/test_weather_format.py`
+  compares it against output captured before the change). Rice blast, sheath
+  blight, bacterial leaf blight and cotton grey mildew use TNAU Agritech's
+  stated conditions, counted over the last seven days. A regional model met
+  outside its own state is reported one level lower and says so. Missing data
+  is "unknown", never "low". Each rule names its source and carries
+  `reviewed: False`. Wheat has no rule: no Indian source with stated thresholds
+  was found and read, and a rule written from memory is the thing this system
+  exists not to do.
+- **Soil lookalikes**: alkaline soil and yellowing suggest an iron or zinc
+  shortage; clay after heavy rain and wilting suggest waterlogging. They are
+  offered only for symptoms soil can cause. Spots or pustules rule soil out.
+  Symptoms come translated from the extraction call that already runs on
+  every message, so matching works the same in every script.
+- **`diagnosis.py`** sums small integer weights: the photo by its confidence,
+  the lesion bank's verdict, the farmer's words, weather risk and soil. The
+  answer gets at most three causes, each with its reasons for and against.
+
+The rule carried over from the lesion bank: **context ranks a cause, it never
+confirms one.** `settled` is decided only by what decided it before: the bank
+confirming the photo, a confident photo the bank did not dispute, or the farmer
+naming it. A humid week is a reason to look for blast, not proof of it. Doses
+are untouched; the register and the existing prompt rules still decide them.
+
+The first live run found a gap the design had missed. Kharagpur's dry November
+week rated late blight "low", and a low risk adds no candidate, so nothing
+reached the answer. A farmer describing black potato leaves was then told
+"this looks like late blight". A WEATHER CHECK line now carries what the
+weather says about the crop's diseases even when no cause is listed, because
+evidence against a disease is evidence too.
+
+**What it cost, and the cache that took it back.** Reading the soil made Earth
+Engine the slowest call a disease question waited on. Measured over eight runs
+against live services, the data step went from 0.73 s to 1.45 s. Soil took
+about 1.4 s, weather 0.8 s, the dose lookup 0.23 s, and diagnosis itself 2 ms.
+A full answer took 4.3–4.8 s. But the soil map never changes, so
+`soil_cache.py` keeps the raw readings, first in memory and then in Postgres,
+which every Cloud Run instance shares. Nothing expires. The dataset ids are
+part of the key, and a failed or partial lookup is never stored. With a hit,
+the data step measured 0.72 s from Postgres and 0.73 s from memory, the same as
+before Phase 1, because soil now returns faster than the weather request
+beside it. Only the first question from a new place (rounded to about 110 m)
+pays the Earth Engine cost, which was about 2 s for points not seen before.
+
 ## 4. Two kinds of memory
 
 Deliberately separate, because they have different lifetimes:

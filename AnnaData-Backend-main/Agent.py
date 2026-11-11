@@ -8,11 +8,13 @@ from utils import llm
 from Address_Convertor import get_location, locate, reverse, Place
 from Mandi_Price_Tool import get_state_data
 from Query_Parser import extract_farm_info
-from weather_tool import weather_openmeteo
-from Soil_Tool import soil_tool
+from weather_tool import weather_reading
+from Soil_Tool import soil_reading
 from Refined_Farmer_Query import get_farming_query
 from process_media import describe_vision
 from Web_Crawler import query_kb, is_available as kb_available
+import diagnosis
+import disease_risk
 import knowledge
 import lesion_bank
 import msp
@@ -617,6 +619,9 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
                        # legally be sprayed on it, and only the second is
                        # allowed to decide the chemical.
                        ("WHAT THE PHOTOGRAPH SHOWS", "image"),
+                       # The photo, the farmer's words, the weather and the
+                       # soil weighed against each other, in code.
+                       ("LIKELY CAUSES", "diagnosis"),
                        ("Soil", "soil"), ("Weather", "weather"),
                        ("Mandi Price", "mandi"),
                        ("MINIMUM SUPPORT PRICE", "msp"),
@@ -640,7 +645,8 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     - {style}
     - Be practical and farmer-friendly.
     - Identify the exact language and script of the farmer's question and reply in that same one. Punjabi in Gurmukhi is answered in Gurmukhi, Bengali in Bengali, Telugu in Telugu, English in English. Hindi is NOT a default: never answer an Indian-language question in Hindi unless the farmer wrote in Hindi. The location the farmer mentions NEVER decides the language: a question written in English about Nagpur is answered in English, not Marathi; about Ludhiana, in English, not Punjabi. Match the question, not the place.
-    - Cite a data point ONLY where it changes what the farmer should do. Soil pH matters for a fertiliser question; today's rainfall matters if it affects spraying or drainage. Appending an unrelated figure - the day's rainfall onto a pest answer - is noise, and the farmer did not ask for it. When nothing in the data changes the advice, do not mention the data at all.
+    - Cite a data point ONLY where it changes what the farmer should do. Soil pH matters for a fertiliser question; today's rainfall matters if it affects spraying or drainage. Appending an unrelated figure - the day's rainfall onto a pest answer - is noise, and the farmer did not ask for it. When nothing in the data changes the advice, do not mention the data at all. A reason listed in a LIKELY CAUSES section DOES change the advice and may be given.
+    - LIKELY CAUSES, where present, is the ranked list of what is most likely wrong, worked out in code from the photo, the farmer's words, the last days' weather and the soil. Follow its order, and never rank a cause it does not list above one it does. A WEATHER CHECK line says whether the recent weather favoured the diseases this crop is prone to: use it to make a cause you suspect from the farmer's description more or less likely, and say so in plain words - if the weather has NOT favoured a disease the symptoms suggest, say that it is less likely for that reason rather than naming it as the answer. If it says IDENTIFIED, treat that cause as the problem. If it says NOT SETTLED, name the top cause as the most likely and at most one other (two on the web), say in a few plain words why each is suspected - "the last week has been humid and mild, which is blast weather", "your soil is alkaline, which can starve the plant of zinc" - give measures that are safe whichever it is, and ask the one question that would tell them apart. Weather and soil make a cause more or less likely; never present them as proof, and never say "you have X" on their strength. A deficiency or waterlogging in the list is answered with its own remedy, not a pesticide. This section decides how the cause is presented only: whether a chemical and dose may be named is still decided solely by the rules on APPROVED PESTICIDE USES and the photograph below.
     - If the farmer asks a direct factual question - the temperature, the humidity, the rainfall, the price - ANSWER IT with the exact figure from the Context. Never say you cannot provide live data when the figure is sitting in the Context above. If only part of what they asked for is present, give that part and say the rest is not available.
     - The Context is measured data for this farmer's own location. Trust it over any assumption the farmer states: if they say the weather is dry and the data shows heavy rain, tell them plainly what the data says.
     - NEVER name a price scheme you have no figure for. If there is no MINIMUM SUPPORT PRICE section above, then you do not have the support price for this crop: say plainly that you do not have it and name who does - the local APMC mandi, a cooperative sugar mill for sugarcane. Do NOT mention MSP, FRP, "Fair and Remunerative Price", "government support price" or "a reliable floor" as though it were an answer while quoting no number, and never invite the farmer to go and look it up themselves as a substitute for answering. A named scheme with no figure attached is worse than admitting you do not have it.
@@ -686,13 +692,24 @@ def gather(tools, *, lat, lon, state, crop, query, pest=None,
         raw["doses"] = result
         return knowledge.format_uses(result, pest)
 
+    # Weather and soil keep their numbers alongside the text, for the same
+    # reason doses do: disease risk is checked against thresholds, and a
+    # threshold cannot be compared with a sentence.
+    def _soil():
+        text, raw["soil"] = soil_reading(lat, lon)
+        return text
+
+    def _weather():
+        text, raw["weather"] = weather_reading(lat, lon)
+        return text
+
     calls = {
         # Registered uses come from a table, not a model. The result carries
         # whether the pest actually matched, because a use for a different pest
         # must never be offered as an answer for this one.
         "doses":   _doses,
-        "soil":    lambda: soil_tool(lat, lon),
-        "weather": lambda: weather_openmeteo(lat, lon),
+        "soil":    _soil,
+        "weather": _weather,
         "mandi":   lambda: get_state_data(state, crop, district),
         "msp":     lambda: msp.for_crop(crop),
         # Retrieval runs against the local pgvector store. The Bedrock path is
@@ -725,15 +742,18 @@ class AgentResult:
                  "location_kind", "district", "location_named", "forget_location", "place_source",
                  "state_named",
                  "tools_used", "missing_slots", "intent", "message_type",
-                 "dose_status", "source_evidence")
+                 "dose_status", "source_evidence", "diagnosis")
 
     def __init__(self, answer, crop=None, state=None, location=None,
                  latitude=None, longitude=None, tools_used=None,
                  missing_slots=None, intent="general", message_type="question",
                  location_kind=None, district=None, dose_status="not_applicable",
                  evidence=None, location_named=False, forget_location=False,
-                 place_source=None, state_named=False):
+                 place_source=None, state_named=False, diagnosis=None):
         self.answer = answer
+        # The ranked likely causes behind a disease answer, as data, for an
+        # interface that wants to show them rather than read them out of prose.
+        self.diagnosis = diagnosis
         # Whether the place came from what the farmer wrote, as opposed to the
         # profile. Only such a place may be written back to the profile: the
         # stored name saved again with the browser's coordinates is how a farm
@@ -1125,6 +1145,33 @@ def run_agent(
     if vision:
         gathered["image"] = describe_vision(vision)
 
+    # What is most likely wrong, ranked from everything gathered. Built in code
+    # and handed to the answer as one section, so the weather and soil are
+    # weighed against the photo and the farmer's words instead of sitting
+    # beside them unused. A failure here costs the section, never the answer.
+    diagnosed = None
+    if intent == "disease_pest" or vision:
+        try:
+            symptoms = " ".join(s for s in (
+                _known(structured_input.get("symptoms")),
+                _known((vision or {}).get("symptoms")),
+            ) if s)
+            risk = disease_risk.assess(facts["crop"], raw.get("weather"),
+                                       state=facts["state"])
+            lookalikes = disease_risk.soil_lookalikes(raw.get("soil"), raw.get("weather"),
+                                                      symptoms)
+            diagnosed = diagnosis.differential(facts["crop"], pest, symptoms, vision,
+                                               risk, lookalikes)
+            section = diagnosis.format_differential(diagnosed)
+            if section:
+                gathered["diagnosis"] = section
+            print(f"Diagnosis: settled={diagnosed['settled']!r} "
+                  f"candidates={[c['name'] for c in diagnosed['candidates']]} "
+                  f"risk={[(r['disease'], r['level']) for r in risk]}")
+        except Exception as e:
+            print(f"Diagnosis step failed: {e}")
+            diagnosed = None
+
     final_response = extract_markdown_content(
         get_farming_advice(_location_label(where), facts["state"], facts["crop"],
                            gathered, query, channel, history=history, on_text=on_text)
@@ -1154,7 +1201,7 @@ def run_agent(
     return AgentResult(
         final_response, tools_used=sorted(gathered.keys()),
         missing_slots=missing, intent=intent, dose_status=dose_status,
-        evidence=gathered, **facts
+        evidence=gathered, diagnosis=diagnosed, **facts
     )
 
 

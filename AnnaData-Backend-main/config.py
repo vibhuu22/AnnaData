@@ -266,6 +266,9 @@ WEATHER_ATTEMPTS = int(_get("WEATHER_ATTEMPTS", "3"))
 # into one upstream call and keeps us well under Open-Meteo's rate limit.
 WEATHER_CACHE_TTL = int(_get("WEATHER_CACHE_TTL", "3600"))
 WEATHER_CACHE_PRECISION = int(_get("WEATHER_CACHE_PRECISION", "1"))  # ~11 km
+# Soil readings never expire (the map is fixed); the key is rounded to this many
+# decimal places, ~110 m at 3 - well inside the 500 m each reading averages.
+SOIL_CACHE_PRECISION = int(_get("SOIL_CACHE_PRECISION", "3"))
 # MET Norway is the fallback when Open-Meteo rate limits us. Their terms require
 # a User-Agent naming the application with a way to make contact.
 METNO_USER_AGENT = _get(

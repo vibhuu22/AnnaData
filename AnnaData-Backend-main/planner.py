@@ -17,7 +17,9 @@ TOOLS_FOR_INTENT = {
     # "doses" is the registered pesticide table. It is what turns a chemical
     # recommendation from something the model recalled into something the
     # registration authority actually approved.
-    "disease_pest":         {"weather", "doses"},  # humidity and rain drive disease pressure
+    # Humidity and rain drive disease pressure; soil separates a nutrient
+    # shortage or waterlogging from a disease that looks the same on a leaf.
+    "disease_pest":         {"weather", "soil", "doses"},
     "sowing_planting":      {"weather", "soil"},
     "fertiliser_nutrition": {"soil", "weather"},
     "irrigation_water":     {"weather"},

@@ -508,3 +508,57 @@
     - Kerala
     - Telangana
     - Punjab
+
+# --- Diagnosis from evidence -------------------------------------------------
+# A disease question now fetches soil as well as weather, and the photo, the
+# farmer's words, the weather risk and the soil are ranked into LIKELY CAUSES
+# (diagnosis.py). "diagnosis" appears in tools_used when that section was built.
+
+- id: symptom_only_ranks_causes_without_a_dose
+  tags: [disease, safety]
+  why: >
+    A farmer describing what they see - blackening potato leaves - names no
+    disease. The answer should weigh the weather and soil and ask, but a
+    symptom is not a pest the register can match, so no dose may be quoted.
+  query: "aloo ke patte kaale pad rahe hain, kya karu?"
+  channel: sms
+  profile: &kharagpur_potato
+    location_text: Kharagpur
+    latitude: 22.346
+    longitude: 87.232
+    state: West Bengal
+    crops: [potato]
+  expect:
+    intent: disease_pest
+    tools_include: [weather, soil, diagnosis]
+    no_dose: true
+    script: Latin
+
+- id: named_pest_still_gets_its_dose
+  tags: [disease, dose, safety]
+  why: >
+    Adding the ranked causes must not cost a farmer who named the pest the
+    registered treatment they were getting before: the farmer's word settles
+    the cause, and the dose rules are unchanged.
+  query: "dhan me tana chhedak lag gaya hai, kya spray karu?"
+  channel: sms
+  profile:
+    <<: *kharagpur_potato
+    crops: [paddy]
+  expect:
+    intent: disease_pest
+    tools_include: [doses, diagnosis]
+    has_number: true
+    script: Latin
+
+- id: disease_question_reads_the_soil
+  tags: [disease]
+  why: >
+    Yellowing can be a nutrient shortage as easily as a disease, and only the
+    soil can tell them apart, so a disease question now fetches it.
+  query: "my wheat leaves are turning yellow, what is wrong?"
+  channel: web
+  profile: *nagpur_cotton
+  expect:
+    intent: disease_pest
+    tools_include: [soil, weather]

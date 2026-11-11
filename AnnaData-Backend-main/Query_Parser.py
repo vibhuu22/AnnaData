@@ -11,6 +11,7 @@ UNKNOWN = {
     "intent": "general",
     "message_type": "question",
     "pest": "unknown",
+    "symptoms": "unknown",
 }
 
 # Intent rides along on this extraction call, which runs for every query
@@ -63,6 +64,21 @@ def extract_farm_info(farmer_input: str, original: str | None = None) -> dict:
                         "sundi and इल्ली are bollworm, tana chhedak is stem borer. "
                         "'unknown' if they name no pest or disease.",
         ),
+        # What the farmer SEES, kept apart from what they think it is. Diagnosis
+        # needs both: "patte peele pad rahe hain" names no disease but says
+        # yellowing, which a nutrient shortage can cause as easily as a disease.
+        # Translated here because this call runs anyway, so matching symptoms
+        # costs no extra model call and works the same in every script.
+        ResponseSchema(
+            name="symptoms",
+            description="What the farmer says they can SEE on the crop, in "
+                        "English, as a few short comma-separated words - "
+                        "yellowing, wilting, brown spots, white powder, holes "
+                        "in leaves, stunted growth, rotting stem. Translate: "
+                        "patte peele is yellowing, murjha raha is wilting, "
+                        "dhabbe are spots. 'unknown' if they describe nothing "
+                        "they can see.",
+        ),
         ResponseSchema(
             name="message_type",
             description=f"What KIND of message this is. Exactly one of: {MESSAGE_TYPES}. "
@@ -108,6 +124,7 @@ def extract_farm_info(farmer_input: str, original: str | None = None) -> dict:
     - "state" is the state name, not the full address.
     - "crop_type" is only the crop name.
     - "pest" is only the pest or disease name, in English.
+    - "symptoms" is only what can be seen on the plant, in English; never a disease name.
     - "answer" is a short answer to the query if it is not related to agriculture.
     - "intent" is exactly one of the listed values, nothing else.
     - "message_type" is exactly one of the listed values, nothing else. A message that only states a location or crop, with no question, is a "statement".
