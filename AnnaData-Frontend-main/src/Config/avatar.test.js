@@ -1,4 +1,4 @@
-import { AVATARS, currentAvatar, chooseAvatar, DEFAULT_AVATAR } from './avatar';
+import { AVATARS, currentAvatar, chooseAvatar, DEFAULT_AVATAR, posesOf } from './avatar';
 
 beforeEach(() => window.localStorage.clear());
 
@@ -17,4 +17,11 @@ test('a chosen look is remembered on this phone, and an unknown one falls back t
 
 test('all seven regional looks are available', () => {
   expect(AVATARS.map((a) => a.id)).toEqual(['assam', 'bengal', 'punjab', 'rajasthan', 'maharashtra', 'tamil', 'up']);
+});
+
+test('Assam acts in every voice-mode pose; a look without poses has none', () => {
+  const poses = posesOf(currentAvatar());
+  expect(Object.keys(poses)).toEqual(['hello', 'listen', 'think', 'talk-open', 'talk-half']);
+  expect(poses.listen).toMatch(/avatars\/ankur-assam-listen\.webp$/);
+  expect(posesOf(AVATARS.find((a) => a.id === 'punjab'))).toBeNull();
 });

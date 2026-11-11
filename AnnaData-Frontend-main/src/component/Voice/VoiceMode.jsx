@@ -1,8 +1,8 @@
-import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
-import { createSpeaker, stopSpeaking, unlockAudio, speechProgress } from "../../Config/speech";
-import { currentAvatar } from "../../Config/avatar";
+import { createSpeaker, stopSpeaking, unlockAudio, speechProgress, speakingLevel } from "../../Config/speech";
+import { currentAvatar, posesOf } from "../../Config/avatar";
 import { followUpAsk } from "../../Config/asks";
 import { primaryButton } from "../Flow/ui";
 
@@ -83,6 +83,73 @@ export function wordAtChar(text, char) {
 }
 
 /** What is being said, as it is said, with the current word marked. */
+/**
+ * Ankur, the voice companion. A look drawn in every pose shows the pose for
+ * the moment - hand to ear while listening, hand to chin while thinking - and
+ * while it talks its mouth opens with the loudness of the voice actually
+ * playing. All poses are stacked and preloaded, so a change is instant. A look
+ * with one picture moves that picture instead (index.css).
+ */
+function Companion({ avatar, phase, boxRef }) {
+  // Built once per look, so the mouth loop below is not restarted every render.
+  const poses = useMemo(() => posesOf(avatar), [avatar]);
+  const [mouth, setMouth] = useState("half");
+
+  useEffect(() => {
+    if (!poses || phase !== "speaking") return undefined;
+    let frame = 0;
+    let quietSince = performance.now();
+    let flap = false;
+    let lastFlap = 0;
+    const tick = (now) => {
+      const level = speakingLevel();
+      if (level > 0.01) quietSince = now;
+      let next;
+      if (now - quietSince < 400) {
+        next = level > 0.09 ? "open" : "half";
+      } else {
+        // No level for a while: the phone's own voice is speaking, which does
+        // not pass through the level meter. Move the mouth at a speaking pace.
+        if (now - lastFlap > 160) {
+          flap = !flap;
+          lastFlap = now;
+        }
+        next = flap ? "open" : "half";
+      }
+      setMouth((m) => (m === next ? m : next));
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [poses, phase]);
+
+  const shown = !poses
+    ? null
+    : phase === "listening"
+    ? "listen"
+    : phase === "thinking"
+    ? "think"
+    : phase === "speaking"
+    ? (mouth === "open" ? "talk-open" : "talk-half")
+    : "hello";
+
+  return (
+    <div ref={boxRef} className={`ankur${poses ? " ankur-posed" : ""}`} data-phase={phase}>
+      <span className="ankur-rings" aria-hidden="true"><i /><i /><i /></span>
+      {poses ? (
+        <span className="ankur-frame">
+          {Object.entries(poses).map(([pose, src]) => (
+            <img key={pose} src={src} alt="" draggable={false} className="ankur-img" data-pose={pose} data-on={pose === shown} />
+          ))}
+        </span>
+      ) : (
+        <img src={avatar.src} alt="" className="ankur-img" draggable={false} />
+      )}
+      <span className="ankur-dots" aria-hidden="true"><i /><i /><i /></span>
+    </div>
+  );
+}
+
 function Subtitles() {
   const [view, setView] = useState(null);
   useEffect(() => {
@@ -471,11 +538,7 @@ function VoiceMode({ onClose, micContext = null }) {
         >
           {/* Ankur, the voice companion: grows with the farmer's voice while
               listening, sways while thinking, bobs while it talks. */}
-          <div ref={orbRef} className="ankur" data-phase={phase}>
-            <span className="ankur-rings" aria-hidden="true"><i /><i /><i /></span>
-            <img src={avatar.src} alt="" className="ankur-img" draggable={false} />
-            <span className="ankur-dots" aria-hidden="true"><i /><i /><i /></span>
-          </div>
+          <Companion avatar={avatar} phase={phase} boxRef={orbRef} />
         </button>
         <div className="flex flex-col items-center gap-1 text-center" aria-live="polite">
           <div className="text-2xl font-bold">{LABELS[phase]}</div>

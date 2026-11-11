@@ -13,6 +13,19 @@ export const AVATARS = [
   { id: "up", region: "UP and Bihar", look: "Green saree pallu" },
 ].map((a) => ({ ...a, src: `${process.env.PUBLIC_URL || ""}/avatars/ankur-${a.id}.webp` }));
 
+// Looks drawn in every voice-mode pose. The rest show their one picture and
+// move it instead. Every pose is framed identically (checked: the hat sits on
+// the same pixel in all of them), so swapping pictures never makes Ankur jump.
+const POSED = ["assam"];
+const POSES = ["listen", "think", "talk-open", "talk-half"];
+
+/** The pictures for each voice-mode moment, or null for a single-picture look. */
+export function posesOf(avatar) {
+  if (!POSED.includes(avatar.id)) return null;
+  const at = (pose) => `${process.env.PUBLIC_URL || ""}/avatars/ankur-${avatar.id}-${pose}.webp`;
+  return { hello: avatar.src, ...Object.fromEntries(POSES.map((p) => [p, at(p)])) };
+}
+
 export const DEFAULT_AVATAR = "assam";
 const KEY = "annadata.avatar";
 

@@ -186,8 +186,13 @@ function output(ctx) {
     trim.gain.value = TRIM;
     level.connect(limiter);
     limiter.connect(trim);
-    trim.connect(ctx.destination);
-    chain = { ctx, input: level, level, fresh: true };
+    // Last in line, so it hears exactly what the farmer hears: the voice
+    // companion's mouth follows it (speakingLevel).
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    trim.connect(analyser);
+    analyser.connect(ctx.destination);
+    chain = { ctx, input: level, level, analyser, samples: new Float32Array(analyser.fftSize), fresh: true };
   } catch (e) {
     // No gain nodes (a very old browser): play as before, unlevelled.
     chain = { ctx, input: ctx.destination, level: null };
@@ -223,6 +228,20 @@ function levelChunk(ctx, record, buffer, at) {
     }
   }
   return out.input;
+}
+
+/**
+ * How loud the voice playing right now is, as RMS (about 0 to 0.4); 0 when
+ * nothing is playing or the phone's own voice is speaking (it does not pass
+ * through this chain). For the voice companion's mouth.
+ */
+export function speakingLevel() {
+  if (!chain?.analyser) return 0;
+  const { analyser, samples } = chain;
+  analyser.getFloatTimeDomainData(samples);
+  let sum = 0;
+  for (let i = 0; i < samples.length; i += 1) sum += samples[i] * samples[i];
+  return Math.sqrt(sum / samples.length);
 }
 
 function audioContext() {
