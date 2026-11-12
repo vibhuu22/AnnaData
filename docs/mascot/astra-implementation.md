@@ -1,5 +1,9 @@
 # Master Ankur and bilingual screens
 
+Update, 12 November 2026: the sheet-crop artwork described below is superseded by
+the [clean high-resolution poses](clean-poses/README.md), including a registered
+mouth pair. The screen and language behavior documented here is unchanged.
+
 The default is the plain Master Ankur. An explicitly saved regional preference
 still wins. The crop script in `AnnaData-Frontend-main/tools/crop_master_ankur.py`
 uses the founder's two source sheets and records measured torso anchors. Every
