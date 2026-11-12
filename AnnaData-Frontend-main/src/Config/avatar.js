@@ -1,8 +1,8 @@
 /**
  * Ankur, the voice companion, in its regional looks. Master Ankur is the default;
  * a farmer will be able to pick another later (the choice is kept on this
- * phone). WebP assets share a 512 px canvas. Master expressions are sheet crops,
- * not native 512 px renders; see docs/mascot/astra-implementation.md.
+ * phone). WebP assets share a 512 px canvas. Master expressions come from the
+ * founder's 2048 px renders; see docs/mascot/clean-poses/README.md.
  */
 export const AVATARS = [
   { id: "master", region: "Master Ankur", look: "The essential seed" },
@@ -23,9 +23,8 @@ const POSES = ["listen", "think", "talk-open", "talk-half"];
 /** The pictures for each voice-mode moment, or null for a single-picture look. */
 export function posesOf(avatar) {
   if (!POSED.includes(avatar.id)) return null;
-  // The sheets contain different talking renders, not a registered mouth pair.
-  // Hold one talking pose for Master rather than making its arms/body jump.
-  const at = (pose) => `${process.env.PUBLIC_URL || ""}/avatars/ankur-${avatar.id}-${avatar.id === 'master' && pose === 'talk-half' ? 'talk-open' : pose}.webp`;
+  // Master's talking pair shares one body, with only the mouth region changing.
+  const at = (pose) => `${process.env.PUBLIC_URL || ""}/avatars/ankur-${avatar.id}-${pose}.webp`;
   return { hello: avatar.src, ...Object.fromEntries((avatar.id === "master" ? [...POSES, "sorry", "success"] : POSES).map((p) => [p, at(p)])) };
 }
 

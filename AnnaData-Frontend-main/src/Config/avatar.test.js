@@ -23,6 +23,7 @@ test('Master Ankur acts in every voice-mode pose; a look without poses has none'
   const poses = posesOf(currentAvatar());
   expect(Object.keys(poses)).toEqual(['hello', 'listen', 'think', 'talk-open', 'talk-half', 'sorry', 'success']);
   expect(poses.listen).toMatch(/avatars\/ankur-master-listen\.webp$/);
-  expect(poses['talk-half']).toBe(poses['talk-open']); // no body flicker between unmatched sheet renders
+  expect(poses['talk-half']).toMatch(/avatars\/ankur-master-talk-half\.webp$/);
+  expect(poses['talk-half']).not.toBe(poses['talk-open']);
   expect(posesOf(AVATARS.find((a) => a.id === 'punjab'))).toBeNull();
 });
