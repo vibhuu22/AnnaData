@@ -37,6 +37,17 @@ async def main():
                 if section in ['funnel','overview','efficiency','diversity','feedback']:
                     shot=await tab.call('Page.captureScreenshot',format='png')
                     (output/(section+'.png')).write_bytes(base64.b64decode(shot['data']))
+            await tab.js("view='funnel';render();document.querySelector('.activation-funnel').scrollIntoView()")
+            shot=await tab.call('Page.captureScreenshot',format='png')
+            (output/'funnel-charts.png').write_bytes(base64.b64decode(shot['data']))
+            await tab.js("view='overview';render();document.querySelector('.trend-svg').scrollIntoView()")
+            shot=await tab.call('Page.captureScreenshot',format='png')
+            (output/'trend-charts.png').write_bytes(base64.b64decode(shot['data']))
+            assert await tab.js("!trendChart([{date:'2026-11-13',n:0}],[{key:'n',label:'Zero'}],'Zero').includes('NaN')")
+            assert await tab.js("distributionChart({a:0}).includes('No recorded distribution')")
+            assert await tab.js("activationFunnel({available:false}).includes('Waiting for traffic measurements')")
+            assert await tab.js("!activationFunnel({available:true,unique_visitors:0,sender_browsers:0,ask_then_signin:0,signin_then_ask:0}).includes('NaN')")
+            print('Charts: zero, missing and single-date states passed',flush=True)
             await tab.js("document.querySelector('[data-view=overview]').click();document.querySelector('#audience').value='farmer';document.querySelector('#audience').dispatchEvent(new Event('change'))")
             for _ in range(100):
                 if await tab.js("document.querySelector('#loading').hidden"): break
