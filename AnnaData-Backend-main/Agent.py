@@ -653,6 +653,9 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
         f"- Crop: {crop or 'unknown'}",
     ]
     for label, key in (("APPROVED PESTICIDE USES", "doses"),
+                       # Beside the register, not instead of it: what the
+                       # problem looks like and what to do without a chemical.
+                       ("GOVERNMENT PEST ADVISORY", "advisory"),
                        # What the photograph showed, as observation. It sits
                        # above the dose table on purpose: the picture says what
                        # the symptom looks like, the table says what may
@@ -757,6 +760,12 @@ def gather(tools, *, lat, lon, state, crop, query, pest=None,
         # longer what the feature depends on.
         "kb":      lambda: knowledge.format_passages(knowledge.search(query))
                    if knowledge.documents_loaded() else query_kb(query),
+        # DPPQ&S pest advisories, chemicals removed at load time. The crop and
+        # pest lead the query because the farmer's own words are often a
+        # symptom ("patte peele pad rahe") that alone retrieves nothing.
+        "advisory": lambda: knowledge.format_advisories(knowledge.search(
+                   " ".join(p for p in (crop, pest, query) if p),
+                   kind=knowledge.PEST_ADVISORY, crop=crop)),
     }
 
     results = {}
@@ -765,9 +774,15 @@ def gather(tools, *, lat, lon, state, crop, query, pest=None,
         for future in as_completed(futures):
             name = futures[future]
             try:
-                results[name] = future.result()
+                value = future.result()
             except Exception as e:
                 print(f"Tool {name} failed: {e}")
+                continue
+            # No advisory close enough is no advisory: leaving the key out
+            # keeps it from being named as a source the answer did not use.
+            if name == "advisory" and not value:
+                continue
+            results[name] = value
     return results, raw
 
 
@@ -1148,6 +1163,7 @@ def run_agent(
         state=facts["state"],
         kb_available=knowledge.documents_loaded() or kb_available(),
         crop=facts["crop"],
+        advisories_available=knowledge.documents_loaded(knowledge.PEST_ADVISORY),
     )
     # A position with no name is still a place to answer for: weather and soil
     # need only coordinates, so the farmer is not asked where they are.

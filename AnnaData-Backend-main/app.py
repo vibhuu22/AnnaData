@@ -26,6 +26,7 @@ import feedback
 import guest_access
 import msg91
 import whereabouts
+import knowledge
 import lesion_bank
 import msp
 import news
@@ -92,6 +93,10 @@ def on_startup():
     feedback.init()
     metrics_store.init()
     traffic_analytics.init()
+    # Before anything reads `documents`: retrieval now filters on its `kind`
+    # column, and a database that predates it would otherwise fail every
+    # scheme search until a loader happened to be run against it.
+    knowledge.init()
     lesion_bank.init()
     msp.init()
     print(f"CORS origins: {_build_origins()}")

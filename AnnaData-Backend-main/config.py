@@ -68,6 +68,14 @@ DB_POOL_MAX = int(_get("DB_POOL_MAX", "4"))
 # also requires the model to check that a passage actually addresses the
 # question before using it.
 RAG_MIN_SIMILARITY = float(_get("RAG_MIN_SIMILARITY", "0.70"))
+# The same floor for the DPPQ&S pest advisories, measured on 13.11.2026 against
+# the 213 loaded passages with crop + pest + question as the query (as gather
+# sends it). Ten questions the advisories cover scored 0.739-0.823, each with
+# the right advisory on top; six they do not cover scored 0.592-0.707. The one
+# that passed 0.70 was okra vein mosaic matching the green gram mosaic
+# advisory - close in wording, wrong crop. A small sample: re-measure when
+# advisories are added.
+ADVISORY_MIN_SIMILARITY = float(_get("ADVISORY_MIN_SIMILARITY", "0.72"))
 
 CONTEXT_MESSAGES = int(_get("CONTEXT_MESSAGES", "10"))
 CONTEXT_TTL_HOURS = int(_get("CONTEXT_TTL_HOURS", "48"))

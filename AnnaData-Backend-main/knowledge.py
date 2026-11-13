@@ -22,7 +22,7 @@ import re
 import urllib.request
 
 import db
-from config import GEMINI_API_KEY, RAG_MIN_SIMILARITY
+from config import GEMINI_API_KEY, RAG_MIN_SIMILARITY, ADVISORY_MIN_SIMILARITY
 
 EMBED_MODEL = "gemini-embedding-001"
 EMBED_DIM = 768
@@ -71,7 +71,24 @@ CREATE INDEX IF NOT EXISTS documents_embedding
     ON documents USING hnsw (embedding vector_cosine_ops);
 
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'reference';
+
+-- What a passage is for. 'scheme' is the original corpus - schemes, subsidies,
+-- storage - and every row that existed before this column is one. A
+-- 'pest_advisory' is a DPPQ&S pest or disease advisory, stripped of every
+-- chemical and dose at load time, so a pest question can be told what the
+-- problem looks like, what weather favours it and what to do without a
+-- chemical. Kept apart so a scheme question never retrieves a passage about
+-- bollworm, and so the scheme similarity floor, measured on schemes alone,
+-- still means what it was measured to mean.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'scheme';
+-- The crop an advisory is about, canonical (see canonical_crop), or NULL for
+-- one that covers many (locust, pest monitoring).
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS crop TEXT;
+CREATE INDEX IF NOT EXISTS documents_kind ON documents (kind);
 """
+
+SCHEME = "scheme"
+PEST_ADVISORY = "pest_advisory"
 
 
 def init() -> bool:
@@ -418,25 +435,38 @@ def dose_lines(result: dict, limit: int = 3) -> list[str]:
 
 # --- reference text ---------------------------------------------------------
 
-def search(query: str, limit: int = 5) -> list[dict]:
-    """Passages most similar to the query, with their sources."""
+def search(query: str, limit: int = 5, kind: str = SCHEME,
+           crop: str | None = None) -> list[dict]:
+    """Passages of one kind most similar to the query, with their sources.
+
+    With a crop, only passages about that crop - or about no crop in
+    particular - are considered: a cotton whitefly advisory is close in wording
+    to a coconut whitefly one and says nothing true about coconuts.
+    """
     if not query or not db.is_available():
         return []
     vector = embed(query)
     if vector is None:
         return []
+    crop_clause, params = "", [str(vector), kind]
+    if crop:
+        crop_clause = "AND (crop IS NULL OR crop = %s)"
+        params.append(canonical_crop(crop))
+    params += [str(vector), limit]
     try:
         with db.connection() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT content, source, title, url, tier,
                        1 - (embedding <=> %s::vector) AS similarity
                   FROM documents
                  WHERE embedding IS NOT NULL
+                   AND kind = %s
+                   {crop_clause}
               ORDER BY embedding <=> %s::vector
                  LIMIT %s
                 """,
-                (str(vector), str(vector), limit),
+                params,
             ).fetchall()
         return [
             {"content": c, "source": s, "title": t, "url": u,
@@ -506,13 +536,47 @@ def format_passages(passages: list[dict], min_similarity: float = None) -> str:
     return "\n".join(lines)
 
 
+def format_advisories(passages: list[dict], min_similarity: float = None) -> str:
+    """Render retrieved pest advisories for the prompt, or "" when none fit.
+
+    Unlike scheme retrieval, finding nothing is not news worth telling the
+    model: a pest answer stands on the register and the weather without it,
+    so an empty result simply leaves the section out.
+
+    Every chemical and dose was stripped from these passages when they were
+    loaded (tools/ingest_advisories.py). The header still says so, because the
+    model knows chemicals of its own and an advisory about spraying invites it
+    to supply one.
+    """
+    threshold = ADVISORY_MIN_SIMILARITY if min_similarity is None else min_similarity
+    useful = [p for p in passages if p.get("similarity", 0) >= threshold]
+    if not useful:
+        return ""
+    lines = [
+        "Government of India pest and disease advisories (DPPQ&S). Use them ONLY "
+        "for what the problem looks like, the weather that favours it, when it "
+        "is worth acting, and measures that need no chemical - field sanitation, "
+        "traps, resistant varieties, sowing and irrigation practice, removing "
+        "affected plants. They contain no product names or doses and you must "
+        "not supply any from them: a chemical and its dose may come ONLY from "
+        "APPROVED PESTICIDE USES. If a passage is about a different pest or crop "
+        "from the farmer's, ignore it.",
+        "",
+    ]
+    for p in useful:
+        text = " ".join(p["content"].split())
+        lines.append(f"- [{p['source']}] {text}")
+    return "\n".join(lines)
+
+
 def covered_topics() -> list[str]:
     """The subjects the document store actually covers, for offering them."""
     if not db.is_available():
         return []
     try:
         with db.connection() as conn:
-            rows = conn.execute("SELECT DISTINCT title, source FROM documents").fetchall()
+            rows = conn.execute("SELECT DISTINCT title, source FROM documents "
+                                "WHERE kind = %s", (SCHEME,)).fetchall()
     except Exception:
         return []
 
@@ -531,14 +595,16 @@ def covered_topics() -> list[str]:
     return sorted(labels)
 
 
-def documents_loaded() -> bool:
-    """Whether there is anything to retrieve at all."""
-    return counts().get("documents", 0) > 0
+def documents_loaded(kind: str = SCHEME) -> bool:
+    """Whether there is anything of this kind to retrieve at all."""
+    key = "documents" if kind == SCHEME else "advisories"
+    return counts().get(key, 0) > 0
 
 
 def add_document(source: str, content: str, title: str = None,
                  url: str = None, chunk_index: int = 0,
-                 tier: str = "reference") -> bool:
+                 tier: str = "reference", kind: str = SCHEME,
+                 crop: str | None = None) -> bool:
     """Store one passage with its embedding."""
     if not db.is_available() or not content.strip():
         return False
@@ -550,10 +616,11 @@ def add_document(source: str, content: str, title: str = None,
             conn.execute(
                 """
                 INSERT INTO documents (source, title, url, chunk_index, tier,
-                                       content, embedding)
-                VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
+                                       content, embedding, kind, crop)
+                VALUES (%s, %s, %s, %s, %s, %s, %s::vector, %s, %s)
                 """,
-                (source, title, url, chunk_index, tier, content, str(vector)),
+                (source, title, url, chunk_index, tier, content, str(vector),
+                 kind, crop),
             )
         return True
     except Exception as e:
@@ -562,13 +629,21 @@ def add_document(source: str, content: str, title: str = None,
 
 
 def counts() -> dict:
-    """How much grounded knowledge is actually loaded."""
+    """How much grounded knowledge is actually loaded.
+
+    "documents" stays the scheme corpus alone, as it always was: it is what the
+    capability text and the scheme retrieval path read, and counting advisories
+    into it would announce scheme coverage that is not there.
+    """
+    empty = {"pesticide_uses": 0, "documents": 0, "advisories": 0}
     if not db.is_available():
-        return {"pesticide_uses": 0, "documents": 0}
+        return empty
     try:
         with db.connection() as conn:
             uses = conn.execute("SELECT count(*) FROM pesticide_uses").fetchone()[0]
-            docs = conn.execute("SELECT count(*) FROM documents").fetchone()[0]
-        return {"pesticide_uses": uses, "documents": docs}
+            rows = dict(conn.execute(
+                "SELECT kind, count(*) FROM documents GROUP BY kind").fetchall())
+        return {"pesticide_uses": uses, "documents": rows.get(SCHEME, 0),
+                "advisories": rows.get(PEST_ADVISORY, 0)}
     except Exception:
-        return {"pesticide_uses": 0, "documents": 0}
+        return empty

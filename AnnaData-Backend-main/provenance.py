@@ -36,7 +36,8 @@ def _scheme_names() -> list[str]:
     try:
         with db.connection() as conn:
             rows = conn.execute(
-                "SELECT DISTINCT title, source FROM documents"
+                "SELECT DISTINCT title, source FROM documents WHERE kind = %s",
+                (knowledge.SCHEME,),
             ).fetchall()
     except Exception:
         return []

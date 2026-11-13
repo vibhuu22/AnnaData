@@ -19,7 +19,11 @@ TOOLS_FOR_INTENT = {
     # registration authority actually approved.
     # Humidity and rain drive disease pressure; soil separates a nutrient
     # shortage or waterlogging from a disease that looks the same on a leaf.
-    "disease_pest":         {"weather", "soil", "doses"},
+    # "advisory" is the DPPQ&S pest advisories: symptoms, the weather that
+    # favours a pest, when to act and what to do without a chemical. They were
+    # stripped of every chemical when loaded, so they add to the register
+    # rather than compete with it.
+    "disease_pest":         {"weather", "soil", "doses", "advisory"},
     "sowing_planting":      {"weather", "soil"},
     "fertiliser_nutrition": {"soil", "weather"},
     "irrigation_water":     {"weather"},
@@ -41,6 +45,7 @@ TOOL_REQUIREMENTS = {
     "mandi":   {"state"},
     "msp":     {"crop"},        # the support price is declared per commodity
     "kb":      set(),
+    "advisory": set(),          # narrowed by crop when known, useful without
 }
 
 # What the farmer must tell us before the answer can be specific. Used to ask
@@ -88,6 +93,7 @@ def plan_tools(
     state: str | None,
     kb_available: bool,
     crop: str | None = None,
+    advisories_available: bool = False,
 ) -> set[str]:
     """Tools worth running for this question, given what is actually known."""
     intent = normalise_intent(intent)
@@ -100,6 +106,8 @@ def plan_tools(
     chosen = set()
     for tool in TOOLS_FOR_INTENT[intent]:
         if tool == "kb" and not kb_available:
+            continue
+        if tool == "advisory" and not advisories_available:
             continue
         if all(available.get(req, False) for req in TOOL_REQUIREMENTS[tool]):
             chosen.add(tool)
