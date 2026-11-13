@@ -23,6 +23,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import db
+from metrics_store import normal_user
 from config import (
     SESSION_GAP_HOURS,
     FEEDBACK_COOLDOWN_DAYS,
@@ -48,6 +49,13 @@ CREATE TABLE IF NOT EXISTS feedback (
 
 CREATE INDEX IF NOT EXISTS feedback_user ON feedback (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS messages_session ON messages (session_id);
+
+-- The one answer a web rating is about. A session can hold a dozen answers, so
+-- without this a thumbs down said a conversation went wrong but not which
+-- reply, and the answer could not be pulled back with the evidence it was
+-- written from. NULL for SMS ratings, which are about a whole conversation.
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS request_id TEXT;
+CREATE INDEX IF NOT EXISTS feedback_request ON feedback (request_id);
 """
 
 # A farmer asked to rate out of five may reply "4", "4/5", "chaar", "bahut
@@ -380,19 +388,43 @@ def session_features(user_id: str, session_id: int) -> dict:
     }
 
 
-def record(user_id: str, rating: int, raw_message: str, session_id: int | None) -> bool:
+def _own_request(conn, user_id: str, request_id) -> str | None:
+    """The request id, if it is an answer this farmer was actually given.
+
+    The id comes from the browser, so it is checked: a rating attached to
+    someone else's answer would put their reply in front of the reviewer as a
+    failure it never was. An id that does not check out is dropped and the
+    rating is still kept, against the session, as it was before ids existed.
+    """
+    if not request_id:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM analytics_requests WHERE request_id = %s AND user_id = %s",
+            (str(request_id), normal_user(user_id)),
+        ).fetchone()
+    except Exception as e:  # telemetry table missing: keep the rating anyway
+        print(f"Could not check rated request {request_id}: {e}")
+        conn.rollback()
+        return None
+    return str(request_id) if row else None
+
+
+def record(user_id: str, rating: int, raw_message: str, session_id: int | None,
+           request_id=None) -> bool:
     """Store a rating with the features of the conversation it refers to."""
     if not db.is_available() or not (1 <= rating <= 5):
         return False
     try:
         features = session_features(user_id, session_id) if session_id else {}
         with db.connection() as conn:
+            rated = _own_request(conn, user_id, request_id)
             conn.execute(
                 """
-                INSERT INTO feedback (user_id, session_id, rating, raw_message, features)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO feedback (user_id, session_id, rating, raw_message, features, request_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (user_id, session_id, rating, raw_message[:500], json.dumps(features)),
+                (user_id, session_id, rating, raw_message[:500], json.dumps(features), rated),
             )
         print(f"Recorded rating {rating} from {user_id}")
         return True
@@ -401,7 +433,7 @@ def record(user_id: str, rating: int, raw_message: str, session_id: int | None) 
         return False
 
 
-def record_web(user_id: str, up: bool, note: str = "") -> bool:
+def record_web(user_id: str, up: bool, note: str = "", request_id=None) -> bool:
     """A thumbs up or down on a web answer, stored with the SMS ratings.
 
     On the same 1-5 scale so one summary covers both channels: up is 5, down
@@ -410,7 +442,7 @@ def record_web(user_id: str, up: bool, note: str = "") -> bool:
     """
     session_id = current_session(user_id)
     raw = ("web: up" if up else "web: down") + (f" - {note}" if note else "")
-    return record(user_id, 5 if up else 1, raw, session_id)
+    return record(user_id, 5 if up else 1, raw, session_id, request_id=request_id)
 
 
 def summary() -> dict:

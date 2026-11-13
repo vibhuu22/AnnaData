@@ -81,6 +81,8 @@ function foldIntoTurns(messages) {
       };
     } else if (current) {
       current.response = message.body;
+      // So an answer reopened from history can still be rated as itself.
+      current.requestId = message.meta?.request_id || null;
       current.toolsUsed = message.meta?.tools || [];
       // Stored with the reply since dose_status was added to message meta, so a
       // past answer that declined to name a dose still says why after a reload.
@@ -336,6 +338,7 @@ const ContextProvider = (props) => {
               // The authoritative answer, after every check on the whole of
               // it - which can add to what was streamed, never contradict it.
               response: result.answer,
+              requestId: result.requestId || null,
               streaming: false,
               // What the microphone heard, shown back so the farmer can catch a
               // misheard word rather than wondering why the answer is odd.

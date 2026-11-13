@@ -35,6 +35,7 @@ import startup
 import tts
 import weather_tool
 import metrics_store
+import traffic_analytics
 import admin_api
 from Agent import AgentResult, run_agent, speech_language
 from Address_Convertor import reverse
@@ -42,6 +43,7 @@ from process_media import process_media, understand_media
 
 app = FastAPI(title="Annadata Agent API")
 app.include_router(admin_api.router)
+app.include_router(traffic_analytics.router)
 app.mount('/admin/assets', StaticFiles(directory=Path(__file__).parent/'admin_web'), name='admin-assets')
 
 
@@ -89,6 +91,7 @@ def on_startup():
     db.init()
     feedback.init()
     metrics_store.init()
+    traffic_analytics.init()
     lesion_bank.init()
     msp.init()
     print(f"CORS origins: {_build_origins()}")
@@ -516,6 +519,7 @@ class VerifyRequest(BaseModel):
     # Those questions are moved onto their number, because the screen that
     # asked them to sign in promised their questions would stay saved.
     guest_id: Optional[str] = None
+    analytics: Optional[traffic_analytics.VisitContext] = None
 
 
 @app.post("/auth/request-code")
@@ -558,12 +562,13 @@ def verify_code(request: VerifyRequest):
     ok, reason = auth.check_code(phone, request.code)
     if not ok:
         raise HTTPException(status_code=401, detail=reason or "that code is wrong")
-    return _signed_in(phone, request.guest_id)
+    return _signed_in(phone, request.guest_id, request.analytics)
 
 
 class WidgetVerifyRequest(BaseModel):
     access_token: str
     guest_id: Optional[str] = None
+    analytics: Optional[traffic_analytics.VisitContext] = None
 
 
 @app.post("/auth/verify-widget")
@@ -578,10 +583,10 @@ def verify_widget(request: WidgetVerifyRequest):
     phone, reason = msg91.verified_phone(request.access_token)
     if not phone:
         raise HTTPException(status_code=401, detail=reason)
-    return _signed_in(phone, request.guest_id)
+    return _signed_in(phone, request.guest_id, request.analytics)
 
 
-def _signed_in(phone: str, guest_id: Optional[str]) -> dict:
+def _signed_in(phone: str, guest_id: Optional[str], analytics=None) -> dict:
     """What every way of proving a number ends in: the account, the guest's
     questions moved onto it, and a token."""
     version = farmer_account.ensure(phone, channel="web")
@@ -594,8 +599,10 @@ def _signed_in(phone: str, guest_id: Optional[str]) -> dict:
         claimed = profile_store.claim_guest(guest, phone)
 
     account = farmer_account.account(phone) or {}
+    issued_token = auth.issue_token(phone, version)
+    traffic_analytics.signed_in(phone, guest_id, analytics)
     return {
-        "token": auth.issue_token(phone, version),
+        "token": issued_token,
         "user": account,
         "claimed_messages": claimed,
         # The browser uses this to decide between the onboarding screen and the
@@ -1071,6 +1078,9 @@ class AnswerRating(BaseModel):
     up: bool
     # Optional: the farmer's own words on what was wrong. Kept short.
     note: Optional[str] = None
+    # Which answer is being rated - the request_id that answer came back with.
+    # Optional, so an older page that does not send it still has its tap kept.
+    request_id: Optional[UUID] = None
 
 
 @app.post("/feedback/answer")
@@ -1097,7 +1107,8 @@ def rate_answer(request: AnswerRating,
                                 headers={"Retry-After": str(wait)})
         user_id = guest
     note = (request.note or "").strip()[:300]
-    return {"stored": feedback.record_web(user_id, request.up, note)}
+    return {"stored": feedback.record_web(user_id, request.up, note,
+                                          request_id=request.request_id)}
 
 
 @app.get("/news")

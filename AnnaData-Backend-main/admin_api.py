@@ -15,11 +15,17 @@ from psycopg_pool import PoolTimeout
 
 import db
 import metrics_store as store
+from dashboard_metrics import detailed_metrics
+import traffic_analytics
 from analytics_metrics import (AUDIENCES, VERDICTS, SEVERITIES, PAIN_POINTS,
     build_conversations, overview, audience_matches, redact)
 
 router=APIRouter()
 WEB=Path(__file__).parent/'admin_web'
+
+
+class ConversationDataset(list):
+    ratings_available = True
 
 
 def require_admin(x_admin_token: str = Header(default='')):
@@ -79,14 +85,16 @@ def _dataset(days):
     # Farmers' ratings, read apart so a database without the feedback table
     # still shows the rest of the dashboard.
     ratings=[]
+    ratings_available=True
     try:
         with db.connection() as c:
             with c.cursor(row_factory=dict_row) as cur:
                 cur.execute('SELECT user_id,session_id,rating,raw_message,created_at FROM feedback WHERE created_at >= %s ORDER BY created_at LIMIT 20001',(since,))
                 ratings=cur.fetchall()
     except DatabaseError as exc:
+        ratings_available=False
         logging.getLogger(__name__).warning('Ratings unavailable for the dashboard: %s',type(exc).__name__)
-    if len(messages)>20000 or len(requests)>20000:
+    if len(messages)>20000 or len(requests)>20000 or len(ratings)>20000:
         raise HTTPException(422,'Window exceeds 20,000 records. Select fewer days; partial metrics are not shown.')
     for cache in caches:
         dates=[]
@@ -94,12 +102,19 @@ def _dataset(days):
             try: dates.append(datetime.strptime(value,'%d/%m/%Y'))
             except (ValueError,TypeError): pass
         cache['example_date']=max(dates).strftime('%d/%m/%Y') if dates else None
-    groups=build_conversations(messages,audiences,reviews,excluded_participants(),ratings)
+    groups=ConversationDataset(build_conversations(messages,audiences,reviews,excluded_participants(),ratings))
+    groups.ratings_available=ratings_available
     return groups,requests,audiences,caches,since
 
 
 def check_audience(audience):
     if audience not in AUDIENCES|{'all','non_test'}:raise HTTPException(422,'Unknown audience')
+
+
+@router.get('/admin/api/website',dependencies=[Depends(require_admin)])
+def website(days: int=Query(30,ge=1,le=180), audience: str='all', all_time: bool=False):
+    check_audience(audience)
+    return traffic_analytics.dashboard(days,audience,excluded_participants(),all_time)
 
 
 @router.get('/admin/api/dashboard',dependencies=[Depends(require_admin)])
@@ -111,11 +126,14 @@ def dashboard(days: int=Query(30,ge=1,le=180),audience: str='all'):
     selected=[g for g in groups if audience_matches(g['audience'],audience)]
     public=[{k:v for k,v in g.items() if k!='messages'} for g in selected]
     return {'metrics':overview(groups,requests,audiences,excluded_participants(),audience),
+        'website':traffic_analytics.dashboard(days,audience,excluded_participants()),
+        'detailed':detailed_metrics(groups,requests,audiences,excluded_participants(),audience,since,
+                                   ratings_available=getattr(groups,'ratings_available',True)),
         'conversations':public,'cache':caches,'window_start':since,'generated_at':datetime.now(timezone.utc),
-        'definitions_version':'1.0','pain_point_labels':PAIN_POINTS,
+        'definitions_version':'2.0','pain_point_labels':PAIN_POINTS,
         'limitations':['Legacy conversations can contain inferred reply matching; they are excluded from request-success and latency metrics.',
           'Gateway acceptance is not confirmed handset delivery.',
-          'Retained data may contain test accounts. Only explicitly classified farmer accounts appear in the default view.',
+          'All traffic is the default. Only explicitly classified farmer accounts appear in the verified-farmer view.',
           'Retention and costs are not yet measured. Missing data is never counted as zero.',
           'Backend telemetry excludes requests that never reach the backend and media failures before the advisory pipeline.']}
 

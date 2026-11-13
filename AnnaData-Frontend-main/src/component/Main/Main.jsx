@@ -53,12 +53,12 @@ const SLOW_AFTER_MS = 60000;
  * no way to say an answer was wrong. One tap, no form - and a thumbs down
  * asks for nothing more, because a farmer who has to explain will not tap.
  */
-function Rate() {
+function Rate({ requestId = null }) {
   const [rated, setRated] = useState(null);
   const send = (up) => {
     setRated(up ? "up" : "down");
     Promise.resolve()
-      .then(() => rateAnswer(up))
+      .then(() => rateAnswer(up, { requestId }))
       .catch(() => {});
   };
   if (rated) {
@@ -776,7 +776,7 @@ function Main() {
                     )}
                     <Answer markdown={turn.response} doseStatus={turn.doseStatus} />
                     <Sources tools={turn.toolsUsed} />
-                    <Rate />
+                    <Rate requestId={turn.requestId} />
                   </div>
             );
             return (

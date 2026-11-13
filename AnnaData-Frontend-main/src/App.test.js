@@ -1,3 +1,4 @@
+jest.mock('./Config/traffic', () => ({ startTraffic: jest.fn(), trackMessage: jest.fn() }));
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from './App';
 import { Auth } from './Context/AuthProvider';

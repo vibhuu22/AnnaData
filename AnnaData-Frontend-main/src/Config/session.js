@@ -1,4 +1,5 @@
 import { getApiUrl } from "./api";
+import { trafficContext } from './trafficIdentity';
 
 /**
  * The signed-in farmer's session.
@@ -207,7 +208,7 @@ export async function verifyCode(phone, code) {
   // its one job, and keeping it would let a later sign-out resurrect it.
   const data = await apiFetch("/auth/verify", {
     method: "POST",
-    body: { phone, code, guest_id: getGuestId() },
+    body: { phone, code, guest_id: getGuestId(), analytics: visitForSignIn() },
   });
   setToken(data.token);
   resetGuestId();
@@ -218,7 +219,7 @@ export async function verifyCode(phone, code) {
 export async function verifyWidgetToken(accessToken) {
   const data = await apiFetch("/auth/verify-widget", {
     method: "POST",
-    body: { access_token: accessToken, guest_id: getGuestId() },
+    body: { access_token: accessToken, guest_id: getGuestId(), analytics: visitForSignIn() },
   });
   setToken(data.token);
   resetGuestId();
@@ -227,6 +228,11 @@ export async function verifyWidgetToken(accessToken) {
 
 export function fetchMe() {
   return apiFetch("/auth/me");
+}
+
+function visitForSignIn() {
+  const context=trafficContext();
+  return context ? {...context,guest_id:getGuestId()} : null;
 }
 
 export function saveProfile(profile) {
@@ -240,12 +246,17 @@ export function fetchHistory(limit = 50) {
 /**
  * A thumbs up or down on the answer just given. Guests may rate too, under
  * their browser id, and the rating moves onto their number if they sign in.
+ *
+ * requestId is the id that answer came back with. It is what ties the tap to
+ * one reply rather than to the whole conversation, so a thumbs down can be
+ * traced to the answer that earned it. Left out when the turn has none (an
+ * answer from an older backend); the tap is still kept.
  */
-export async function rateAnswer(up, note = "") {
+export async function rateAnswer(up, { note = "", requestId = null } = {}) {
   const response = await fetch(`${getApiUrl()}/feedback/answer`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...askHeaders() },
-    body: JSON.stringify({ up, note: note || null }),
+    body: JSON.stringify({ up, note: note || null, ...(requestId ? { request_id: requestId } : {}) }),
   });
   if (!response.ok) throw new Error(`rating ${response.status}`);
   return response.json();

@@ -144,11 +144,16 @@ check("then the answer, sentence by sentence", [e["text"] for e in got if e["typ
 check("and done echoes the transcript", got[-1].get("transcript"), "Kapas me sundi lag gayi")
 
 print("\nRating an answer")
-appmod.feedback.record_web = lambda user_id, up, note="": calls.append(("rated", user_id, up)) or True
+appmod.feedback.record_web = lambda user_id, up, note="", request_id=None: calls.append(("rated", user_id, up, request_id)) or True
 check("nobody: refused", web.post("/feedback/answer", json={"up": True}).status_code, 401)
 r = web.post("/feedback/answer", json={"up": False, "note": "galat dawa"}, headers=G)
 check("a guest: stored", (r.status_code, r.json()), (200, {"stored": True}))
-check("as a thumbs down, under the guest's own key", calls[-1], ("rated", "guest:" + G["X-Guest-Id"], False))
+check("as a thumbs down, under the guest's own key", calls[-1], ("rated", "guest:" + G["X-Guest-Id"], False, None))
+RID = "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"
+web.post("/feedback/answer", json={"up": True, "request_id": RID}, headers=G)
+check("with the answer it rates, when the page sends one", str(calls[-1][3]), RID)
+check("a request id that is not an id: refused",
+      web.post("/feedback/answer", json={"up": True, "request_id": "not-an-id"}, headers=G).status_code, 422)
 check("a phone number as a guest id: refused",
       web.post("/feedback/answer", json={"up": True}, headers={"X-Guest-Id": "+919876543210"}).status_code, 401)
 
