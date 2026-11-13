@@ -1,7 +1,7 @@
 /* Private data is fetched only after authentication. No token or transcript storage. */
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let token='', data=null, view='funnel', selected=null, loadVersion=0;
+let token='', data=null, view='north_star', selected=null, loadVersion=0;
 const titles={...dashboardTitles,model_info:["Inside AnnaData.","A guided map of the code that turns questions into advice.","model_info"],overview:['How are we helping?','A clear view of farmer needs and the quality of our responses.','Overview'],needs:['Understand the need.','See what people ask for, and where our answers fall short.','People & needs'],reviews:['Read. Assess. Improve.','Review the full conversation before deciding whether we helped.','Review queue'],guide:['Make success measurable.','Definitions, denominators and the limits of what we know.','Metric definitions']};
 Object.assign(titles,dashboardTitles);
 const date=(v,short=false)=>v?new Date(v).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',...(short?{}:{hour:'2-digit',minute:'2-digit'})}):'—';

@@ -4,3 +4,14 @@ body{background:#f3f6f3}main{max-width:1800px}.card{border-color:#e1e8e2;border-
 @media(max-width:1000px){.funnel-layout{grid-template-columns:1fr}}
 @media(max-width:700px){.metric-panel{padding:18px}.kpis{gap:10px}.kpi{min-height:150px}.kpi .value{font-size:29px}.kpi .label{font-size:11px;line-height:1.6}.kpi .detail{font-size:10px}.distribution{flex-direction:column;gap:12px}.distribution-legend{width:100%}.donut{width:150px;height:150px}.trend-svg{min-height:180px}.chart-legend{font-size:10px;gap:10px}.outcome p{display:block}.funnel-caption{font-size:11px}.funnel-caption strong{font-size:18px}.funnel-caption>span{gap:6px}.funnel-caption small{margin-left:3px}.funnel-rail{height:28px}.outcome-grid{gap:10px}.metric-panel h2{font-size:17px}}
 @media(prefers-reduced-motion:reduce){.funnel-rail>div{transition:none}}
+
+/* North Star: one number, large, with its three drivers beside it. */
+.north-star{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:24px;padding:26px 28px;margin-bottom:20px;background:linear-gradient(120deg,#1f4a3c,#2f6f5c);color:#fff;border:0}
+.north-star .eyebrow{color:#bfe3d2;letter-spacing:.12em;margin:0}
+.ns-value{font-size:clamp(56px,8vw,88px);font-weight:700;line-height:1;margin:8px 0 6px;font-variant-numeric:tabular-nums}
+.north-star h2{color:#fff;margin:0 0 6px;font-size:20px}
+.north-star .muted{color:#d6ebe1;margin:0;max-width:60ch}
+.ns-side{display:grid;gap:12px;align-content:center}
+.ns-side>div{background:#ffffff14;border-radius:12px;padding:12px 14px;display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:2px 12px}
+.ns-side span{color:#d6ebe1;font-size:13px}.ns-side strong{font-size:24px;font-variant-numeric:tabular-nums}.ns-side small{grid-column:1/-1;color:#bfe3d2;font-size:12px}
+@media (max-width:900px){.north-star{grid-template-columns:1fr}}

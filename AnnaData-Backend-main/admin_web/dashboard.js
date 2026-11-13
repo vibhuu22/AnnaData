@@ -1,5 +1,6 @@
 /* Structured views. Values come only from the authenticated aggregate endpoint. */
 const dashboardTitles = {
+ north_star:['Are farmers coming back?','The North Star: farmers who asked a real question, got an answer, and came back for more.','North Star'],
  funnel:['From first visit to repeat use.','Website traffic, message senders, verified sign-ins and returning visitors.','Website funnel'],
  overview:['The whole picture.','Adoption, service performance and feedback — with evidence behind every number.','Overview'],
  adoption:['Are people coming back?','Incoming-message activity across the selected audience and period.','Adoption'],
@@ -27,7 +28,7 @@ function insightPanel() {
 }
 function activityPanel() {
  const rows=data.detailed.adoption.activity;
- return panel('Activity over time','Daily incoming messages and active identifiers � IST. First and current days may be partial.',trendChart(rows,[{key:'messages',label:'Incoming messages'},{key:'participants',label:'Active identifiers'}],'Daily activity')+`<details class="data-details"><summary>View daily values (${rows.length} dates)</summary>${metricTable(['IST date','Active identifiers','Incoming messages','Tracked requests','Recorded failures'],rows.map(r=>[esc(r.date),fmt(r.participants),fmt(r.messages),fmt(r.requests),fmt(r.failed)]))}</details>`);
+ return panel('Activity over time','Daily incoming messages and active identifiers · IST. First and current days may be partial.',trendChart(rows,[{key:'messages',label:'Incoming messages'},{key:'participants',label:'Active identifiers'}],'Daily activity')+`<details class="data-details"><summary>View daily values (${rows.length} dates)</summary>${metricTable(['IST date','Active identifiers','Incoming messages','Tracked requests','Recorded failures'],rows.map(r=>[esc(r.date),fmt(r.participants),fmt(r.messages),fmt(r.requests),fmt(r.failed)]))}</details>`);
 }
 function dimensionPanel(field, title, note) {
  const rows=data.detailed.dimensions[field];
@@ -43,12 +44,35 @@ function unavailablePanel() {
  ['Demographic diversity','Age, gender and other demographics are not recorded; never inferred from text.']
  ].map(([h,t])=>`<div><span class="tag">Not measured</span><h3>${h}</h3><p>${t}</p></div>`).join('')}</div>`);
 }
+/* The North Star: weekly returning farmers with an answered question. */
+function northStarSummary(ns) {
+ if(!ns)return '';
+ const w=ns.this_week, last=ns.last_complete_week, before=ns.week_before;
+ const change=last&&before?last.value-before.value:null;
+ const changeText=change==null?'No earlier complete week to compare':change===0?'Same as the week before':`${change>0?'+':''}${change} vs the week before (${before.value})`;
+ return `<section class="card north-star" aria-label="North Star metric">
+  <div class="ns-main"><p class="eyebrow">NORTH STAR · THIS WEEK SO FAR</p><div class="ns-value">${fmt(w?w.value:null)}</div><h2>${esc(ns.name)}</h2><p class="muted">Week starting ${esc(w?w.week_start:'—')} (IST, Monday to Sunday). ${w&&!w.lookback_complete?'The selected period holds under 30 days of history before this week, so some returning farmers may show as first-time; choose a longer period.':''}</p></div>
+  <div class="ns-side">
+   <div><span>Last complete week</span><strong>${fmt(last?last.value:null)}</strong><small>${esc(changeText)}</small></div>
+   <div><span>Answered farmers this week</span><strong>${fmt(w?w.answered:null)}</strong><small>${fmt(w?w.first_time:null)} of them first-time</small></div>
+   <div><span>Came back from last week</span><strong>${w&&w.returned_from_last_week?pct(w.returned_from_last_week):'Not measured'}</strong><small>${w&&w.returned_from_last_week?sample(w.returned_from_last_week)+' answered last week':'Needs a previous week'}</small></div>
+  </div></section>`;
+}
+function northStarPage() {
+ const ns=data.detailed.north_star;
+ if(!ns)return empty('North Star not available','The backend does not report it yet. Deploy the latest backend.');
+ const weeks=ns.weeks;
+ return northStarSummary(ns)+
+  panel('Week by week','Returning farmers (the North Star) against all farmers who got an answer. The current week is partial.',trendChart(weeks,[{key:'value',label:'Returning farmers (North Star)'},{key:'answered',label:'Farmers with an answered question'}],'North Star by week')+`<details class="data-details" open><summary>Weekly values (${weeks.length} weeks)</summary>${metricTable(['Week starting (IST)','North Star','Answered','First-time','Came back from previous week','Notes'],weeks.slice().reverse().map(w=>[esc(w.week_start),`<strong>${fmt(w.value)}</strong>`,fmt(w.answered),fmt(w.first_time),w.returned_from_last_week?pct(w.returned_from_last_week):'—',[w.partial?'Week in progress':'',w.lookback_complete?'':'Under 30 days of history'].filter(Boolean).join(' · ')||'—']))}</details>`)+
+  `<div class="two-col">${panel('What counts','The definition used for every number on this page.',`<p>${esc(ns.definition)}</p>`)}${panel('Keep it honest','Before reading growth into this number.',`<p>Your own and testers' accounts must be marked as founder or test (in a conversation, under participant classification) or listed in <code>ANALYTICS_TEST_USERS</code>, or they count as farmers.</p><p>Watch the limits beside it: wrong or unregistered doses (should be zero), unsupported prices or figures, response time and cost per answer.</p>`)}</div>`;
+}
 function dashboardPage(which) {
  if(which==='funnel')return websitePage();
+ if(which==='north_star')return northStarPage();
  const d=data.detailed,m=data.metrics,a=d.adoption,e=d.efficiency,f=d.feedback;
  const kpis=items=>`<section class="kpis">${items.join('')}</section>`;
  const context=`<div class="scope-note"><span class="private-dot"></span><strong>${esc($('#audience').selectedOptions[0].text)}</strong><span>Rolling ${d.window_days}-day window · identifiers are not verified people</span></div>`;
- if(which==='overview')return context+kpis([
+ if(which==='overview')return context+northStarSummary(d.north_star)+kpis([
   card('Active participant identifiers',fmt(a.active_in_window),'Sent at least one incoming message',true),
   card('Repeat activity',pct(a.repeat_on_multiple_days),sample(a.repeat_on_multiple_days)+' active on multiple dates'),
   card('Recorded backend failure rate',pct(e.failure_rate),sample(e.failure_rate)+' completed requests'),

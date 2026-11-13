@@ -71,7 +71,8 @@ def build_conversations(messages, audiences, reviews, excluded, ratings=None):
         body=redact(m.get('body'))
         g['messages'].append({'id':m['id'],'direction':m['direction'],'body':body,
             'created_at':at.isoformat(),'request_id':meta.get('request_id'),
-            'intent':meta.get('intent'),'message_type':meta.get('message_type')})
+            'intent':meta.get('intent'),'message_type':meta.get('message_type'),
+            'tools':meta.get('tools')})
         g['updated_at']=at.isoformat()
         g['inferred'] |= inferred
         g['channels'].add(meta.get('channel') or 'unknown')
