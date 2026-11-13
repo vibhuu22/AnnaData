@@ -138,7 +138,7 @@ def overview(conversations, requests, audiences, excluded, selection, now=None):
       'audience_counts':dict(Counter(g['audience'] for g in conversations)),
       'useful_answers':rate(len(useful),len(safety_reviewed)),
       'critical_errors':rate(len(critical),len(safety_reviewed)),
-      'review_coverage':rate(len(reviewed),len(groups)),
+      'review_coverage':rate(len(safety_reviewed),len(groups)),
       'answer_generation':rate(len(answered),len(completed)),
       'telemetry_requests':len(telemetry),'pending_requests':len(pending),
       'abandoned_requests':sum(now-stamp(r['started_at'])>timedelta(minutes=15) for r in pending),
