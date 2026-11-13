@@ -16,9 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import db
 import feedback
+import metrics_store
 from config import FEEDBACK_COOLDOWN_DAYS
 
 USER = "+919999000001"          # reserved for this test, removed afterwards
+OTHER = "+919999000002"         # a second farmer, for the ownership check
 failures = []
 
 
@@ -32,6 +34,8 @@ def check(name: str, got, want):
 def cleanup(conn):
     for table in ("feedback", "messages", "farmers"):
         conn.execute(f"DELETE FROM {table} WHERE user_id = %s", (USER,))
+    conn.execute("DELETE FROM analytics_requests WHERE user_id = ANY(%s)",
+                 ([metrics_store.normal_user(u) for u in (USER, OTHER)],))
 
 
 def main() -> int:
@@ -107,11 +111,25 @@ def main() -> int:
               (row[0], row[1]), (1, "web: down - galat dawa"))
         check("and counts as their rating, so SMS does not ask as well",
               USER in feedback.due_for_feedback(), False)
+
+        # A web rating names the answer it is about - but only an answer this
+        # farmer was given. Someone else's id is dropped; the tap is kept.
+        metrics_store.init()
+        own = metrics_store.begin(USER, None, "web")
+        other = metrics_store.begin(OTHER, None, "web")
+        feedback.record_web(USER, up=False, request_id=own)
+        feedback.record_web(USER, up=True, request_id=other)
+        with db.connection() as conn:
+            rows = conn.execute(
+                "SELECT rating, request_id FROM feedback WHERE user_id = %s ORDER BY id DESC LIMIT 2",
+                (USER,)).fetchall()
+        check("a rating is stored against the answer it rates", tuple(rows[1]), (1, own))
+        check("but never against another farmer's answer", tuple(rows[0]), (5, None))
     finally:
         with db.connection() as conn:
             cleanup(conn)
 
-    print(f"\n{10 - len(failures)} passed, {len(failures)} failed")
+    print(f"\n{12 - len(failures)} passed, {len(failures)} failed")
     return 1 if failures else 0
 
 

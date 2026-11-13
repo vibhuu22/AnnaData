@@ -241,11 +241,16 @@ export function fetchHistory(limit = 50) {
  * A thumbs up or down on the answer just given. Guests may rate too, under
  * their browser id, and the rating moves onto their number if they sign in.
  */
-export async function rateAnswer(up, note = "") {
+export async function rateAnswer(up, { note = "", requestId = null } = {}) {
   const response = await fetch(`${getApiUrl()}/feedback/answer`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...askHeaders() },
-    body: JSON.stringify({ up, note: note || null }),
+    body: JSON.stringify({ up, note: note || null, ...(requestId ? { request_id: requestId } : {}) }),
+ *
+ * requestId is the id that answer came back with. It is what ties the tap to
+ * one reply rather than to the whole conversation, so a thumbs down can be
+ * traced to the answer that earned it. Left out when the turn has none (an
+ * answer from an older backend); the tap is still kept.
   });
   if (!response.ok) throw new Error(`rating ${response.status}`);
   return response.json();

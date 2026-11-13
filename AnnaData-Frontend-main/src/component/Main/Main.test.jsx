@@ -204,9 +204,9 @@ describe('a new answer is written out', () => {
 
 describe('rating an answer', () => {
   test('one tap records it and says thanks', async () => {
-    show([{ id: '1', prompt: 'q', response: 'An answer' }]);
+    show([{ id: '1', prompt: 'q', response: 'An answer', requestId: 'req-1' }]);
     fireEvent.click(screen.getByRole('button', { name: 'No, not useful' }));
-    await waitFor(() => expect(rateAnswer).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(rateAnswer).toHaveBeenCalledWith(false, { requestId: 'req-1' }));
     expect(screen.getByText(/Thanks for telling us/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Yes, useful' })).not.toBeInTheDocument();
   });

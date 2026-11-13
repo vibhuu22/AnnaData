@@ -1078,6 +1078,9 @@ def rate_answer(request: AnswerRating,
                 http: Request,
                 authorization: Optional[str] = Header(None),
                 x_guest_id: Optional[str] = Header(None),
+    # Which answer is being rated - the request_id that answer came back with.
+    # Optional, so an older page that does not send it still has its tap kept.
+    request_id: Optional[UUID] = None
                 x_forwarded_for: Optional[str] = Header(None)):
     """A thumbs up or down on the answer just given, from the web.
 
@@ -1097,7 +1100,8 @@ def rate_answer(request: AnswerRating,
                                 headers={"Retry-After": str(wait)})
         user_id = guest
     note = (request.note or "").strip()[:300]
-    return {"stored": feedback.record_web(user_id, request.up, note)}
+    return {"stored": feedback.record_web(user_id, request.up, note,
+                                          request_id=request.request_id)}
 
 
 @app.get("/news")

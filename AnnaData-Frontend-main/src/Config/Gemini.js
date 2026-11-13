@@ -204,6 +204,9 @@ export async function ask({ text = "", history = [], image = null, audio = null,
       answer: data.answer || "No response from agent.",
       transcript: data.transcript || "",
       vision: data.vision || null,
+      // Which answer this is, so a thumbs up or down rates this reply and
+      // not the whole conversation.
+      requestId: data.request_id || null,
       diagnosis: data.diagnosis || null,
       queryUsed: data.query_used || text,
       toolsUsed: data.tools_used || [],
