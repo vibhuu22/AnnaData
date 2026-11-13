@@ -85,7 +85,14 @@ def chunk(text: str) -> list[str]:
             tail = current[-OVERLAP_CHARS:]
             # Resume from a sentence boundary inside the overlap where possible.
             cut = tail.find(". ")
-            current = (tail[cut + 2:] if cut != -1 else tail) + "\n\n" + para
+            if cut != -1:
+                tail = tail[cut + 2:]
+            else:
+                # No sentence boundary: at least start on a whole word, or
+                # the next chunk opens with half of one.
+                space = tail.find(" ")
+                tail = tail[space + 1:] if space != -1 else tail
+            current = tail + "\n\n" + para
         else:
             current = para
 

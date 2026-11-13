@@ -123,7 +123,7 @@ if Agent is not None:
     Agent.get_farming_advice = fake_advice
     Agent.llm = FakeLLM()
     Agent.kb_available = lambda: False
-    Agent.knowledge.documents_loaded = lambda: False
+    Agent.knowledge.documents_loaded = lambda kind=None: False
 
     made = []
 

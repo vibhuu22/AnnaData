@@ -16,6 +16,7 @@ const LABELS = {
   weather: "Weather for your area",
   soil: "Soil data (Earth Engine)",
   kb: "Scheme documents",
+  advisory: "Government pest advisories (DPPQ&S)",
   image: "Photo analysis",
 };
 
