@@ -7,6 +7,7 @@ import AppStatus from "./component/AppStatus";
 import { Auth } from "./Context/AuthProvider";
 import { Flow } from "./Context/Flow";
 import { useUiLanguage } from './Config/uiLanguage';
+import { startTraffic } from './Config/traffic';
 
 /**
  * The chat, for everybody, and the full-screen steps on top of it.
@@ -18,6 +19,7 @@ import { useUiLanguage } from './Config/uiLanguage';
  * from "Not now" or from a finished profile lands exactly where they were.
  */
 function App() {
+  React.useEffect(() => { startTraffic(); }, []);
   const language = useUiLanguage();
   React.useEffect(() => { document.documentElement.lang = language; }, [language]);
   const { checking } = useContext(Auth);

@@ -1,5 +1,6 @@
 /* Structured views. Values come only from the authenticated aggregate endpoint. */
 const dashboardTitles = {
+ funnel:['From first visit to repeat use.','Website traffic, message senders, verified sign-ins and returning visitors.','Website funnel'],
  overview:['The whole picture.','Adoption, service performance and feedback — with evidence behind every number.','Overview'],
  adoption:['Are people coming back?','Incoming-message activity across the selected audience and period.','Adoption'],
  efficiency:['How well does it run?','Backend speed, tracked failures and retry pressure.','Efficiency & errors'],
@@ -43,6 +44,7 @@ function unavailablePanel() {
  ].map(([h,t])=>`<div><span class="tag">Not measured</span><h3>${h}</h3><p>${t}</p></div>`).join('')}</div>`);
 }
 function dashboardPage(which) {
+ if(which==='funnel')return websitePage();
  const d=data.detailed,m=data.metrics,a=d.adoption,e=d.efficiency,f=d.feedback;
  const kpis=items=>`<section class="kpis">${items.join('')}</section>`;
  const context=`<div class="scope-note"><span class="private-dot"></span><strong>${esc($('#audience').selectedOptions[0].text)}</strong><span>Rolling ${d.window_days}-day window · identifiers are not verified people</span></div>`;

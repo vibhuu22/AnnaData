@@ -475,6 +475,13 @@ def forget(user_id: str) -> bool:
             conn.execute("DELETE FROM messages WHERE user_id = %s", (user_id,))
             conn.execute("DELETE FROM farmers  WHERE user_id = %s", (user_id,))
             from metrics_store import normal_user, participant_id
+            # A verified account can own pre-sign-in events through its guest alias.
+            if conn.execute('SELECT to_regclass(%s)', ('web_analytics_events',)).fetchone()[0]:
+                conn.execute('DELETE FROM web_analytics_events WHERE participant_id=%s OR guest_id=%s',
+                             (participant_id(user_id), participant_id(user_id)))
+                if conn.execute('SELECT to_regclass(%s)', ('web_analytics_identity',)).fetchone()[0]:
+                    conn.execute('DELETE FROM web_analytics_events WHERE guest_id IN (SELECT guest_id FROM web_analytics_identity WHERE participant_id=%s)', (participant_id(user_id),))
+                    conn.execute('DELETE FROM web_analytics_identity WHERE participant_id=%s OR guest_id=%s', (participant_id(user_id), participant_id(user_id)))
             # Analytics tables may not exist yet during a rolling deployment.
             for table, column, value in (
                 ('analytics_requests', 'user_id', normal_user(user_id)),

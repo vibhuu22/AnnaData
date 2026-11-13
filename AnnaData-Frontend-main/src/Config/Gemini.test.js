@@ -1,3 +1,4 @@
+jest.mock('./traffic', () => ({ startTraffic: jest.fn(), trackMessage: jest.fn() }));
 // jsdom does not expose Node's streams; the browser has them natively.
 const { ReadableStream: NodeReadableStream } = require('stream/web');
 const { TextDecoder: NodeTextDecoder, TextEncoder: NodeTextEncoder } = require('util');

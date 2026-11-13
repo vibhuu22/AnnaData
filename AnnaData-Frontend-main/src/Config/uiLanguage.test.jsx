@@ -1,3 +1,4 @@
+jest.mock('./traffic', () => ({ startTraffic: jest.fn(), trackMessage: jest.fn() }));
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { initialLanguage, setUiLanguage, t, useUiLanguage } from './uiLanguage';

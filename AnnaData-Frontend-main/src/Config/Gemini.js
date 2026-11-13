@@ -1,5 +1,6 @@
 import { getApiUrl } from "./api";
 import { askHeaders, getToken, reportUnauthorized } from "./session";
+import { trackMessage } from './traffic';
 
 const GEOLOCATION_TIMEOUT_MS = 3000;
 
@@ -120,6 +121,7 @@ async function readEvents(response, { onHeard, onText }) {
  * render it as a message rather than having to catch.
  */
 export async function ask({ text = "", history = [], image = null, audio = null, channel = "web", chatId = null, onHeard, onText }) {
+  trackMessage(image ? 'photo' : audio || channel === 'voice' ? 'voice' : 'web');
   const coords = await getCoordinates();
   const hasMedia = Boolean(image || audio);
   const canStream = Boolean(onText) && typeof ReadableStream !== "undefined" && typeof TextDecoder !== "undefined";
@@ -202,11 +204,11 @@ export async function ask({ text = "", history = [], image = null, audio = null,
     }
     return {
       answer: data.answer || "No response from agent.",
-      transcript: data.transcript || "",
-      vision: data.vision || null,
       // Which answer this is, so a thumbs up or down rates this reply and
       // not the whole conversation.
       requestId: data.request_id || null,
+      transcript: data.transcript || "",
+      vision: data.vision || null,
       diagnosis: data.diagnosis || null,
       queryUsed: data.query_used || text,
       toolsUsed: data.tools_used || [],

@@ -16,6 +16,7 @@ from psycopg_pool import PoolTimeout
 import db
 import metrics_store as store
 from dashboard_metrics import detailed_metrics
+import traffic_analytics
 from analytics_metrics import (AUDIENCES, VERDICTS, SEVERITIES, PAIN_POINTS,
     build_conversations, overview, audience_matches, redact)
 
@@ -110,6 +111,12 @@ def check_audience(audience):
     if audience not in AUDIENCES|{'all','non_test'}:raise HTTPException(422,'Unknown audience')
 
 
+@router.get('/admin/api/website',dependencies=[Depends(require_admin)])
+def website(days: int=Query(30,ge=1,le=180), audience: str='all', all_time: bool=False):
+    check_audience(audience)
+    return traffic_analytics.dashboard(days,audience,excluded_participants(),all_time)
+
+
 @router.get('/admin/api/dashboard',dependencies=[Depends(require_admin)])
 # 'all' by default: until accounts are classified, a farmers-only view is
 # empty, and an empty dashboard on the first day reads as a broken one.
@@ -119,6 +126,7 @@ def dashboard(days: int=Query(30,ge=1,le=180),audience: str='all'):
     selected=[g for g in groups if audience_matches(g['audience'],audience)]
     public=[{k:v for k,v in g.items() if k!='messages'} for g in selected]
     return {'metrics':overview(groups,requests,audiences,excluded_participants(),audience),
+        'website':traffic_analytics.dashboard(days,audience,excluded_participants()),
         'detailed':detailed_metrics(groups,requests,audiences,excluded_participants(),audience,since,
                                    ratings_available=getattr(groups,'ratings_available',True)),
         'conversations':public,'cache':caches,'window_start':since,'generated_at':datetime.now(timezone.utc),

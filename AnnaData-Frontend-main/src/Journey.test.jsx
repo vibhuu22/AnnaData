@@ -1,3 +1,4 @@
+jest.mock('./Config/traffic', () => ({ startTraffic: jest.fn(), trackMessage: jest.fn() }));
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import App from './App';
 import AuthProvider from './Context/AuthProvider';
@@ -112,7 +113,8 @@ test('a guest asks, saves their farm in two steps, comes back, and signs out', a
   // About you. The guest id went with the code, so the backend can move the
   // question onto this number.
   await screen.findByRole('heading', { name: 'About you' });
-  expect(verifyBody).toEqual({ phone: '9999000099', code: '123456', guest_id: guestId });
+  expect(verifyBody).toEqual({ phone: '9999000099', code: '123456', guest_id: guestId,
+    analytics: { guest_id: guestId, visitor_id: expect.any(String), session_id: expect.any(String) } });
   expect(getToken()).toBe('test-session');
   fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Test Farmer' } });
   fireEvent.click(screen.getByRole('button', { name: 'Next: your farm' }));

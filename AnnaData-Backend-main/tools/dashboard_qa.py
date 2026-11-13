@@ -29,12 +29,12 @@ async def main():
                 if await tab.js("!document.querySelector('#workspace').hidden"): break
                 await asyncio.sleep(.5)
             else: raise RuntimeError('Dashboard login did not complete')
-            for section in ['overview','adoption','efficiency','diversity','feedback','health','reviews','guide','model_info']:
+            for section in ['funnel','overview','adoption','efficiency','diversity','feedback','health','reviews','guide','model_info']:
                 await tab.js("document.querySelector('[data-view=\""+section+"\"]').click()")
                 status=await tab.js("({title:document.querySelector('#page-title').textContent,content:document.querySelector('#content').innerText.length,overflow:document.documentElement.scrollWidth>innerWidth})")
                 assert status['content']>100 and not status['overflow'], (section,status)
                 print(section, status,flush=True)
-                if section in ['overview','efficiency','diversity','feedback']:
+                if section in ['funnel','overview','efficiency','diversity','feedback']:
                     shot=await tab.call('Page.captureScreenshot',format='png')
                     (output/(section+'.png')).write_bytes(base64.b64decode(shot['data']))
             await tab.js("document.querySelector('[data-view=overview]').click();document.querySelector('#audience').value='farmer';document.querySelector('#audience').dispatchEvent(new Event('change'))")
@@ -50,7 +50,7 @@ async def main():
                 await asyncio.sleep(.3)
             else: raise RuntimeError('Filter refresh did not finish')
             await tab.call('Emulation.setDeviceMetricsOverride',width=390,height=844,deviceScaleFactor=1,mobile=True)
-            for section in ['overview','adoption','efficiency','diversity','feedback','health','guide']:
+            for section in ['funnel','overview','adoption','efficiency','diversity','feedback','health','guide']:
                 await tab.js("document.querySelector('[data-view=\""+section+"\"]').click()")
                 assert not await tab.js('document.documentElement.scrollWidth>innerWidth'),section
             await tab.js("document.querySelector('[data-view=overview]').click()")
