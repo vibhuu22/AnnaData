@@ -175,52 +175,56 @@ function Sidebar() {
                 </ul>
               </section>
             )}
-
-            {extended && (
-              <section className="glass-soft mt-4 rounded-2xl p-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-soil-600">{t("Your area")}</h2>
-                {loading && <p className="mt-2 text-sm text-soil-600">{t("Finding your area…")}</p>}
-                {/* Not an error state. A farmer who declined the location
-                    prompt has not broken anything - the agent asks for a
-                    district in the conversation instead. */}
-                {askToLocate && !error && (
-                  <button
-                    type="button"
-                    onClick={area.locate}
-                    className="mt-2 min-h-touch text-left text-sm font-semibold text-leaf-700 underline-offset-4 hover:underline"
-                  >{t("Show weather for my area")}</button>
-                )}
-                {error && (
-                  <p className="mt-2 text-sm text-soil-600">{t("Location unavailable — mention your district in the question and the answer will use it.")}</p>
-                )}
-                {!loading && !error && weatherData && (
-                  <>
-                    {locationName && <p className="mt-1 text-sm font-semibold text-soil-900">{locationName}</p>}
-                    <p className="mt-1 text-sm text-soil-700">
-                      <span className="text-xl font-semibold text-soil-900">
-                        {Math.round(weatherData.current_weather.temperature)}°C
-                      </span>
-                      {weatherData.daily?.temperature_2m_max?.[0] != null && (
-                        <span className="ml-2 text-soil-600">{t("today")}{" "}{Math.round(weatherData.daily.temperature_2m_min[0])}–
-                          {Math.round(weatherData.daily.temperature_2m_max[0])}°
-                        </span>
-                      )}
-                    </p>
-                    <p className="mt-2 border-t border-white/80 pt-2 text-sm text-soil-700">
-                      {wet ? (
-                        <>
-                          <span className="font-semibold text-soil-900">{t("Rain")}{" "}{describeDay(wet.date, wet.index)}</span>{t(", about")}{" "}
-                          {wet.mm.toFixed(0)} {t("mm")}</>
-                      ) : (
-                        <>
-                          <span className="font-semibold text-soil-900">{t("No rain expected")}</span>{t("in the next seven days")}</>
-                      )}
-                    </p>
-                  </>
-                )}
-              </section>
-            )}
           </div>
+
+          {/* Pinned, not scrolled. This used to sit inside the scrolling
+              list above, so a farmer with a dozen chats had to scroll past
+              all of them to find out whether it was going to rain. The chat
+              list scrolls; the weather stays where it is. */}
+          {extended && (
+            <section className="glass-soft mt-3 shrink-0 rounded-2xl p-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-soil-600">{t("Your area")}</h2>
+              {loading && <p className="mt-2 text-sm text-soil-600">{t("Finding your area…")}</p>}
+              {/* Not an error state. A farmer who declined the location
+                  prompt has not broken anything - the agent asks for a
+                  district in the conversation instead. */}
+              {askToLocate && !error && (
+                <button
+                  type="button"
+                  onClick={area.locate}
+                  className="mt-2 min-h-touch text-left text-sm font-semibold text-leaf-700 underline-offset-4 hover:underline"
+                >{t("Show weather for my area")}</button>
+              )}
+              {error && (
+                <p className="mt-2 text-sm text-soil-600">{t("Location unavailable — mention your district in the question and the answer will use it.")}</p>
+              )}
+              {!loading && !error && weatherData && (
+                <>
+                  {locationName && <p className="mt-1 text-sm font-semibold text-soil-900">{locationName}</p>}
+                  <p className="mt-1 text-sm text-soil-700">
+                    <span className="text-xl font-semibold text-soil-900">
+                      {Math.round(weatherData.current_weather.temperature)}°C
+                    </span>
+                    {weatherData.daily?.temperature_2m_max?.[0] != null && (
+                      <span className="ml-2 text-soil-600">{t("today")}{" "}{Math.round(weatherData.daily.temperature_2m_min[0])}–
+                        {Math.round(weatherData.daily.temperature_2m_max[0])}°
+                      </span>
+                    )}
+                  </p>
+                  <p className="mt-2 border-t border-white/80 pt-2 text-sm text-soil-700">
+                    {wet ? (
+                      <>
+                        <span className="font-semibold text-soil-900">{t("Rain")}{" "}{describeDay(wet.date, wet.index)}</span>{t(", about")}{" "}
+                        {wet.mm.toFixed(0)} {t("mm")}</>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-soil-900">{t("No rain expected")}</span>{t("in the next seven days")}</>
+                    )}
+                  </p>
+                </>
+              )}
+            </section>
+          )}
 
           {/* The account, at the bottom where a footer belongs. Absent for a
               guest: there is no account to show, and the header carries the
