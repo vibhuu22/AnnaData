@@ -15,17 +15,22 @@ export const AVATARS = [
   { id: "up", region: "UP and Bihar", look: "Green saree pallu" },
 ].map((a) => ({ ...a, src: `${process.env.PUBLIC_URL || ""}/avatars/ankur-${a.id}.webp` }));
 
-// Looks drawn in every voice-mode pose. The rest show their one picture and
-// move it instead. Master crops share torso anchors, a common canvas and baseline.
-const POSED = ["master", "assam"];
-const POSES = ["listen", "think", "talk-open", "talk-half"];
+// The voice-mode poses each look is drawn in; a look not listed shows its one
+// picture and moves it instead. Every posed look shares Master Ankur's canvas,
+// scale and baseline (tools/prepare_ankur_look.py), so poses swap in place.
+const ALL = ["listen", "think", "talk-open", "talk-half", "sorry", "success"];
+const POSED = {
+  master: ALL,
+  assam: ["listen", "think", "talk-open", "talk-half"],
+  bengal: ALL,
+};
 
 /** The pictures for each voice-mode moment, or null for a single-picture look. */
 export function posesOf(avatar) {
-  if (!POSED.includes(avatar.id)) return null;
-  // Master's talking pair shares one body, with only the mouth region changing.
+  const poses = POSED[avatar.id];
+  if (!poses) return null;
   const at = (pose) => `${process.env.PUBLIC_URL || ""}/avatars/ankur-${avatar.id}-${pose}.webp`;
-  return { hello: avatar.src, ...Object.fromEntries((avatar.id === "master" ? [...POSES, "sorry", "success"] : POSES).map((p) => [p, at(p)])) };
+  return { hello: avatar.src, ...Object.fromEntries(poses.map((p) => [p, at(p)])) };
 }
 
 export const DEFAULT_AVATAR = "master";

@@ -27,3 +27,16 @@ test('Master Ankur acts in every voice-mode pose; a look without poses has none'
   expect(poses['talk-half']).not.toBe(poses['talk-open']);
   expect(posesOf(AVATARS.find((a) => a.id === 'punjab'))).toBeNull();
 });
+
+test('Bengal acts in all six poses, and every pose of every look has its picture', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const bengal = posesOf(AVATARS.find((a) => a.id === 'bengal'));
+  expect(Object.keys(bengal)).toEqual(['hello', 'listen', 'think', 'talk-open', 'talk-half', 'sorry', 'success']);
+  for (const look of AVATARS) {
+    for (const src of Object.values(posesOf(look) || { hello: look.src })) {
+      const file = path.join(__dirname, '../../public', src.replace(/^.*?\/avatars\//, 'avatars/'));
+      expect(fs.existsSync(file)).toBe(true);
+    }
+  }
+});
