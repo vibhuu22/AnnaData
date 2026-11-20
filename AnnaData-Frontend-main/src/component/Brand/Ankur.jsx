@@ -1,14 +1,26 @@
 import React, { useState } from 'react';
 import { t } from '../../Config/uiLanguage';
 import AnkurPicker from './AnkurPicker';
-import { posesOf, useAvatar } from '../../Config/avatar';
+import { canPlayIdle, idleOf, posesOf, useAvatar } from '../../Config/avatar';
 
-/** A shared, fixed frame prevents layout shifts as Ankur changes expression. */
+/**
+ * A shared, fixed frame prevents layout shifts as Ankur changes expression.
+ * Resting (hello), a look with an idle animation plays it in a loop where it
+ * can; the still is its poster and the fallback.
+ */
 export default function Ankur({ pose = 'hello', className = 'h-20 w-20' }) {
   const avatar = useAvatar();
   const poses = posesOf(avatar);
-  return <img src={poses?.[pose] || avatar.src} alt="" aria-hidden="true"
-    width="512" height="512" className={`shrink-0 object-contain ${className}`} />;
+  const still = poses?.[pose] || avatar.src;
+  const idle = pose === 'hello' ? idleOf(avatar) : null;
+  const [failed, setFailed] = useState(false);
+  const [playable] = useState(canPlayIdle);
+  const classes = `shrink-0 object-contain ${className}`;
+  if (idle && playable && !failed) {
+    return <video key={idle} src={idle} poster={still} autoPlay loop muted playsInline preload="auto"
+      aria-hidden="true" width="512" height="512" className={classes} onError={() => setFailed(true)} />;
+  }
+  return <img src={still} alt="" aria-hidden="true" width="512" height="512" className={classes} />;
 }
 
 /**

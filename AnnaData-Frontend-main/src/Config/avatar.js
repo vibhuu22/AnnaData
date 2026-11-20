@@ -27,6 +27,32 @@ const POSED = {
   bengal: ALL,
 };
 
+// Looks with an idle animation (transparent WebM, framed like the still hello;
+// tools/prepare_ankur_idle.py). The still stays where it cannot play.
+const IDLE = ["bengal"];
+
+/** The look's idle animation, or null. */
+export function idleOf(avatar) {
+  return IDLE.includes(avatar.id) ? `${process.env.PUBLIC_URL || ""}/avatars/ankur-${avatar.id}-idle.webm` : null;
+}
+
+/**
+ * Whether to play an idle animation here: not when the farmer asked for less
+ * motion or less data, and only where transparent WebM plays. Safari decodes
+ * VP9 but drops its transparency, which would put a black box behind Ankur.
+ */
+export function canPlayIdle() {
+  try {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return false;
+    if (navigator.connection?.saveData) return false;
+    const ua = navigator.userAgent || "";
+    if (/^((?!chrome|chromium|android|crios|fxios|edg).)*safari/i.test(ua)) return false;
+    return Boolean(document.createElement("video").canPlayType?.('video/webm; codecs="vp9"'));
+  } catch (e) {
+    return false;
+  }
+}
+
 /** The pictures for each voice-mode moment, or null for a single-picture look. */
 export function posesOf(avatar) {
   const poses = POSED[avatar.id];

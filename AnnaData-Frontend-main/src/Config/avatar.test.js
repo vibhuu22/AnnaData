@@ -1,4 +1,4 @@
-import { AVATARS, currentAvatar, chooseAvatar, DEFAULT_AVATAR, pickableAvatars, posesOf } from './avatar';
+import { AVATARS, currentAvatar, chooseAvatar, DEFAULT_AVATAR, idleOf, pickableAvatars, posesOf } from './avatar';
 
 beforeEach(() => window.localStorage.clear());
 
@@ -45,4 +45,13 @@ test('Bengal acts in all six poses, and every pose of every look has its picture
       expect(fs.existsSync(file)).toBe(true);
     }
   }
+});
+
+test('Bengal has an idle animation on disk; Master has none yet', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const idle = idleOf(AVATARS.find((a) => a.id === 'bengal'));
+  expect(idle).toMatch(/avatars\/ankur-bengal-idle\.webm$/);
+  expect(fs.existsSync(path.join(__dirname, '../../public', idle.replace(/^.*?\/avatars\//, 'avatars/')))).toBe(true);
+  expect(idleOf(AVATARS.find((a) => a.id === 'master'))).toBeNull();
 });

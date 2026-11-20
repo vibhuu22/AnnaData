@@ -29,3 +29,21 @@ test('the picker closes on Escape without changing Ankur', () => {
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(window.localStorage.getItem('annadata.avatar')).toBeNull();
 });
+
+test('resting Ankur plays the idle loop where it can, with the still as poster; elsewhere the still', () => {
+  const avatarModule = require('../../Config/avatar');
+  avatarModule.chooseAvatar('bengal');
+  const spy = jest.spyOn(avatarModule, 'canPlayIdle');
+  spy.mockReturnValue(true);
+  const { container, unmount } = render(<><Ankur /><Ankur pose="think" /></>);
+  const video = container.querySelector('video');
+  expect(video.getAttribute('src')).toBe('/avatars/ankur-bengal-idle.webm');
+  expect(video.getAttribute('poster')).toBe('/avatars/ankur-bengal.webp');
+  expect(container.querySelector('img').getAttribute('src')).toBe('/avatars/ankur-bengal-think.webp');
+  unmount();
+  spy.mockReturnValue(false);
+  const again = render(<Ankur />);
+  expect(again.container.querySelector('video')).toBeNull();
+  expect(again.container.querySelector('img').getAttribute('src')).toBe('/avatars/ankur-bengal.webp');
+  spy.mockRestore();
+});
