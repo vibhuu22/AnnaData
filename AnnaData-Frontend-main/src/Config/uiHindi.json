@@ -276,5 +276,20 @@
   "Nothing to read.": "सुनाने के लिए कुछ नहीं है।",
   "This browser cannot read text aloud.": "यह ब्राउज़र लिखे हुए शब्द नहीं सुना सकता।",
   "No {lang} voice is installed on this device, so the answer cannot be read aloud.": "इस फ़ोन में {lang} की आवाज़ उपलब्ध नहीं है, इसलिए जवाब सुनाया नहीं जा सकता।",
-  "Could not read the answer aloud ({error}).": "जवाब सुनाया नहीं जा सका ({error})।"
+  "Could not read the answer aloud ({error}).": "जवाब सुनाया नहीं जा सका ({error})।",
+  "Choose your Ankur": "अपना अंकुर चुनें",
+  "Ankur keeps you company when you talk. More regional looks are coming.": "बात करते समय अंकुर आपके साथ रहता है। और क्षेत्रीय रूप जल्द आ रहे हैं।",
+  "Chosen": "चुना गया",
+  "Master Ankur": "मूल अंकुर",
+  "Bengal": "बंगाल",
+  "UP and Bihar": "यूपी और बिहार",
+  "The essential seed": "असली बीज",
+  "Jaapi hat and gamosa": "जापी टोपी और गमोसा",
+  "Red-white checked gamcha": "लाल-सफ़ेद चेक गमछा",
+  "Saffron pagdi": "केसरिया पगड़ी",
+  "Red bandhej safa": "लाल बंधेज साफ़ा",
+  "White Gandhi topi": "सफ़ेद गांधी टोपी",
+  "White thundu": "सफ़ेद थुंडु",
+  "Green saree pallu": "हरा साड़ी पल्लू",
+  "Change Ankur": "अंकुर बदलें"
 }

@@ -1,4 +1,4 @@
-import { AVATARS, currentAvatar, chooseAvatar, DEFAULT_AVATAR, posesOf } from './avatar';
+import { AVATARS, currentAvatar, chooseAvatar, DEFAULT_AVATAR, pickableAvatars, posesOf } from './avatar';
 
 beforeEach(() => window.localStorage.clear());
 
@@ -8,11 +8,17 @@ test('Master Ankur is the default look', () => {
   expect(currentAvatar().src).toMatch(/avatars\/ankur-master\.webp$/);
 });
 
-test('a chosen look is remembered on this phone, and an unknown one falls back to the default', () => {
-  chooseAvatar('punjab');
-  expect(currentAvatar().region).toBe('Punjab');
+test('a chosen look is remembered on this phone; an unknown or not-yet-posed one falls back to the default', () => {
+  chooseAvatar('bengal');
+  expect(currentAvatar().region).toBe('Bengal');
   chooseAvatar('nowhere');
   expect(currentAvatar().id).toBe('master');
+  chooseAvatar('punjab');
+  expect(currentAvatar().id).toBe('master');
+});
+
+test('only looks drawn in all six poses can be picked', () => {
+  expect(pickableAvatars().map((a) => a.id)).toEqual(['master', 'bengal']);
 });
 
 test('all seven regional looks are available', () => {

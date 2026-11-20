@@ -4,7 +4,7 @@ import { Auth } from "../../Context/AuthProvider";
 import { Context } from "../../Context/ContextProvider";
 import { Flow } from "../../Context/Flow";
 import { primaryButton, textButton, SMS_NUMBER } from "../Flow/ui";
-import Ankur from '../Brand/Ankur';
+import { AnkurButton } from '../Brand/Ankur';
 
 /**
  * A returning farmer's first screen (wireframe 8): who we think they are, the
@@ -37,7 +37,7 @@ function Home() {
 
   return (
     <div className="mx-auto flex w-full max-w-[30rem] flex-grow flex-col gap-4 px-5 py-5">
-      <Ankur className="h-28 w-28 self-center" />
+      <AnkurButton className="h-28 w-28" wrapClassName="self-center" />
       <h1 className="text-2xl font-bold leading-tight text-soil-900">{t("Welcome back")}{firstName ? `, ${firstName}` : ""}
       </h1>
 

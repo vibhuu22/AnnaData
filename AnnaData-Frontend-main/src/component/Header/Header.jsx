@@ -6,6 +6,7 @@ import { Flow } from "../../Context/Flow";
 import { maskPhone } from "../Flow/ui";
 import AnkurMark from "../Brand/AnkurMark";
 import LanguageToggle from '../Brand/LanguageToggle';
+import AnkurPicker from "../Brand/AnkurPicker";
 
 /** The letter on a farmer's avatar: their name's first, else a person icon. */
 function initial(user) {
@@ -24,13 +25,14 @@ const PersonIcon = ({ size = 20 }) => (
  * The top-right corner: an avatar, not words. A guest sees an outline person
  * that opens sign-in; a signed-in farmer sees their initial, which opens a
  * small menu - who is signed in (a shared phone shows whose account is open),
- * their farm, home, and sign out. Closes on a tap outside, Escape, or a choice.
+ * their farm, choosing Ankur's look, home, and sign out. Closes on a tap outside, Escape, or a choice.
  */
 function Profile({ onSignIn }) {
   const { user, signOut } = useContext(Auth) || {};
   const { goHome } = useContext(Context) || {};
   const openFlow = useContext(Flow);
   const [open, setOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
   const boxRef = useRef(null);
 
   useEffect(() => {
@@ -94,6 +96,7 @@ function Profile({ onSignIn }) {
           {openFlow && (
             <button type="button" role="menuitem" onClick={choose(() => openFlow("profile"))} className={item}>{t("Your farm")}</button>
           )}
+          <button type="button" role="menuitem" onClick={choose(() => setPicking(true))} className={item}>{t("Choose your Ankur")}</button>
           {goHome && (
             <button type="button" role="menuitem" onClick={choose(goHome)} className={item}>{t("Home")}</button>
           )}
@@ -102,6 +105,7 @@ function Profile({ onSignIn }) {
           )}
         </div>
       )}
+      {picking && <AnkurPicker onClose={() => setPicking(false)} />}
     </div>
   );
 }

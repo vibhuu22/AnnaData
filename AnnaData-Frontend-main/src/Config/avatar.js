@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /**
  * Ankur, the voice companion, in its regional looks. Master Ankur is the default;
  * a farmer will be able to pick another later (the choice is kept on this
@@ -35,22 +37,46 @@ export function posesOf(avatar) {
 
 export const DEFAULT_AVATAR = "master";
 const KEY = "annadata.avatar";
+const listeners = new Set();
+let visitChoice = null; // the pick, when this phone's storage is blocked
+
+/**
+ * The looks a farmer can pick: those drawn in all six poses on a clear
+ * background. Assam's earlier renders have only four, on a cream backdrop, so
+ * it waits until it is redrawn like Bengal.
+ */
+export function pickableAvatars() {
+  return AVATARS.filter((a) => POSED[a.id]?.length === ALL.length);
+}
 
 /** The look this phone shows: the farmer's choice, else the default. */
 export function currentAvatar() {
   let id = DEFAULT_AVATAR;
   try {
-    id = window.localStorage.getItem(KEY) || DEFAULT_AVATAR;
+    id = window.localStorage.getItem(KEY) || visitChoice || DEFAULT_AVATAR;
   } catch (e) {
-    /* storage blocked: the default */
+    id = visitChoice || DEFAULT_AVATAR; // storage blocked
   }
-  return AVATARS.find((a) => a.id === id) || AVATARS[0];
+  return pickableAvatars().find((a) => a.id === id) || AVATARS[0];
 }
 
 export function chooseAvatar(id) {
+  visitChoice = id;
   try {
     window.localStorage.setItem(KEY, id);
   } catch (e) {
     /* remembered for this visit only */
   }
+  listeners.forEach((listener) => listener());
+}
+
+const subscribe = (listener) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
+/** The current look, re-rendering wherever Ankur shows when a new one is picked. */
+export function useAvatar() {
+  const id = useSyncExternalStore(subscribe, () => currentAvatar().id, () => DEFAULT_AVATAR);
+  return AVATARS.find((a) => a.id === id);
 }

@@ -11,7 +11,7 @@ import VoiceMode from "../Voice/VoiceMode";
 import Explore from "../Explore/Explore";
 import News from "../News/News";
 import BottomNav from "../BottomNav/BottomNav";
-import Ankur from "../Brand/Ankur";
+import Ankur, { AnkurButton } from "../Brand/Ankur";
 import { FaVolumeHigh } from "react-icons/fa6";
 import { useAreaWeather, nextWetDay, describeDay } from "../../Config/areaWeather";
 import { primaryButton, textButton, SMS_NUMBER } from "../Flow/ui";
@@ -612,7 +612,7 @@ function Main() {
       <div className="mx-auto flex w-full max-w-[30rem] flex-grow flex-col gap-4 px-5 pb-5 pt-5">
         {/* Ankur greets; the question stays the screen's heading. */}
         <div className="flex items-center gap-3">
-          <Ankur className="h-24 w-24" />
+          <AnkurButton className="h-24 w-24" />
           <div>
             <p className="text-sm text-soil-700">{t("Namaskar")}{user?.name ? `, ${user.name}` : ""}</p>
             <h1 className="text-2xl font-bold leading-tight text-soil-900">{t("What is happening in your field?")}</h1>
