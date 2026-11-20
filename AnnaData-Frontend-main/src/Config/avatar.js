@@ -29,7 +29,7 @@ const POSED = {
 
 // Looks with an idle animation (transparent WebM, framed like the still hello;
 // tools/prepare_ankur_idle.py). The still stays where it cannot play.
-const IDLE = ["bengal"];
+const IDLE = ["master", "bengal"];
 
 /** The look's idle animation, or null. */
 export function idleOf(avatar) {

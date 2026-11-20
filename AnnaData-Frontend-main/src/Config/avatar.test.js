@@ -47,11 +47,13 @@ test('Bengal acts in all six poses, and every pose of every look has its picture
   }
 });
 
-test('Bengal has an idle animation on disk; Master has none yet', () => {
+test('Master and Bengal have idle animations on disk; a look without one has none', () => {
   const fs = require('fs');
   const path = require('path');
-  const idle = idleOf(AVATARS.find((a) => a.id === 'bengal'));
-  expect(idle).toMatch(/avatars\/ankur-bengal-idle\.webm$/);
-  expect(fs.existsSync(path.join(__dirname, '../../public', idle.replace(/^.*?\/avatars\//, 'avatars/')))).toBe(true);
-  expect(idleOf(AVATARS.find((a) => a.id === 'master'))).toBeNull();
+  for (const id of ['master', 'bengal']) {
+    const idle = idleOf(AVATARS.find((a) => a.id === id));
+    expect(idle).toMatch(new RegExp(`avatars/ankur-${id}-idle\\.webm$`));
+    expect(fs.existsSync(path.join(__dirname, '../../public', idle.replace(/^.*?\/avatars\//, 'avatars/')))).toBe(true);
+  }
+  expect(idleOf(AVATARS.find((a) => a.id === 'punjab'))).toBeNull();
 });
