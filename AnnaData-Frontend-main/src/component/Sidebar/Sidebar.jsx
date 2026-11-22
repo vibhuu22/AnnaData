@@ -115,11 +115,15 @@ function Sidebar() {
 
       <nav
         aria-label="AnnaData"
-        className={`glass-panel fixed left-0 top-0 z-40 h-screen transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+        className={`glass-panel app-viewport fixed left-0 top-0 z-40 transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
           extended ? "translate-x-0" : "-translate-x-full"
         } ${extended ? "w-72 lg:w-64" : "lg:w-[4.25rem]"}`}
       >
-        <div className="flex h-screen flex-col px-2 pb-3 pt-16 lg:pt-2">
+        {/* The visible height (app-viewport: 100dvh), not 100vh: on an iPhone
+            100vh reaches behind Safari's bottom bar, which hid the end of the
+            weather card. The bottom padding clears the home indicator. */}
+        <div className="app-viewport flex flex-col px-2 pt-16 lg:pt-2"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}>
           <div className="hidden lg:flex">
             <button
               type="button"
@@ -218,7 +222,7 @@ function Sidebar() {
                         {wet.mm.toFixed(0)} {t("mm")}</>
                     ) : (
                       <>
-                        <span className="font-semibold text-soil-900">{t("No rain expected")}</span>{t("in the next seven days")}</>
+                        <span className="font-semibold text-soil-900">{t("No rain expected")}</span>{" "}{t("in the next seven days")}</>
                     )}
                   </p>
                 </>
