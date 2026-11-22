@@ -581,6 +581,14 @@ def asks_something(query: str) -> bool:
     return bool(_ASKING.search(query or ""))
 
 
+_THANKS = {"thanks", "thank", "thanku", "thankyou", "thnks", "thks", "thx", "thaks", "shukriya",
+           "dhanyavaad", "dhanyawad", "dhanyabad", "धन्यवाद", "शुक्रिया", "ধন্যবাদ"}
+
+
+def is_thanks(query: str) -> bool:
+    return bool({w.lower() for w in _TOKENS.findall(query or "")} & _THANKS)
+
+
 def is_hello(query: str) -> bool:
     """A greeting or how-are-you, as opposed to thanks, ok or bas."""
     words = {w.lower() for w in _TOKENS.findall(query or "")}
@@ -1141,7 +1149,8 @@ def run_agent(
 
     # And a short reply to a question we asked is an answer, whatever topic the
     # classifier managed to read out of one word. "nahin" carries none.
-    if message_type in ("smalltalk", "statement") and answers_our_question(query, history):
+    if (message_type in ("smalltalk", "statement") and answers_our_question(query, history)
+            and not (is_hello(query) or is_thanks(query))):
         message_type = "question"
 
     # A goodbye that also asks for something is not a goodbye ("thanks, ab gehu
@@ -1158,8 +1167,12 @@ def run_agent(
         social = is_social(query)
         if message_type == "smalltalk" and not social:
             message_type = "question" if asks_something(query) else "statement"
+        # "haan" or "nahi" after our question answers it; "thanks" or "hello"
+        # never does. Live, "thanks" after "Kya aapne beej le liya hai?" was
+        # taken as a reply about seeds and got a page on buying them.
         elif (message_type == "question" and social and intent == "general"
-              and not answers_our_question(query, history)):
+              and (is_hello(query) or is_thanks(query)
+                   or not answers_our_question(query, history))):
             message_type = "smalltalk"
 
     # Someone who photographs a diseased leaf is asking about it, whatever the

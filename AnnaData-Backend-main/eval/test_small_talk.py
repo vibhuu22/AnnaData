@@ -88,6 +88,16 @@ check("a bare 'thanks' labelled a question is answered as small talk",
 r = run("Hello", "smalltalk", history=[], continuing=False)
 check("'Hello' opening a chat is a greeting", r.tools_used, ["greeting"])
 
+print("\nAfter we asked them something (live, 22 November)")
+ASKED = [{"role": "user", "content": "gehu ki buwai kab karein"},
+         {"role": "assistant", "content": "November mein karein. Kya aapne beej le liya hai?"}]
+r = run("thanks", "question", history=ASKED)
+check("'thanks' is not taken as the answer to our question", r.message_type, "smalltalk")
+r = run("Hello kaise ho tum", "question", history=ASKED)
+check("nor is 'Hello kaise ho tum'", (r.message_type, "greeted you again" in seen["prompt"]), ("smalltalk", True))
+r = run("haan", "smalltalk", history=ASKED)
+check("but 'haan' still answers it", r.message_type, "question")
+
 print("\nThe name, in the answer's own script")
 check("Bengali letters in Hinglish become AnnaData",
       Agent.fix_name("Namaste, main hoon অন্নদাতা, aapka kheti salahkar."),
