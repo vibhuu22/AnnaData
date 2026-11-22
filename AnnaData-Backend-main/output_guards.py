@@ -29,7 +29,8 @@ import re
 
 PRICE_SCHEME = re.compile(
     r"\b(msp|frp|minimum support price|fair and remunerative|"
-    r"support price|procurement price|floor price|samarthan mulya)\b",
+    r"support price|procurement price|floor price|samarthan mulya)\b"
+    r"|एमएसपी|एफआरपी|समर्थन मूल्य|लाभकारी मूल्य|সহায়ক মূল্য",
     re.I,
 )
 
@@ -47,7 +48,7 @@ WELFARE_SCHEME = re.compile(
 FIGURE = re.compile(
     r"(?:₹|\brs\.?\b|\binr\b)\s*[\d०-९][\d,०-९]*"
     r"|[\d०-९][\d,०-९]*\s*(?:%|percent|per\s?cent|pratishat|"
-    r"rupees?|rupaye|rupaiya|lakh|crore|/-)",
+    r"rupees?|rupaye|rupaiya|lakh|crore|/-|रुपये|रुपए|रुपया|प्रतिशत|টাকা|শতাংশ)",
     re.I,
 )
 
@@ -147,24 +148,235 @@ def _sentences(text: str) -> list[str]:
 
 def _strip(answer: str, subject: re.Pattern, fallback: str) -> tuple[str, bool]:
     """Drop sentences asserting both the subject and a figure."""
-    kept, removed = [], False
-    for sentence in _sentences(answer):
-        if subject.search(sentence) and FIGURE.search(sentence):
-            removed = True
-            continue
-        kept.append(sentence)
+    return _strip_where(answer, lambda s: bool(subject.search(s) and FIGURE.search(s)), fallback)
 
+
+def _strip_where(answer: str, drop, fallback: str) -> tuple[str, bool]:
+    """Drop every sentence `drop` says to, line by line so lists keep their shape."""
+    kept_lines, removed = [], False
+    for line in answer.split("\n"):
+        kept = []
+        for sentence in _sentences(line):
+            if sentence.strip() and drop(sentence):
+                removed = True
+                continue
+            kept.append(sentence)
+        if kept or not line.strip():
+            kept_lines.append(" ".join(kept))
     if not removed:
         return answer, False
-
-    text = " ".join(s for s in kept if s.strip()).strip()
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(kept_lines)).strip()
     # Stripping can leave a reply that no longer answers anything.
     if len(text) < 40:
         text = fallback
     return text, True
 
 
-def scrub(answer: str, gathered: dict) -> tuple[str, bool]:
+# --- a market price no data supports -----------------------------------------
+#
+# The support-price check above looks for the scheme's name. A mandi rate has no
+# name to look for, and on 11 November one went out invented: "खड़कपुर मंडी में
+# आज आलू का भाव 2200 रुपये" - written on the correction path, with no price data
+# fetched at all, while that district's markets had reported 660 to 810. So a
+# sentence that talks about a price and states an amount of money must take
+# every amount from the data gathered for this answer. Rounding or averaging is
+# lost with it; that is the price of never sending a number nobody reported.
+
+_DIGITS = str.maketrans("०१२३४५६७८९০১২৩৪৫৬৭৮৯", "01234567890123456789")
+
+MONEY = re.compile(
+    r"(?:₹|\brs\.?|\binr\b)\s*\d"
+    r"|\d\s*(?:/-|rupees?\b|rupaye|rupaiya|rupaiye|रुपये|रुपए|रुपया|रु\.|টাকা|taka\b)",
+    re.I)
+PRICE_TALK = re.compile(
+    r"bhav|bhaav|भाव|daam\b|दाम|price|rate\b|mandi|मंडी|मण्डी|quintal|क्विंटल|kwintal|"
+    r"\bmsp\b|\bfrp\b|एमएसपी|एफआरपी|समर्थन|keemat|kimat|कीमत|দাম|দর|কুইন্টাল",
+    re.I)
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers(text: str) -> set[str]:
+    found = set()
+    for raw in _NUMBER.findall((text or "").translate(_DIGITS)):
+        value = raw.replace(",", "")
+        if value.endswith(".0"):
+            value = value[:-2]
+        found.add(value)
+    return found
+
+
+def evidence_numbers(gathered: dict | None) -> set[str]:
+    """Every number in the data gathered for this answer."""
+    found = set()
+    for value in (gathered or {}).values():
+        if isinstance(value, str):
+            found |= _numbers(value)
+    return found
+
+
+def unsupported_price(sentence: str, known: set[str]) -> bool:
+    """A price sentence stating an amount the gathered data does not contain."""
+    text = sentence.translate(_DIGITS)
+    if not (PRICE_TALK.search(text) and MONEY.search(text)):
+        return False
+    for value in _numbers(text):
+        try:
+            number = float(value)
+        except ValueError:
+            continue
+        # Small numbers are days, dates and percentages; a year is a year.
+        if number < 100 or (number.is_integer() and 2000 <= number <= 2100):
+            continue
+        if value not in known:
+            return True
+    return False
+
+
+PRICE_DATA_FALLBACK = (
+    "I do not have a reported price for this on record, so I will not guess one. "
+    "Tell me your state or nearest mandi and I will look up the latest reported rate."
+)
+
+
+# --- "no MSP", for a crop that has one -----------------------------------------
+#
+# Asked about potato and wheat in Paschim Medinipur, the answer said
+# "इन फसलों के लिए कोई सरकारी न्यूनतम समर्थन मूल्य भी घोषित नहीं" - wheat's is
+# Rs 2,585 and the service quotes it elsewhere. Only potato had been looked up.
+# A denial is checked against the table for every crop it could be about: the
+# crops it names, or failing that every crop in the answer and the question.
+
+NO_SUPPORT = re.compile(r"\bmsp\b|support price|samarthan|समर्थन मूल्य|एमएसपी|সহায়ক মূল্য", re.I)
+NEGATION = re.compile(r"\b(?:no|not|none|nahi|nahin|nahee)\b|नहीं|नही|না\b|নেই", re.I)
+
+CROP_WORDS = {
+    "गेहूं": "wheat", "गेहूँ": "wheat", "गेंहू": "wheat", "গম": "wheat",
+    "धान": "rice", "चावल": "rice", "ধান": "rice", "चना": "chickpea", "छोला": "chickpea",
+    "সরষে": "mustard", "सरसों": "mustard", "मक्का": "maize", "बाजरा": "pearl millet",
+    "bajra": "pearl millet", "गन्ना": "sugarcane", "कपास": "cotton", "अरहर": "pigeonpea",
+    "मूंग": "moong", "moong": "moong", "उड़द": "urad", "urad": "urad", "मसूर": "lentil",
+    "masoor": "lentil", "सोयाबीन": "soybean", "मूंगफली": "groundnut", "जौ": "barley",
+    "jau": "barley", "ज्वार": "jowar", "jowar": "jowar", "रागी": "ragi", "ragi": "ragi",
+    "आलू": "potato", "আলু": "potato", "प्याज": "onion",
+}
+
+
+def crops_named(text: str) -> set[str]:
+    from knowledge import CROP_SYNONYMS  # local: knowledge imports output_guards lazily
+    found = set()
+    lowered = (text or "").lower()
+    # "gram" is also a unit and "rai", "tur" ordinary words; they name no crop here.
+    synonyms = {k: v for k, v in CROP_SYNONYMS.items() if k not in {"gram", "rai", "tur", "rui"}}
+    for word, crop in {**CROP_WORDS, **synonyms}.items():
+        if re.search(rf"(?<!\w){re.escape(word.lower())}(?!\w)", lowered):
+            found.add(crop)
+    for crop in set(CROP_SYNONYMS.values()) | {"wheat", "rice", "maize", "barley", "jowar"}:
+        if re.search(rf"\b{re.escape(crop)}\b", lowered):
+            found.add(crop)
+    return found
+
+
+def _has_msp(crop: str) -> bool:
+    import msp
+    try:
+        return bool(msp.for_crop(crop))
+    except Exception:
+        return False
+
+
+def denies_existing_msp(sentence: str, context_crops: set[str]) -> bool:
+    if not (NO_SUPPORT.search(sentence) and NEGATION.search(sentence)):
+        return False
+    crops = crops_named(sentence) or context_crops
+    return any(_has_msp(c) for c in crops)
+
+
+# --- a dose from anywhere in the register --------------------------------------
+#
+# `strip_unmatched_doses` knows only the crop's list as returned for this answer
+# (at most eight rows). A chickpea answer on 10 November quoted
+# "Chlorantraniliprole 41.66 ml per 500 litre" for a pest the register had not
+# matched: a product the register knows, at a dose, not registered for this.
+# When the dose lookup ran, a sentence naming any registered product with an
+# amount must name one registered for this pest.
+
+QUANTITY = re.compile(
+    r"\d[\d.,]*\s*(?:ml\b|मिली|मि\.ली|gm\b|gms\b|grams?\b|gram\b|ग्राम|g\b|kg\b|kgs\b|kilo|किलो|"
+    r"litres?\b|liters?\b|लीटर|গ্রাম|মিলি|লিটার|কেজি)"
+    r"|(?:एक|दो|तीन|चार|पांच|पाँच|दस|बीस|पचास|सौ|डेढ़|ढाई)\s+(?:ग्राम|मिली|किलो|लीटर)",
+    re.I)
+
+# Registered products that are also fertilisers or nutrients; naming them with an
+# amount is ordinary nutrition advice.
+NOT_A_PESTICIDE = {"sulphur", "sulfur", "urea", "potash", "zinc", "boron", "neem"}
+
+
+def registered_heads() -> list[str]:
+    from knowledge import registered_products
+    heads = []
+    for product in registered_products():
+        head = re.split(r"[\s\d%(]", (product or "").strip())[0]
+        if len(head) >= _MIN_HEAD and head.lower() not in NOT_A_PESTICIDE \
+                and head.lower() not in (h.lower() for h in heads):
+            heads.append(head)
+    return heads
+
+
+def _allowed_heads(doses: dict | None) -> list[str]:
+    if not doses or not (doses.get("pest_matched") and doses.get("uses")):
+        return []
+    return [re.split(r"[\s\d%(]", (u.get("product") or "").strip())[0] for u in doses["uses"]]
+
+
+def unregistered_dose(sentence: str, doses: dict | None, heads: list[str]) -> bool:
+    """A sentence giving an amount of a product not registered for this pest."""
+    if doses is None or not QUANTITY.search(sentence.translate(_DIGITS)):
+        return False
+    allowed = {h.lower() for h in _allowed_heads(doses)}
+    return any(h.lower() not in allowed and mentions(sentence, h) for h in heads)
+
+
+# --- per acre where the register says per hectare ------------------------------
+#
+# Every dose in the register is per hectare. "666 से 1000 ग्राम ... प्रति एकड़"
+# went out on 10 November: two and a half times the registered rate.
+
+PER_ACRE = re.compile(r"(प्रति|per|prati)(\s*)(एकड़|एकड|एकर|acres?\b|ekad\b|ekar\b|akar\b)", re.I)
+
+
+def _registered_figures(doses: dict | None) -> list[str]:
+    return [(u.get("dose_formulation") or "").strip() for u in (doses or {}).get("uses") or []
+            if re.search(r"\d", u.get("dose_formulation") or "")]
+
+
+def fix_dose_area(answer: str, doses: dict | None) -> tuple[str, bool]:
+    """Per acre becomes per hectare in sentences carrying a registered dose."""
+    heads = _allowed_heads(doses)
+    figures = [f for f in _registered_figures(doses) if re.fullmatch(r"[\d.,\s\-–]+", f)]
+    if not answer or not heads:
+        return answer, False
+    changed = False
+
+    def fix(sentence):
+        nonlocal changed
+        if not PER_ACRE.search(sentence) or not names_any(sentence, heads, figures):
+            return sentence
+        changed = True
+        def repl(m):
+            word = m.group(1)
+            if re.match(r"[ऀ-ॿ]", word):
+                return "प्रति हेक्टेयर"
+            return f"{word}{m.group(2)}hectare"
+        return PER_ACRE.sub(repl, sentence)
+
+    lines = []
+    for line in answer.split("\n"):
+        lines.append(" ".join(fix(s) for s in _sentences(line)))
+    return ("\n".join(lines) if changed else answer), changed
+
+
+def scrub(answer: str, gathered: dict, query: str | None = None,
+          doses: dict | None = None) -> tuple[str, bool]:
     """Remove price and scheme figures that nothing retrieved supports.
 
     Returns the answer and whether anything was removed. Each check is applied
@@ -194,6 +406,23 @@ def scrub(answer: str, gathered: dict) -> tuple[str, bool]:
         answer, hit = _strip(answer, WELFARE_SCHEME, SCHEME_FALLBACK)
         changed = changed or hit
 
+    # A market price, or any price amount, that the gathered data does not hold.
+    known = evidence_numbers(gathered)
+    answer, hit = _strip_where(answer, lambda s: unsupported_price(s, known), PRICE_DATA_FALLBACK)
+    changed = changed or hit
+
+    # "No MSP" for a crop that has one.
+    context = crops_named(f"{answer} {query or ''}")
+    answer, hit = _strip_where(answer, lambda s: denies_existing_msp(s, context), PRICE_FALLBACK)
+    changed = changed or hit
+
+    # A dose of a registered product not registered for this pest.
+    if doses is not None:
+        heads = registered_heads()
+        answer, hit = _strip_where(answer, lambda s: unregistered_dose(s, doses, heads), DOSE_FALLBACK)
+        changed = changed or hit
+        answer, _ = fix_dose_area(answer, doses)
+
     return answer, changed
 
 
@@ -212,8 +441,12 @@ class SentenceGuard:
     after whatever little survived.
     """
 
-    def __init__(self, gathered: dict, doses: dict | None = None):
+    def __init__(self, gathered: dict, doses: dict | None = None, query: str | None = None):
         self.price = not gathered.get("msp")
+        self.known = evidence_numbers(gathered)
+        self.doses = doses
+        self.heads = registered_heads() if doses is not None else []
+        self.context = crops_named(query or "")
         self.scheme = (gathered.get("kb") or "").startswith(KB_UNCOVERED)
         # Products the register listed for the crop but NOT for this pest. A
         # sentence naming one is dropped as it streams, as strip_unmatched_doses
@@ -239,6 +472,7 @@ class SentenceGuard:
                 return None
             if "\n" in sentence:
                 self.tainted = False
+        sentence, _ = fix_dose_area(sentence, self.doses)
         if FIGURE.search(sentence):
             if self.price and PRICE_SCHEME.search(sentence):
                 self.fallback = self.fallback or PRICE_FALLBACK
@@ -246,6 +480,17 @@ class SentenceGuard:
             if self.scheme and WELFARE_SCHEME.search(sentence):
                 self.fallback = self.fallback or SCHEME_FALLBACK
                 return None
+        # In the order scrub() applies them, so both choose the same fallback.
+        if unsupported_price(sentence, self.known):
+            self.fallback = self.fallback or PRICE_DATA_FALLBACK
+            return None
+        self.context |= crops_named(sentence)
+        if denies_existing_msp(sentence, self.context):
+            self.fallback = self.fallback or PRICE_FALLBACK
+            return None
+        if unregistered_dose(sentence, self.doses, self.heads):
+            self.fallback = self.fallback or DOSE_FALLBACK
+            return None
         self.kept += len(sentence.strip())
         return sentence
 
@@ -370,7 +615,7 @@ def _follows_dose(sentence: str) -> bool:
 
 
 def _norm_range(text: str) -> str:
-    return re.sub(r"\s*[-–]\s*", "-", text)
+    return re.sub(r"(?<=\d)\s*(?:[-–]|\bse\b|से|\bto\b)\s*(?=\d)", "-", text)
 
 
 def names_any(text: str, heads: list[str], figures: list[str] = ()) -> bool:

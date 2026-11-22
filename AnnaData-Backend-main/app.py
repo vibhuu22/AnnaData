@@ -36,6 +36,7 @@ import startup
 import tts
 import weather_tool
 import metrics_store
+import output_guards
 import traffic_analytics
 import admin_api
 from Agent import AgentResult, run_agent, speech_language
@@ -285,6 +286,15 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         metrics_store.fail(request_id, user_id, type(e).__name__)
         raise HTTPException(status_code=502, detail=f"Agent failed: {e}")
 
+    # Answers written without fetching data - a correction, an open question,
+    # "about AnnaData" - never went through the checks the advice path runs, and
+    # one of them invented a mandi rate ("2200 रुपये", 11 November). With no data
+    # behind them, no price figure in them can stand.
+    if set(result.tools_used or []) <= UNCHECKED_PATHS and result.answer:
+        result.answer, scrubbed = output_guards.scrub(result.answer, {}, query=query)
+        if scrubbed:
+            print("Removed an unsupported figure from an answer written without data")
+
     needs_location = False
     confirm_place = None
     if user_id:
@@ -363,6 +373,15 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
     }
 
 
+# Answers that are written without any data fetched for them.
+UNCHECKED_PATHS = {"correction", "about", "greeting", "farewell", "direct",
+                   "acknowledge", "general"}
+
+
+def _ends_with_question(text: str | None) -> bool:
+    return bool(text) and text.rstrip().rstrip("*_ ").endswith(("?", "？"))
+
+
 def _farm_answer(user_id, pending, verdict):
     """The reply to a yes or no to "Is your farm near X?"."""
     language = pending.get("language") or "en"
@@ -392,7 +411,11 @@ def _farm_question(user_id, channel, profile, result):
             # A greeting already ends with its own question; a second one under
             # it is two questions in a row, and a "haan" could mean either. And
             # nothing is asked of a farmer who has just said goodbye.
-            or {"farm", "greeting", "farewell"} & set(result.tools_used or [])):
+            or {"farm", "greeting", "farewell"} & set(result.tools_used or [])
+            # The answer already ends asking something ("is it spreading?"). A
+            # "Yes" then answers that, and was saved as the farm's place: a
+            # Sitapur farmer became "Kharagpur ke kisan bhai" that way.
+            or _ends_with_question(result.answer)):
         return None
     key = whereabouts.asked_key(name)
     if key in ((profile or {}).get("farm_asked") or []):

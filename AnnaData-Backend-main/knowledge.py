@@ -313,6 +313,22 @@ def approved_uses(crop: str | None, pest: str | None = None, limit: int = 8) -> 
         return {"uses": [], "pest_matched": False}
 
 
+_REGISTERED: list[str] = []
+
+
+def registered_products() -> list[str]:
+    """Every product name in the register, loaded once per process."""
+    if _REGISTERED or not db.is_available():
+        return _REGISTERED
+    try:
+        with db.connection() as conn:
+            rows = conn.execute("SELECT DISTINCT product FROM pesticide_uses").fetchall()
+        _REGISTERED.extend(r[0] for r in rows if r[0])
+    except Exception as e:
+        print(f"Register product list failed: {e}")
+    return _REGISTERED
+
+
 def _rows_to_dicts(rows) -> list[dict]:
     keys = ("product", "crop", "pest", "dose_formulation", "dose_ai",
             "dilution", "waiting_period", "source")

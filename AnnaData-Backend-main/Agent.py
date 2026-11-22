@@ -711,7 +711,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
     if on_text:
         # Each sentence is checked against the same evidence scrub() uses
         # before it is sent; scrub() still runs on the whole answer afterwards.
-        return answer_stream.write(llm, prompt, on_text, gathered, doses)
+        return answer_stream.write(llm, prompt, on_text, gathered, doses, farmer_query)
     return llm.invoke([HumanMessage(content=prompt)]).content
 
 
@@ -1268,7 +1268,8 @@ def run_agent(
     )
     # A price or a subsidy is a number a farmer acts on. If nothing retrieved
     # supports it, no sentence claiming one survives, whatever the model wrote.
-    final_response, scrubbed = output_guards.scrub(final_response, gathered)
+    final_response, scrubbed = output_guards.scrub(final_response, gathered, query=query,
+                                                   doses=raw.get("doses"))
     if scrubbed:
         print("Removed an unsupported figure from the answer")
 

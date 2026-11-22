@@ -90,6 +90,8 @@ if Agent is not None:
                       intent="general", message_type="smalltalk"),
         "i am not in shimla": dict(location="Shimla", state="Himachal Pradesh", crop_type="unknown",
                                    pest="unknown", intent="general", message_type="correction"),
+        "aloo ke patte peele": dict(location="unknown", state="unknown", crop_type="potato",
+                                    pest="unknown", intent="disease_pest", message_type="question"),
         "gehu me kaun si khad daalein": dict(location="unknown", state="unknown", crop_type="wheat",
                                             pest="unknown", intent="fertiliser_nutrition",
                                             message_type="question"),
@@ -107,6 +109,8 @@ if Agent is not None:
 
     def fake_advice(location, state, crop, gathered, query, channel, **kw):
         seen["advice"] = (location, state)
+        if "peele" in query:
+            return f"Advice for {location} in {state}. Is it spreading?"
         return f"Advice for {location} in {state}."
 
     class FakeLLM:
@@ -154,6 +158,11 @@ if Agent is not None:
         check("'Is your farm near Kharagpur?' is asked", r["confirm_place"], "Kharagpur")
         check("and nothing is stored as the farm yet", stored(user).get("location_text"), None)
         check("not even the state", stored(user).get("state"), None)
+
+        print("\nAn answer that ends with its own question")
+        r = ask(guest(), "aloo ke patte peele")
+        check("asks nothing about the farm under it - a 'Yes' would mean two things",
+              r["confirm_place"], None)
 
         print("\n'hello' in a new chat, phone in Kharagpur")
         r = ask(guest(), "hello")
