@@ -667,6 +667,7 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
                        ("LIKELY CAUSES", "diagnosis"),
                        ("Soil", "soil"), ("Weather", "weather"),
                        ("Mandi Price", "mandi"),
+                       ("MANDI PRICE NOT LOOKED UP", PRICE_NEEDS_PLACE),
                        ("MINIMUM SUPPORT PRICE", "msp"),
                        ("Knowledge Base", "kb")):
         value = gathered.get(key)
@@ -712,6 +713,10 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
         # before it is sent; scrub() still runs on the whole answer afterwards.
         return answer_stream.write(llm, prompt, on_text, gathered, doses)
     return llm.invoke([HumanMessage(content=prompt)]).content
+
+
+# An instruction for the answer, carried with the data but never a source.
+PRICE_NEEDS_PLACE = "price_needs_place"
 
 
 def gather(tools, *, lat, lon, state, crop, query, pest=None,
@@ -778,9 +783,11 @@ def gather(tools, *, lat, lon, state, crop, query, pest=None,
             except Exception as e:
                 print(f"Tool {name} failed: {e}")
                 continue
-            # No advisory close enough is no advisory: leaving the key out
-            # keeps it from being named as a source the answer did not use.
-            if name == "advisory" and not value:
+            # A tool that found nothing is no source: leaving the key out keeps
+            # it from being named under the answer. Potato has no support
+            # price, yet "Source: Minimum Support Price" was shown under a
+            # potato price answer because the empty lookup was kept.
+            if not value:
                 continue
             results[name] = value
     return results, raw
@@ -1215,6 +1222,18 @@ def run_agent(
     if vision:
         gathered["image"] = describe_vision(vision)
 
+    # A price question with no state: no market was checked, so "the price is
+    # not available, ask your APMC" would be untrue and useless. Say instead
+    # what is needed; the follow-up ask under the answer collects it.
+    if intent == "market_price" and "state" in missing and not gathered.get("mandi"):
+        gathered[PRICE_NEEDS_PLACE] = (
+            "The farmer's state is not known, so no market was checked. Do NOT say the price "
+            "is unavailable and do NOT send them to the APMC or anywhere else. In one short "
+            "sentence, say the rate differs from mandi to mandi and that you will tell them "
+            "today's rate once they say their state or nearest mandi. Give a support price "
+            "first only if a MINIMUM SUPPORT PRICE section is present."
+        )
+
     # What is most likely wrong, ranked from everything gathered. Built in code
     # and handed to the answer as one section, so the weather and soil are
     # weighed against the photo and the farmer's words instead of sitting
@@ -1277,7 +1296,7 @@ def run_agent(
         dose_status = "none_registered"
 
     return AgentResult(
-        final_response, tools_used=sorted(gathered.keys()),
+        final_response, tools_used=sorted(k for k in gathered if k != PRICE_NEEDS_PLACE),
         missing_slots=missing, intent=intent, dose_status=dose_status,
         evidence=gathered, diagnosis=diagnosed, **facts
     )
