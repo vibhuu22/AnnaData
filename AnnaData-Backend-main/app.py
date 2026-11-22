@@ -1227,7 +1227,8 @@ def feedback_summary(x_bridge_token: Optional[str] = Header(None)):
 @app.post("/forget")
 def forget(request: UserRequest,
            authorization: Optional[str] = Header(None),
-           x_bridge_token: Optional[str] = Header(None)):
+           x_bridge_token: Optional[str] = Header(None),
+           x_guest_id: Optional[str] = Header(None)):
     """Erase a farmer's profile and message history. Backs the STOP keyword.
 
     This took a phone number and erased that farmer, with nothing to prove the
@@ -1241,8 +1242,12 @@ def forget(request: UserRequest,
     """
     claimed = (request.user_id or "").strip()
 
+    guest = guest_access.guest_user_id(x_guest_id)
     if _is_bridge(x_bridge_token):
         user_id = claimed
+    elif guest and not authorization and claimed in ("", guest):
+        # A guest erasing itself, as a signed-in farmer may: its own id only.
+        user_id = guest
     else:
         signed_in = auth.read_token(_bearer(authorization))
         if signed_in and (not claimed or claimed == signed_in):

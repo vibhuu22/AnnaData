@@ -12,3 +12,4 @@ conversations_export*.json
 
 # Speech test output: transcripts of farmers' voices.
 eval/stt_results/
+first_impression_report.md

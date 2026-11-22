@@ -233,6 +233,26 @@ def unsupported_price(sentence: str, known: set[str]) -> bool:
     return False
 
 
+NOTE_LINE = re.compile(r"^\s*\(?\s*note\s*:", re.I)
+
+
+def model_price_line(sentence: str, msp_numbers: set[str]) -> bool:
+    """A rupee amount, or a note about the price data, written by the model.
+
+    The support price is the one amount it may still state, and only as the
+    table gives it.
+    """
+    text = sentence.translate(_DIGITS)
+    if NOTE_LINE.search(text):
+        return True
+    if not MONEY.search(text):
+        return False
+    if PRICE_SCHEME.search(text):
+        amounts = {n for n in _numbers(text) if float(n) >= 100 and not 2000 <= float(n) <= 2100}
+        return not amounts <= msp_numbers
+    return True
+
+
 def _prices_listed(gathered: dict | None) -> bool:
     """Whether the reported prices will be listed under this answer (price_lines)."""
     import price_lines
@@ -415,8 +435,14 @@ def scrub(answer: str, gathered: dict, query: str | None = None,
 
     # A market price, or any price amount, that the gathered data does not hold.
     known = evidence_numbers(gathered)
-    answer, hit = _strip_where(answer, lambda s: unsupported_price(s, known),
-                               None if _prices_listed(gathered) else PRICE_DATA_FALLBACK)
+    if _prices_listed(gathered):
+        # The reported prices are listed under the answer by code. Live, the
+        # model wrote its own ten-market list above that one anyway; every
+        # amount it writes is a second, unchecked copy.
+        msp_numbers = _numbers(gathered.get("msp") or "")
+        answer, hit = _strip_where(answer, lambda s: model_price_line(s, msp_numbers), None)
+    else:
+        answer, hit = _strip_where(answer, lambda s: unsupported_price(s, known), PRICE_DATA_FALLBACK)
     changed = changed or hit
 
     # "No MSP" for a crop that has one.
@@ -453,6 +479,7 @@ class SentenceGuard:
         self.price = not gathered.get("msp")
         self.known = evidence_numbers(gathered)
         self.prices_listed = _prices_listed(gathered)
+        self.msp_numbers = _numbers(gathered.get("msp") or "")
         self.doses = doses
         self.heads = registered_heads() if doses is not None else []
         self.context = crops_named(query or "")
@@ -490,9 +517,11 @@ class SentenceGuard:
                 self.fallback = self.fallback or SCHEME_FALLBACK
                 return None
         # In the order scrub() applies them, so both choose the same fallback.
-        if unsupported_price(sentence, self.known):
-            if not self.prices_listed:
-                self.fallback = self.fallback or PRICE_DATA_FALLBACK
+        if self.prices_listed:
+            if model_price_line(sentence, self.msp_numbers):
+                return None
+        elif unsupported_price(sentence, self.known):
+            self.fallback = self.fallback or PRICE_DATA_FALLBACK
             return None
         self.context |= crops_named(sentence)
         if denies_existing_msp(sentence, self.context):

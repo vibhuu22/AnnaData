@@ -113,6 +113,10 @@ check("Bengali letters in Hindi become Devanagari", Agent.fix_name("नमस्
 check("a letter-by-letter spelling is corrected", Agent.fix_name("मैं अन्नाडेटा हूँ"), "मैं अन्नदाता हूँ")
 check("a Bengali answer keeps the Bengali name", Agent.fix_name("নমস্কার, আমি অন্নদাতা।"), "নমস্কার, আমি অন্নদাতা।")
 
+check("one Hindi word in a Hinglish answer does not make it a Hindi voice",
+      Agent.speech_language("Aap apne nazdiki CSC ya कृषि vibhag ke karyalay se sampark karein."), "en-IN")
+check("a Hindi answer is still read in Hindi", Agent.speech_language("आप अपने नजदीकी कृषि कार्यालय जाएं।"), "hi-IN")
+
 print()
 if failures:
     print(f"{len(failures)} failed: {failures}")

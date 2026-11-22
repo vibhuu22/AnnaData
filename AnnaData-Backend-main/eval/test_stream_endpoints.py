@@ -173,6 +173,14 @@ web.post("/agent/media", headers=G2, files={"image": ("leaf.jpg", b"\xff\xd8" + 
 check("a photo with no words still asks about the photo", seen_queries[-1:], [appmod.PHOTO_QUESTION])
 appmod.run_agent = fake_agent
 
+print("\nA guest erasing itself")
+erased = []
+appmod.profile_store.forget = lambda user_id: erased.append(user_id) or True
+r = web.post("/forget", json={"user_id": "guest:" + G2["X-Guest-Id"]}, headers=G2)
+check("may erase its own data", (r.status_code, erased[-1:]), (200, ["guest:" + G2["X-Guest-Id"]]))
+r = web.post("/forget", json={"user_id": "919876543210"}, headers=G2)
+check("but not anyone else's", r.status_code, 401)
+
 print("\nRating an answer")
 appmod.feedback.record_web = lambda user_id, up, note="", request_id=None: calls.append(("rated", user_id, up, request_id)) or True
 check("nobody: refused", web.post("/feedback/answer", json={"up": True}).status_code, 401)

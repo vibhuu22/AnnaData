@@ -95,6 +95,21 @@ fertiliser = ("Buwai ke samay prati acre 50 kg DAP aur 25 kg urea dalein. "
 check("fertiliser amounts are not doses", g.scrub(fertiliser, {}, doses=unmatched)[1], False)
 check("no dose rule when the register was not consulted", g.scrub(chickpea, {}, doses=None)[1], False)
 
+print("\nWhen the code lists the reported prices")
+rows = ("Market: Khatra APMC | Commodity: Potato (Jyoti) | Grade: FAQ | Arrival Date: 22/11/2026 | "
+        "Min Price: Rs1000 | Max Price: Rs1100 | Modal Price: Rs1040")
+model = ("Pashchim Bangal ke anya mandiyon mein aalu ke bhav niche diye gaye hain.\n"
+         "(Note: The following price data is provided based on the available market reports)\n"
+         "*   **Khatra:** Rs1000 - Rs1100 (Jyoti)\n"
+         "Gehu ka MSP Rs 2,585 prati quintal hai.\nApni mandi se bhi pata karein.")
+out, hit = g.scrub(model, {"mandi": rows, "msp": MSP["wheat"]})
+check("the model's own price list goes, though its numbers are real", "Rs1000 - Rs1100" in out, False)
+check("its English note about the data goes", "Note:" in out, False)
+check("the support price, as the table gives it, stays", "2,585" in out, True)
+check("the rest stays", ("niche diye gaye hain" in out, "Apni mandi" in out), (True, True))
+guard = g.SentenceGuard({"mandi": rows}, None)
+check("and none of it is spoken", guard.check("*   **Khatra:** Rs1000 - Rs1100 (Jyoti)\n"), None)
+
 print("\nWhile streaming (voice speaks each sentence as it comes)")
 guard = g.SentenceGuard({}, None, query="aalu ka bhav")
 check("the invented price is never spoken", guard.check(invented.split("।")[0] + "।"), None)

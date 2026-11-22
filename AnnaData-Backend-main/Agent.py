@@ -174,7 +174,28 @@ def speech_language(text: str) -> str:
     spoken, and romanised Hinglish is the case that matters: it is Latin script,
     so an English voice pronounces it about as a Hindi speaker would expect.
     """
-    return SPEECH_LANGUAGES.get(script_of(text), "en-IN")
+    return SPEECH_LANGUAGES.get(main_script(text), "en-IN")
+
+
+def main_script(text: str) -> str:
+    """The script most of the letters are in.
+
+    script_of answers "is there any of it", which is right for reading a
+    question but wrong for choosing a voice: one Hindi word ("कृषि vibhag") in
+    a Hinglish answer had the whole answer read by a Hindi voice.
+    """
+    counts = {"Latin": 0}
+    for c in text or "":
+        if not c.isalpha():
+            continue
+        for name, lo, hi in SCRIPT_RANGES:
+            if lo <= ord(c) <= hi:
+                counts[name] = counts.get(name, 0) + 1
+                break
+        else:
+            if c.isascii():
+                counts["Latin"] += 1
+    return max(counts, key=counts.get)
 
 
 # Words that mark Bengali written in Latin letters ("ami Kharagpur e thaki,
