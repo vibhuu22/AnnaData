@@ -143,6 +143,36 @@ check("what was heard comes first", (got[0]["type"], got[0]["transcript"]), ("he
 check("then the answer, sentence by sentence", [e["text"] for e in got if e["type"] == "text"], SAID)
 check("and done echoes the transcript", got[-1].get("transcript"), "Kapas me sundi lag gayi")
 
+print("\nA voice note with no speech in it, and no photo")
+
+
+async def silence(**kw):
+    return {"transcript": "", "vision": None}
+
+
+G2 = {"X-Guest-Id": "7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"}
+appmod.understand_media = silence
+calls.clear()
+r = web.post("/agent/media/stream", headers=G2, files={"audio": ("voice.m4a", b"\x00" * 100, "audio/mp4")})
+done = events(r)[-1]
+check("is asked to speak again, not answered as a photo question",
+      (done.get("answer"), done.get("tools_used")), (appmod.NOT_HEARD, ["not_heard"]))
+check("and no answer is written for it", calls, [])
+r = web.post("/agent/media", headers=G2, files={"audio": ("voice.m4a", b"\x00" * 100, "audio/mp4")})
+check("the same without streaming", r.json().get("answer"), appmod.NOT_HEARD)
+
+
+async def photo_only(**kw):
+    return {"transcript": "", "vision": {"pest": "blast"}}
+
+
+appmod.understand_media = photo_only
+seen_queries = []
+appmod.run_agent = lambda query, **kw: seen_queries.append(query) or fake_agent(query, **kw)
+web.post("/agent/media", headers=G2, files={"image": ("leaf.jpg", b"\xff\xd8" + b"\x00" * 100, "image/jpeg")})
+check("a photo with no words still asks about the photo", seen_queries[-1:], [appmod.PHOTO_QUESTION])
+appmod.run_agent = fake_agent
+
 print("\nRating an answer")
 appmod.feedback.record_web = lambda user_id, up, note="", request_id=None: calls.append(("rated", user_id, up, request_id)) or True
 check("nobody: refused", web.post("/feedback/answer", json={"up": True}).status_code, 401)

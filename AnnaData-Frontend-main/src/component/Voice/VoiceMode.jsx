@@ -47,6 +47,8 @@ const MIN_SPEECH_MS = 250; // shorter than this is a cough, not a question
 const MAX_TURN_MS = 45000; // a question, not a speech
 const IDLE_MS = 15000; // nothing said: pause rather than listen forever
 const DOSE_HEADING = "Registered for this pest (CIB&RC):";
+// Ends the heading of the reported-prices block, in every language.
+const PRICE_SOURCE = "(data.gov.in)";
 
 const LABELS = {
   starting: "Starting…",
@@ -309,10 +311,17 @@ function VoiceMode({ onClose, micContext = null }) {
     // Whatever the stream did not already carry: the whole answer if it was
     // not streamed, or a registered dose the final check added at the end.
     if (!streamed) {
-      speaker.push(result.answer);
+      speaker.push(result.answer.replace(PRICE_SOURCE, ""));
     } else {
       const added = result.answer.indexOf(DOSE_HEADING);
       if (added >= 0 && !streamed.includes(DOSE_HEADING)) speaker.push(result.answer.slice(added));
+      // The reported mandi prices, written under the answer by the backend
+      // (price_lines.py), are never part of the stream.
+      const priced = result.answer.indexOf(PRICE_SOURCE);
+      if (priced >= 0 && !streamed.includes(PRICE_SOURCE)) {
+        const start = result.answer.lastIndexOf("\n\n", priced);
+        speaker.push(result.answer.slice(start >= 0 ? start : priced).replace(PRICE_SOURCE, ""));
+      }
     }
     // The one thing still missing, said aloud - a farmer in voice mode is not
     // reading the screen. In the answer's own language. Never after a goodbye:

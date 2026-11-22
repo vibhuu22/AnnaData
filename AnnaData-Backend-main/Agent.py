@@ -21,6 +21,7 @@ import msp
 import planner
 import output_guards
 import answer_stream
+import price_lines
 import provenance
 import place_check
 import whereabouts
@@ -461,6 +462,13 @@ _GREETING_INSTRUCTION = {
         "to hear from them, do NOT ask how their crop is doing, and do NOT open "
         "a new topic. They are closing, not starting."
     ),
+    "again": (
+        "You are in the middle of a conversation with this farmer and they have "
+        "just greeted you again or asked how you are. Reply in one short, friendly "
+        "line - you are well and here to help - and ask what they need. Do NOT say "
+        "goodbye, do NOT tell them to write again later, and do NOT introduce "
+        "yourself or list what you can do."
+    ),
     "returning": (
         "This is someone you already know: {known}. Greet them as you would "
         "someone you have spoken to before - briefly and by name of place if "
@@ -487,11 +495,28 @@ _NAME_MISSPELT = re.compile(r"अन्नाडेटा|अन्नाडा�
                             r"আন্নাডাটা|আন্নাডেটা|অন্নাডাটা|অন্নাডেটা|আন্নাদাতা")
 
 
+_NAME_ANY = re.compile(r"AnnaData|Annadata|अन्नदाता|অন্নদাতা|ਅੰਨਦਾਤਾ")
+_NAME_FOR_SCRIPT = {"Latin": "AnnaData", "Devanagari": "अन्नदाता", "Bengali": "অন্নদাতা",
+                    "Gurmukhi": "ਅੰਨਦਾਤਾ"}
+
+
 def fix_name(text: str) -> str:
-    """Correct a letter-by-letter spelling of the name, whichever script."""
+    """The name spelt right, and in the script the rest of the answer is in.
+
+    "Namaste, main hoon অন্নদাতা, aapka kheti salahkar" - Bengali letters in a
+    Hinglish greeting, six times in the November export. It also chose the
+    voice: the speech language is read off the first non-Latin script in the
+    answer, so that line was read aloud in Bengali.
+    """
     def repl(m):
         return "অন্নদাতা" if "\u0980" <= m.group(0)[0] <= "\u09ff" else "अन्नदाता"
-    return _NAME_MISSPELT.sub(repl, text or "")
+    text = _NAME_MISSPELT.sub(repl, text or "")
+    rest = _NAME_ANY.sub(" ", text)
+    name = _NAME_FOR_SCRIPT.get(script_of(rest))
+    if not name:
+        return text
+    # Only the forms in another script change: "Annadata" in a Latin answer stays.
+    return _NAME_ANY.sub(lambda m: m.group(0) if script_of(m.group(0)) == script_of(name) else name, text)
 
 
 # A greeting is an opening, not an answer: the voice read 4-5 sentences of
@@ -505,6 +530,62 @@ GREETING_LENGTH = ("At most two short sentences, about 30 words in all. "
 FAREWELL_LENGTH = ("One short sentence, about 20 words. Do NOT ask any question "
                    "and do NOT offer more help in a question: they have said "
                    "goodbye, and the conversation ends with this line.")
+
+
+# What small talk is made of. A message is small talk only when every word in
+# it is one of these - a greeting, how-are-you, thanks or ok, a name or a
+# filler - so anything with content in it is answered as what it is.
+_HELLO = {
+    "hello", "helo", "hllo", "hlo", "hi", "hii", "hiii", "hey", "heyy", "namaste", "namastey",
+    "namaskar", "namaskaar", "nomoskar", "nomoshkar", "pranam", "ram", "radhe", "salaam",
+    "assalam", "assalamualaikum", "assalam-o-alaikum", "walaikum", "good", "morning",
+    "evening", "night", "नमस्ते", "नमस्कार", "प्रणाम", "राधे", "राम", "हेलो", "हैलो", "हाय",
+    "নমস্কার", "হ্যালো", "আসসালামু", "আলাইকুম",
+}
+_HOW_ARE_YOU = {
+    "kaise", "kaisey", "kese", "kaisi", "kaisa", "ho", "hain", "hai", "haal", "hal", "chal",
+    "kya", "how", "are", "you", "sab", "badhiya", "mast", "kemon", "acho", "achhen", "achen",
+    "whatsup", "whats", "up", "sup", "doing", "कैसे", "कैसी", "हो", "हैं", "है", "हाल", "चाल",
+    "क्या", "सब", "কেমন", "আছো", "আছেন",
+}
+_ACK = {
+    "ok", "okay", "okk", "okkk", "okey", "k", "thik", "theek", "thick", "accha", "acha",
+    "achha", "achaa", "haan", "han", "ha", "ji", "jee", "thanks", "thank", "thanku",
+    "thankyou", "thnks", "thks", "thx", "thaks", "shukriya", "dhanyavaad", "dhanyawad",
+    "dhanyabad", "bas", "done", "fine", "great", "nice", "cool", "hmm", "hmmm", "kuch",
+    "nahi", "nahin", "nhi", "karo", "chahiye", "chaiye", "ठीक", "चाहिए", "करो", "अच्छा", "हाँ", "हां", "जी", "धन्यवाद", "शुक्रिया", "बस",
+    "ओके", "कुछ", "नहीं", "ধন্যবাদ", "আচ্ছা", "ঠিক", "আছে",
+}
+_FILLER = {
+    "tum", "tu", "aap", "ap", "annadata", "अन्नदाता", "অন্নদাতা", "bhai", "bhaiya", "dada",
+    "didi", "sir", "madam", "to", "toh", "re", "yaar", "dost", "muse", "is", "it", "u",
+    "too", "all", "and", "very", "much", "so", "aapka", "aapko", "tumhara", "तुम", "आप",
+    "भाई", "तो", "very", "bhi",
+}
+_SOCIAL_WORDS = _HELLO | _HOW_ARE_YOU | _ACK | _FILLER
+_TOKENS = re.compile(r"[^\s.,!?।॥\"'()…:;~*-]+")
+_ASKING = re.compile(
+    r"\?|\b(kya|kaise|kaun|kab|kahan|kitna|kitne|kyun|batao|bataiye|btao|"
+    r"what|how|which|when|where|why|who|tell|can|should|do)\b|"
+    r"क्या|कैसे|कैसा|कौन|कब|कहां|कहाँ|कितना|कितने|क्यों|बताओ|बताइए|बताएं|"
+    r"কী|কি|কেন|কবে|কোথায়|কত|বলুন", re.I)
+
+
+def is_social(query: str) -> bool:
+    """Whether the message is only a greeting, a how-are-you, thanks or ok."""
+    words = [w.lower() for w in _TOKENS.findall(query or "")]
+    return bool(words) and all(w in _SOCIAL_WORDS for w in words)
+
+
+def asks_something(query: str) -> bool:
+    return bool(_ASKING.search(query or ""))
+
+
+def is_hello(query: str) -> bool:
+    """A greeting or how-are-you, as opposed to thanks, ok or bas."""
+    words = {w.lower() for w in _TOKENS.findall(query or "")}
+    return bool(words & (_HELLO | {"kaise", "kaisey", "kese", "how", "kemon", "कैसे", "কেমন",
+                                   "whatsup", "whats"}))
 
 
 def greeting_language(query: str) -> str:
@@ -524,7 +605,8 @@ def greeting_language(query: str) -> str:
             "\"Hello\" or \"Hi\". Do NOT reply in English, and do NOT use Devanagari.")
 
 
-def greeting_instruction(profile, continuing_session: bool = False, place=None) -> str:
+def greeting_instruction(profile, continuing_session: bool = False, place=None,
+                         query: str | None = None) -> str:
     """What the greeting is told to do. Kept apart so it can be checked
     without a model: which place it names, and whether it asks for one.
 
@@ -533,6 +615,10 @@ def greeting_instruction(profile, continuing_session: bool = False, place=None) 
     `place` is the chosen whereabouts.Where.
     """
     mode = planner.greeting_mode(profile, continuing_session)
+    # "Hello kaise ho tum" mid-conversation was answered "Bilkul, koi baat nahi,
+    # jab bhi zaroorat ho message kar dena" - a goodbye to someone saying hello.
+    if mode == "continuation" and query is not None and is_hello(query):
+        mode = "again"
     instruction = _GREETING_INSTRUCTION[mode]
     if mode == "returning":
         instruction = instruction.format(
@@ -565,7 +651,7 @@ def greet(query: str, profile, channel: str,
     is also a billed segment, so a greeting nobody asked for costs real money.
     """
     style = style_for(channel, query)
-    instruction = greeting_instruction(profile, continuing_session, place)
+    instruction = greeting_instruction(profile, continuing_session, place, query=query)
 
     prompt = f"""
     A farmer has sent a short message with no question in it.
@@ -672,6 +758,10 @@ def get_farming_advice(location, state, crop, gathered, farmer_query,
                        ("Knowledge Base", "kb")):
         value = gathered.get(key)
         if value:
+            # Reported prices are written under the answer by code (price_lines);
+            # the model describes them and writes no amount of its own.
+            if key == "mandi" and price_lines.rows(value):
+                value = f"{value}\n{price_lines.INSTRUCTION}"
             context_lines.append(f"- {label}: {value}")
     context = "\n    ".join(context_lines)
 
@@ -1059,6 +1149,19 @@ def run_agent(
     # not "I am done" - ending voice mode on it would hang up mid-question.
     message_type = farewell_or_not(message_type, intent, query, history)
 
+    # Small talk is only small talk if nothing else was said. Labelled smalltalk,
+    # "Main Sitapur, UP mein rehta hoon" and "मौसम कैसा है, समाचार दो" were
+    # answered mid-conversation with a goodbye ("theek hai, jab zaroorat ho
+    # phir message karna"). And the reverse: a bare "thanks", labelled a
+    # question, got a paragraph on wheat sowing.
+    if not vision:
+        social = is_social(query)
+        if message_type == "smalltalk" and not social:
+            message_type = "question" if asks_something(query) else "statement"
+        elif (message_type == "question" and social and intent == "general"
+              and not answers_our_question(query, history)):
+            message_type = "smalltalk"
+
     # Someone who photographs a diseased leaf is asking about it, whatever the
     # caption said - often there is no caption at all, and an empty message
     # classifies as smalltalk. The picture is the question.
@@ -1286,6 +1389,10 @@ def run_agent(
     )
     if restored:
         print("Restored registered doses the answer had dropped")
+    # The reported prices, exactly as published, under the answer.
+    final_response, priced = price_lines.append(final_response, gathered.get("mandi"))
+    if priced:
+        print("Added the reported mandi prices under the answer")
     print(f"Final response: {final_response}")
     # Asked for and answered, asked for and refused, or never asked.
     doses_result = raw.get("doses")

@@ -166,8 +166,9 @@ def _strip_where(answer: str, drop, fallback: str) -> tuple[str, bool]:
     if not removed:
         return answer, False
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(kept_lines)).strip()
-    # Stripping can leave a reply that no longer answers anything.
-    if len(text) < 40:
+    # Stripping can leave a reply that no longer answers anything. With no
+    # fallback, whatever is left stands: the reported prices follow it.
+    if len(text) < 40 and fallback is not None:
         text = fallback
     return text, True
 
@@ -230,6 +231,12 @@ def unsupported_price(sentence: str, known: set[str]) -> bool:
         if value not in known:
             return True
     return False
+
+
+def _prices_listed(gathered: dict | None) -> bool:
+    """Whether the reported prices will be listed under this answer (price_lines)."""
+    import price_lines
+    return bool(price_lines.rows((gathered or {}).get("mandi")))
 
 
 PRICE_DATA_FALLBACK = (
@@ -408,7 +415,8 @@ def scrub(answer: str, gathered: dict, query: str | None = None,
 
     # A market price, or any price amount, that the gathered data does not hold.
     known = evidence_numbers(gathered)
-    answer, hit = _strip_where(answer, lambda s: unsupported_price(s, known), PRICE_DATA_FALLBACK)
+    answer, hit = _strip_where(answer, lambda s: unsupported_price(s, known),
+                               None if _prices_listed(gathered) else PRICE_DATA_FALLBACK)
     changed = changed or hit
 
     # "No MSP" for a crop that has one.
@@ -444,6 +452,7 @@ class SentenceGuard:
     def __init__(self, gathered: dict, doses: dict | None = None, query: str | None = None):
         self.price = not gathered.get("msp")
         self.known = evidence_numbers(gathered)
+        self.prices_listed = _prices_listed(gathered)
         self.doses = doses
         self.heads = registered_heads() if doses is not None else []
         self.context = crops_named(query or "")
@@ -482,7 +491,8 @@ class SentenceGuard:
                 return None
         # In the order scrub() applies them, so both choose the same fallback.
         if unsupported_price(sentence, self.known):
-            self.fallback = self.fallback or PRICE_DATA_FALLBACK
+            if not self.prices_listed:
+                self.fallback = self.fallback or PRICE_DATA_FALLBACK
             return None
         self.context |= crops_named(sentence)
         if denies_existing_msp(sentence, self.context):

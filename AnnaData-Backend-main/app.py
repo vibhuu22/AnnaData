@@ -39,7 +39,7 @@ import metrics_store
 import output_guards
 import traffic_analytics
 import admin_api
-from Agent import AgentResult, run_agent, speech_language
+from Agent import AgentResult, fix_name, run_agent, speech_language
 from Address_Convertor import reverse
 from process_media import process_media, understand_media
 
@@ -295,6 +295,9 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         if scrubbed:
             print("Removed an unsupported figure from an answer written without data")
 
+    # The service's name in the answer's own script, whichever path wrote it.
+    result.answer = fix_name(result.answer)
+
     needs_location = False
     confirm_place = None
     if user_id:
@@ -370,6 +373,25 @@ def _answer(query, *, user_id, channel, latitude, longitude, history,
         # other follow-up asks.
         "confirm_place": confirm_place,
         "session_id": session_id,
+    }
+
+
+# A photo with no words reaches the agent as this question.
+PHOTO_QUESTION = "What is wrong with this crop, and what should I do about it?"
+
+NOT_HEARD = "Maaf kijiye, aapki baat saaf sunai nahi di. Kripya phir se boliye."
+
+
+def _not_heard() -> dict:
+    """The reply to a voice note with no speech in it and no photo: ask again.
+
+    No model call and nothing logged - there is no question to answer or count.
+    """
+    return {
+        "request_id": None, "answer": NOT_HEARD, "reply_language": speech_language(NOT_HEARD),
+        "needs_location": False, "tools_used": ["not_heard"], "intent": "general",
+        "message_type": "smalltalk", "dose_status": "not_applicable", "missing_slots": [],
+        "diagnosis": None, "confirm_place": None, "session_id": None,
     }
 
 
@@ -904,11 +926,16 @@ async def run_agent_media(
     # Phrased in English deliberately: there is no farmer utterance to match a
     # script against, so the reply follows the language of this fallback until
     # they say something themselves.
-    if not spoken:
-        spoken = "What is wrong with this crop, and what should I do about it?"
-
     if audio_bytes and not transcript:
         print("Audio carried no recognisable speech")
+
+    if not spoken:
+        if not image_bytes:
+            # A voice note that was silence or noise, with no photo. It used to
+            # become "What is wrong with this crop..." - about 25 times in the
+            # November export, each answered "you didn't send a photo".
+            return {**_not_heard(), "transcript": transcript, "vision": vision, "query_used": ""}
+        spoken = PHOTO_QUESTION
 
     # `_answer` blocks on model calls and database writes. The text endpoint is
     # a plain `def`, so FastAPI already runs it on a worker thread; this one has
@@ -1052,8 +1079,10 @@ async def run_agent_media_stream(
         transcript, vision = understood["transcript"], understood["vision"]
         emit({"type": "heard", "transcript": transcript, "vision": vision})
         spoken = " ".join(part for part in (transcript, typed) if part).strip()
+        if not spoken and not image_bytes:
+            return {**_not_heard(), "transcript": transcript, "vision": vision, "query_used": ""}
         if not spoken:
-            spoken = "What is wrong with this crop, and what should I do about it?"
+            spoken = PHOTO_QUESTION
         result = _answer(
             spoken, user_id=caller, channel=channel or "web",
             latitude=_to_float(latitude), longitude=_to_float(longitude),
