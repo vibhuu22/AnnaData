@@ -41,12 +41,13 @@ class FakeLLM:
 
 
 LABEL = {}
+INTENT = {}
 
 
 def fake_parse(query_final, original=None):
     q = original or query_final
     return dict(location="unknown", state="unknown", crop_type="unknown", pest="unknown",
-                intent="general", message_type=LABEL[q], answer="unknown")
+                intent=INTENT.get(q, "general"), message_type=LABEL[q], answer="unknown")
 
 
 Agent.get_farming_query = lambda query, history: query
@@ -91,8 +92,11 @@ check("'Hello' opening a chat is a greeting", r.tools_used, ["greeting"])
 print("\nAfter we asked them something (live, 22 November)")
 ASKED = [{"role": "user", "content": "gehu ki buwai kab karein"},
          {"role": "assistant", "content": "November mein karein. Kya aapne beej le liya hai?"}]
+INTENT["thanks"] = "sowing_planting"
 r = run("thanks", "question", history=ASKED)
-check("'thanks' is not taken as the answer to our question", r.message_type, "smalltalk")
+check("'thanks' is not taken as the answer to our question, even with a topic attached",
+      (r.message_type, r.tools_used), ("smalltalk", ["greeting"]))
+INTENT.pop("thanks")
 r = run("Hello kaise ho tum", "question", history=ASKED)
 check("nor is 'Hello kaise ho tum'", (r.message_type, "greeted you again" in seen["prompt"]), ("smalltalk", True))
 r = run("haan", "smalltalk", history=ASKED)

@@ -1170,9 +1170,14 @@ def run_agent(
         # "haan" or "nahi" after our question answers it; "thanks" or "hello"
         # never does. Live, "thanks" after "Kya aapne beej le liya hai?" was
         # taken as a reply about seeds and got a page on buying them.
+        # The topic is read from the query rewritten with the conversation
+        # folded in, so "thanks" after a talk about seeds arrives with a sowing
+        # intent attached. Thanks or a greeting stays small talk whatever topic
+        # the rewrite gave it.
+        elif message_type != "farewell" and social and (is_hello(query) or is_thanks(query)):
+            message_type, intent = "smalltalk", "general"
         elif (message_type == "question" and social and intent == "general"
-              and (is_hello(query) or is_thanks(query)
-                   or not answers_our_question(query, history))):
+              and not answers_our_question(query, history)):
             message_type = "smalltalk"
 
     # Someone who photographs a diseased leaf is asking about it, whatever the
