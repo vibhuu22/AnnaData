@@ -1298,7 +1298,11 @@ def run_agent(
     # never that, even when nothing in it could be named - the farmer went to
     # the field and took a picture of a plant, and deserves better than the
     # parser's one-line reply to what it read as an off-topic question.
-    if (not vision and answer != "unknown"
+    # Only a question with no farming intent qualifies. "पीएम किसान का पैसा
+    # किसे मिलता है?" names no crop, state or place, so it used to land here:
+    # answered in English from the parser's recall, with no retrieval, no
+    # figure guard and no source line.
+    if (not vision and answer != "unknown" and intent == "general"
             and crop == "unknown" and state == "unknown" and location == "unknown"):
         return AgentResult(answer, tools_used=["direct"], message_type=message_type)
 

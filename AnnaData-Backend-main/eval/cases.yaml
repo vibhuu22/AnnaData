@@ -180,6 +180,29 @@
     contains_all: ["6"]
     contains_any: ["6000", "6,000", "three", "installment", "instalment"]
 
+- id: scheme_question_in_hindi_is_grounded_and_in_hindi
+  tags: [rag, script]
+  why: >
+    A scheme question naming no crop, state or place took the parser's
+    non-agricultural shortcut - answered in English, from recall, with no
+    retrieval and no source.
+  query: "पीएम किसान का पैसा किसे मिलता है और कितना?"
+  channel: web
+  expect:
+    intent: scheme_subsidy
+    tools_include: [kb]
+    script: Devanagari
+
+- id: scheme_question_in_punjabi_is_answered_in_gurmukhi
+  tags: [rag, script]
+  why: The same shortcut answered a Gurmukhi PM-KISAN question in English.
+  query: "ਪੀਐਮ ਕਿਸਾਨ ਦਾ ਪੈਸਾ ਕਿਸਨੂੰ ਮਿਲਦਾ ਹੈ ਅਤੇ ਕਿੰਨਾ?"
+  channel: web
+  expect:
+    intent: scheme_subsidy
+    tools_include: [kb]
+    script: Gurmukhi
+
 - id: kb_refuses_what_it_has_not_got
   tags: [rag, safety]
   why: >
